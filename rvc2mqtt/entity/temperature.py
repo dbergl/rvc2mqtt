@@ -40,6 +40,7 @@ class TemperatureSensor_THERMOSTAT_AMBIENT_STATUS(EntityPluginBaseClass):
         # RVC message must match the following to be this device
         self.rvc_match_status = {"name": "THERMOSTAT_AMBIENT_STATUS", "instance": data['instance']}
         self.reported_temp = 100  # should never get this hot in C
+        self.reported_tempf = 210  # should never get this hot in F
         self.Logger.debug(f"Must match: {str(self.rvc_match_status)}")
 
         self.name = data['instance_name']
@@ -49,6 +50,8 @@ class TemperatureSensor_THERMOSTAT_AMBIENT_STATUS(EntityPluginBaseClass):
                        "name": self.name,
                        "model": "RV-C Temperature Sensor from THERMOSTAT_AMBIENT_STATUS"
                        }
+        self.status_tempf_topic = mqtt_support.make_device_topic_string(self.id, "tempf", True)
+
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
@@ -64,8 +67,11 @@ class TemperatureSensor_THERMOSTAT_AMBIENT_STATUS(EntityPluginBaseClass):
             # These events happen a lot.  Lets filter down to when temp changes
             if new_message["ambient_temp"] != self.reported_temp:
                 self.reported_temp = new_message["ambient_temp"]
+                self.reported_tempf =  round( ( ( self.reported_temp * ( 9 / 5 ) ) + 32 ) )
                 self.mqtt_support.client.publish(
                     self.status_topic, self.reported_temp, retain=True)
+                self.mqtt_support.client.publish(
+                    self.status_tempf_topic, self.reported_tempf, retain=True)
             return True
         return False
 
