@@ -156,7 +156,7 @@ def MqttInitalize(host:str, port:str, user:str, password:str, client_id:str):
 
     port = int(port)
     
-    mqttc = mqc.Client(client_id=client_id)
+    mqttc = mqc.Client(mqc.CallbackAPIVersion.VERSION1, client_id=client_id)
     gMQTTObj.set_client(mqttc)
     mqttc.on_connect = on_mqtt_connect
     mqttc.on_subscribe = on_mqtt_subscribe
