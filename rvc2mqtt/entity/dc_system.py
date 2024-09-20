@@ -47,13 +47,16 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                        "via_device": self.mqtt_support.get_bridge_ha_name(),
                        "identifiers": self.unique_device_id,
                        "name": self.name,
-                       "model": "RV-C DC System Sensor"
+                       "model": "RV-C DC System Sensor from DC_SOURCE_STATUS_1"
                        }
         self._changed = True  # property change tracking
 
         # class specific values that change
-        self._dc_voltage = 20  # should not be this high
-        
+        self._dc_voltage = 5  # should never be this low
+        self._dc_current = 50  # should not be this high
+
+        self.status_dc_voltage_topic = mqtt_support.make_device_topic_string(self.id, "dc_voltage", True)
+        self.status_dc_current_topic = mqtt_support.make_device_topic_string(self.id, "dc_current", True)
 
     @property
     def dc_voltage(self):
@@ -63,6 +66,16 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
     def dc_voltage(self, value):
         if value != self._dc_voltage:
             self._dc_voltage = value
+            self._changed = True
+
+    @property
+    def dc_current(self):
+        return self._dc_current
+
+    @dc_current.setter
+    def dc_current(self, value):
+        if value != self._dc_current:
+            self._dc_current = value
             self._changed = True
 
     def process_rvc_msg(self, new_message: dict) -> bool:
@@ -85,15 +98,23 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         if self._is_entry_match(self.rvc_match_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
             self.dc_voltage = new_message["dc_voltage"]
+            self.dc_current = new_message["dc_current"]
             self._update_mqtt_topics_with_changed_values()
             return True
         return False
 
     def _update_mqtt_topics_with_changed_values(self):
+        ''' entry data has potentially changed.  Update mqtt'''
+
         if self._changed:            
             self.mqtt_support.client.publish(
-                self.status_topic, self.dc_voltage, retain=True)
+                self.status_dc_voltage_topic, self.dc_voltage, retain=True)
+
+            self.mqtt_support.client.publish(
+                self.status_dc_current_topic, self.dc_current, retain=True)
+
             self._changed = False
+        return False
 
 
     def initialize(self):
@@ -106,14 +127,18 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         """
 
         # produce the HA MQTT discovery config json
-        config = {"name": self.name, "state_topic": self.status_topic,
+        config = {"name": self.name,
+                  "dc_voltage_state_topic": self.status_dc_voltage_topic,
+                  "dc_voltage_state_template": '{{value}}',
+
+                  "dc_current_state_topic": self.status_dc_current_topic,
+                  "dc_current_state_template": '{{value}}',
+
                   "qos": 1, "retain": False,
                   "unit_of_meas": 'V',
-                  "device_class": "voltage",
-                  "state_class": "measurement",
-                  "value_template": '{{value}}',
                   "unique_id": self.unique_device_id,
                   "device": self.device}
+
         config.update(self.get_availability_discovery_info_for_ha())
 
         config_json = json.dumps(config)

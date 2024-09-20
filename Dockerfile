@@ -1,13 +1,20 @@
-FROM python:3.10-slim-buster
+FROM python:3.12-slim-bookworm
 
-WORKDIR /app
-WORKDIR /app/rvc2mqtt
-ADD rvc2mqtt .
-WORKDIR /app
-COPY setup.py setup.py
-COPY readme.md readme.md
-COPY requirement.txt requirement.txt
-RUN pip3 install -r requirement.txt
-RUN pip3 install --no-cache-dir -e .
+RUN pip install --upgrade pip
+RUN adduser worker
+RUN mkdir /home/worker/logs
 
-CMD python3 -m rvc2mqtt.app
+USER worker
+
+WORKDIR /home/worker
+
+COPY --chown=worker:worker readme.md ./
+COPY --chown=worker:worker setup.py ./
+COPY --chown=worker:worker requirements.txt ./
+RUN pip install --user --no-cache-dir -r requirements.txt
+COPY --chown=worker:worker rvc2mqtt ./rvc2mqtt
+RUN pip install --user --no-cache-dir .
+
+ENV PATH="/home/worker/.local/bin:${PATH}"
+
+CMD ["python3", "-m", "rvc2mqtt.app"]
