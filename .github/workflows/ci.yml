@@ -17,7 +17,7 @@ jobs:
         with:
           python-version: '3.12.x'
       - name: Install dependencies
-        run:  pip install -r requirement.txt -r requirement.dev.txt
+        run:  pip install -r requirements.txt -r requirements.dev.txt
       - name: Test with pytest
         run: pytest test --doctest-modules --junitxml=junit/test-results.xml --html=pytest_report.html --self-contained-html --cov=rvc2mqtt --cov-report html:cov_html
       - name: Upload pytest test results
