@@ -2,11 +2,11 @@ FROM python:3.12-slim-bookworm
 
 RUN pip install --upgrade pip
 RUN adduser worker
-RUN mkdir /home/worker/logs
 
 USER worker
 
 WORKDIR /home/worker
+RUN mkdir logs
 
 COPY --chown=worker:worker readme.md ./
 COPY --chown=worker:worker setup.py ./
