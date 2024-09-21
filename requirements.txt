@@ -1,3 +1,4 @@
-python-can==3.3.*
+python-can
 ruyaml
 paho-mqtt
+

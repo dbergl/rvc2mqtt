@@ -1,19 +1,34 @@
-FROM python:3.12-slim-bookworm
+FROM python:3.12-bookworm AS builder
+
+ARG TARGETPLATFORM
+
+COPY requirements.txt .
+
+RUN  apt-get update && apt-get install build-essential -y
 
 RUN pip install --upgrade pip
-RUN adduser worker
 
-USER worker
-
-WORKDIR /home/worker
-RUN mkdir logs
-
-COPY --chown=worker:worker readme.md ./
-COPY --chown=worker:worker setup.py ./
-COPY --chown=worker:worker requirements.txt ./
-RUN pip install --user --no-cache-dir -r requirements.txt
-COPY --chown=worker:worker rvc2mqtt ./rvc2mqtt
+RUN if [ "${TARGETPLATFORM}" = "linux/arm/v7" ]; then \
+  MSGPACK_PUREPYTHON=1 pip install --user --no-cache-dir -r requirements.txt; \
+  else \
+  pip install --user --no-cache-dir -r requirements.txt; \
+  fi
+WORKDIR /app
+COPY readme.md .
+COPY setup.py .
+COPY rvc2mqtt .
 RUN pip install --user --no-cache-dir .
+
+FROM python:3.12-slim-bookworm
+
+RUN adduser worker
+USER worker
+WORKDIR /home/worker
+
+RUN mkdir logs floorplan config
+
+COPY --from=builder --chown=worker:worker /root/.local ./.local
+COPY --from=builder --chown=worker:worker /app ./rvc2mqtt
 
 ENV PATH="/home/worker/.local/bin:${PATH}"
 
