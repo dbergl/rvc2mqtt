@@ -22,8 +22,8 @@ RUN pip install --user --no-cache-dir .
 FROM python:3.12-slim-bookworm
 
 RUN adduser worker
-COPY --chown=worker:worker --from=builder /root/.local ./.local
-COPY --chown=worker:worker --from=builder /app ./rvc2mqtt
+COPY --chown=worker:worker --from=builder /root/.local /home/worker/.local
+COPY --chown=worker:worker --from=builder /app /home/worker/rvc2mqtt
 USER worker
 WORKDIR /home/worker
 
