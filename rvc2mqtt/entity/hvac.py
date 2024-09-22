@@ -201,6 +201,7 @@ class HvacClass(EntityPluginBaseClass):
 
 
         self._set_point_temperature = 16.09
+        self._set_point_temperaturef = 61.0
 
         self.device = {"manufacturer": "RV-C",
                        "via_device": self.mqtt_support.get_bridge_ha_name(),
@@ -223,6 +224,11 @@ class HvacClass(EntityPluginBaseClass):
         self.status_set_point_temp_topic = mqtt_support.make_device_topic_string(self.id, "set_point_temperature", True)
         self.command_set_point_temp_topic = mqtt_support.make_device_topic_string(self.id, "set_point_temperature", False)
         self.mqtt_support.register(self.command_set_point_temp_topic, self.process_mqtt_msg)
+
+        # Allow MQTT to control the target temperature in f
+        self.status_set_point_tempf_topic = mqtt_support.make_device_topic_string(self.id, "set_point_temperaturef", True)
+        self.command_set_point_tempf_topic = mqtt_support.make_device_topic_string(self.id, "set_point_temperaturef", False)
+        self.mqtt_support.register(self.command_set_point_tempf_topic, self.process_mqtt_msg)
 
     @property
     def fan_mode(self) -> FanMode:
@@ -249,12 +255,21 @@ class HvacClass(EntityPluginBaseClass):
     def set_point_temperature(self) -> float:
         return self._set_point_temperature
 
+    @property
+    def set_point_temperaturef(self) -> float:
+        return self._set_point_temperaturef
+
     @set_point_temperature.setter
     def set_point_temperature(self, value: float):
         if value != self._set_point_temperature:
             self._set_point_temperature = value
             self._changed = True
     
+    @set_point_temperaturef.setter
+    def set_point_temperaturef(self, value: float):
+        if value != self._set_point_temperaturef:
+            self._set_point_temperaturef = value
+            self._changed = True
 
 
     def add_entity_link(self, obj):
@@ -294,6 +309,8 @@ class HvacClass(EntityPluginBaseClass):
             self.fan_mode = FanMode.get_fan_mode_from_rvc(int(new_message["fan_speed"]), new_message["fan_mode_definition"] )
             # use cool because for this implementation we will update cool and heat to the same value
             self.set_point_temperature = new_message["setpoint_temp_cool"]
+            # convert C to F also
+            self.set_point_temperaturef = (((new_message["setpoint_temp_cool"])*(9/5)) + 32)
             if new_message["setpoint_temp_cool"] != new_message["setpoint_temp_heat"]:
                 self.Logger.error(f"Expected cool and heat set temperatures to always be the same.  They are not")
             self.mode = HvacMode.get_hvac_mode_from_rvc(new_message["operating_mode_definition"])
@@ -315,13 +332,13 @@ class HvacClass(EntityPluginBaseClass):
 
             self.mqtt_support.client.publish(self.status_fan_mode_topic, self.fan_mode.value, retain=True)
             self.mqtt_support.client.publish(self.status_set_point_temp_topic, self.set_point_temperature, retain=True)
+            self.mqtt_support.client.publish(self.status_set_point_tempf_topic, self.set_point_temperaturef, retain=True)
             self._changed = False
         return False
 
     def _convert_temp_c_to_rvc_uint16(self, temp_c: float):
         ''' convert a temperature stored in C to a UINT16 value for RVC'''
         return round((temp_c + 273 ) * 32)
-
 
     def _make_rvc_payload(self, instance:int, mode:HvacMode, fan_mode:FanMode, schedule_mode:str, temperature_c:float):
         ''' Make 8 byte buffer in THERMOSTAT_COMMAND_1 format. 
@@ -382,6 +399,14 @@ class HvacClass(EntityPluginBaseClass):
             except Exception as e:
                 self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
                
+        elif topic == self.command_set_point_tempf_topic:
+            try: 
+                temp = return round((5/9(float(payload)-32)))
+                pl = self._make_rvc_payload(self.rvc_instance, self.mode, self.fan_mode, self.scheduled_mode, temp)
+                self.send_queue.put({"dgn": "1FEF9", "data": pl})
+            except Exception as e:
+                self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+               
         else:
             self.Logger.error(f"Invalid payload {payload} for topic {topic}")
 
@@ -416,6 +441,11 @@ class HvacClass(EntityPluginBaseClass):
                   "temperature_command_topic": self.command_set_point_temp_topic,
                   "temperature_command_template": '{{value}}',
                   
+                  "temperaturef_state_topic": self.status_set_point_tempf_topic,
+                  "temperaturef_state_template": '{{value}}',
+                  "temperaturef_command_topic": self.command_set_point_tempf_topic,
+                  "temperaturef_command_template": '{{value}}',
+
                   "qos": 1, "retain": False,
                   "unique_id": self.unique_device_id,
                   "device": self.device}
