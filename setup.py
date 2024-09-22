@@ -34,6 +34,7 @@ setuptools.setup(
     license='Apache-2',
     packages=setuptools.find_packages(),
     include_package_data=True,
+    package_data={'rvc2mqtt': ['rvc-spec.yml']},
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: Apache2 License",
