@@ -22,13 +22,12 @@ RUN pip install --user --no-cache-dir .
 FROM python:3.12-slim-bookworm
 
 RUN adduser worker
+COPY --chown=worker:worker --from=builder /root/.local ./.local
+COPY --chown=worker:worker --from=builder /app ./rvc2mqtt
 USER worker
 WORKDIR /home/worker
 
 RUN mkdir logs floorplan config
-
-COPY --from=builder --chown=worker:worker /root/.local ./.local
-COPY --from=builder --chown=worker:worker /app ./rvc2mqtt
 
 ENV PATH="/home/worker/.local/bin:${PATH}"
 
