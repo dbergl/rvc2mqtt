@@ -34,7 +34,7 @@ from rvc2mqtt.entity import EntityPluginBaseClass
 class FanMode(Enum):
     '''
     simple class for the Fan Mode which includes Fan Modes and speed
-    
+
     '''
 
     AUTO = 'auto'
@@ -57,7 +57,7 @@ class FanMode(Enum):
             return 0
         else:
             return 0
-    
+
     @property
     def rvc_fan_speed_for_rvc_msg(self) -> int:
         return self.rvc_fan_speed_percent * 2
@@ -68,7 +68,7 @@ class FanMode(Enum):
             return 'auto'
         else:
             return 'on'
-    
+
     @property
     def rvc_fan_mode_int(self) -> int:
         if self.value == 'auto':
@@ -88,11 +88,11 @@ class FanMode(Enum):
             return FanMode.MEDIUM
         elif speed == 100:
             return FanMode.HIGH
-    
+
 class HvacMode(Enum):
     '''
     simple class for the HVAC Mode which includes heat, cool, etc
-    
+
     '''
     OFF = 'off'
     COOL = 'cool'
@@ -109,7 +109,7 @@ class HvacMode(Enum):
             return 1
         elif self == HvacMode.OFF:
             return 0
-    
+
     @staticmethod
     def get_hvac_mode_from_rvc(rvc_mode:str):
         if rvc_mode == 'aux heat':
@@ -143,23 +143,23 @@ class HvacClass(EntityPluginBaseClass):
     https://www.home-assistant.io/integrations/climate.mqtt/
         hvac
           current_temperature_topic
-          current_temperature_template 
+          current_temperature_template
 
           fan_mode_command_template
-          fan_mode_command_topic 
-          fan_mode_state_template 
-          fan_mode_state_topic 
-          fan_modes 
+          fan_mode_command_topic
+          fan_mode_state_template
+          fan_mode_state_topic
+          fan_modes
 
-          max_temp 
-          min_temp 
+          max_temp
+          min_temp
 
-          mode_command_template 
-          mode_command_topic 
-          mode_state_template 
-          mode_state_topic 
-          modes    
-    ''' 
+          mode_command_template
+          mode_command_topic
+          mode_state_template
+          mode_state_topic
+          modes
+    '''
 
     FACTORY_MATCH_ATTRIBUTES = {"name": "THERMOSTAT_STATUS_1", "type": "hvac"}
 
@@ -190,7 +190,7 @@ class HvacClass(EntityPluginBaseClass):
         self.Logger.debug(f"Must match: {str(self.rvc_match_status)} {str(self.rvc_match_command)}")
 
         self.temperature_entity_link = None
-        
+
         # fields for a thermostat object
         self.name = data["instance_name"]
         self.rvc_instance = data["instance"]
@@ -264,7 +264,7 @@ class HvacClass(EntityPluginBaseClass):
         if value != self._set_point_temperature:
             self._set_point_temperature = value
             self._changed = True
-    
+
     @set_point_temperaturef.setter
     def set_point_temperaturef(self, value: float):
         if value != self._set_point_temperaturef:
@@ -274,9 +274,9 @@ class HvacClass(EntityPluginBaseClass):
 
     def add_entity_link(self, obj):
         """ optional function
-        If the data of the object has an entity_links list this function 
+        If the data of the object has an entity_links list this function
         will get called with each entity"""
-        
+
         self.temperature_entity_link = obj
 
     def process_rvc_msg(self, new_message: dict) -> bool:
@@ -288,7 +288,7 @@ class HvacClass(EntityPluginBaseClass):
 
         Message looks like:
 
-        
+
             RV-C message for THERMOSTAT_STATUS_1
 
         {'arbitration_id': '0x19ffe259', 'data': '02000060246024FF', 'priority': '6', 'dgn_h': '1FF', 'dgn_l': 'E2', 'dgn': '1FFE2',
@@ -309,8 +309,8 @@ class HvacClass(EntityPluginBaseClass):
             self.fan_mode = FanMode.get_fan_mode_from_rvc(int(new_message["fan_speed"]), new_message["fan_mode_definition"] )
             # use cool because for this implementation we will update cool and heat to the same value
             self.set_point_temperature = new_message["setpoint_temp_cool"]
-            # convert C to F also
-            self.set_point_temperaturef = (((new_message["setpoint_temp_cool"])*(9/5)) + 32)
+            # convert C to F
+            self.set_point_temperaturef = round(((new_message["setpoint_temp_cool"])*1.8) + 32)
             if new_message["setpoint_temp_cool"] != new_message["setpoint_temp_heat"]:
                 self.Logger.error(f"Expected cool and heat set temperatures to always be the same.  They are not")
             self.mode = HvacMode.get_hvac_mode_from_rvc(new_message["operating_mode_definition"])
@@ -324,7 +324,7 @@ class HvacClass(EntityPluginBaseClass):
     def _update_mqtt_topics_with_changed_values(self):
         ''' entry data has potentially changed.  Update mqtt'''
 
-        if self._changed: 
+        if self._changed:
 
             self.mqtt_support.client.publish(
                 self.status_mode_topic, self.mode.value, retain=True
@@ -341,8 +341,8 @@ class HvacClass(EntityPluginBaseClass):
         return round((temp_c + 273 ) * 32)
 
     def _make_rvc_payload(self, instance:int, mode:HvacMode, fan_mode:FanMode, schedule_mode:str, temperature_c:float):
-        ''' Make 8 byte buffer in THERMOSTAT_COMMAND_1 format. 
-        
+        ''' Make 8 byte buffer in THERMOSTAT_COMMAND_1 format.
+
         {   'arbitration_id': '0x19fef944', 'data': '0200645824582400',
             'priority': '6', 'dgn_h': '1FE', 'dgn_l': 'F9', 'dgn': '1FEF9',
             'source_id': '44',
@@ -351,7 +351,7 @@ class HvacClass(EntityPluginBaseClass):
             'operating_mode': '0000', 'operating_mode_definition': 'off',
             'fan_mode': '00', 'fan_mode_definition': 'auto',
             'schedule_mode': '00', 'schedule_mode_definition': 'disabled',
-            'fan_speed': 50.0, 
+            'fan_speed': 50.0,
             'setpoint_temp_heat': 17.75, 'setpoint_temp_cool': 17.75}
          '''
         msg_bytes = bytearray(8)
@@ -363,15 +363,15 @@ class HvacClass(EntityPluginBaseClass):
 
         struct.pack_into("<BBBHHB", msg_bytes, 0, instance, (mi | (fmi << 4) | (smi << 6)), fsi, temperature_uint16, temperature_uint16, 0  )
         return msg_bytes
-        
+
 
     def process_mqtt_msg(self, topic, payload):
         """ Read mqtt incoming command message
 
             convert the new value into entity format
-            make an rvc command message with the new value 
+            make an rvc command message with the new value
             queue it
-               
+
         """
         self.Logger.debug(f"MQTT Msg Received on topic {topic} with payload {payload}")
 
@@ -384,7 +384,7 @@ class HvacClass(EntityPluginBaseClass):
                 self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
 
         elif topic == self.command_fan_mode_topic:
-            try: 
+            try:
                 fan_mode = FanMode(payload)
                 pl = self._make_rvc_payload(self.rvc_instance, self.mode, fan_mode, self.scheduled_mode, self.set_point_temperature)
                 self.send_queue.put({"dgn": "1FEF9", "data": pl})
@@ -392,29 +392,29 @@ class HvacClass(EntityPluginBaseClass):
                 self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
 
         elif topic == self.command_set_point_temp_topic:
-            try: 
+            try:
                 temp = float(payload)
                 pl = self._make_rvc_payload(self.rvc_instance, self.mode, self.fan_mode, self.scheduled_mode, temp)
                 self.send_queue.put({"dgn": "1FEF9", "data": pl})
             except Exception as e:
                 self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
-               
+
         elif topic == self.command_set_point_tempf_topic:
-            try: 
-                temp = return round((5/9(float(payload)-32)))
+            try:
+                temp = float((float(payload)-32)/1.8)
                 pl = self._make_rvc_payload(self.rvc_instance, self.mode, self.fan_mode, self.scheduled_mode, temp)
                 self.send_queue.put({"dgn": "1FEF9", "data": pl})
             except Exception as e:
                 self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
-               
+
         else:
             self.Logger.error(f"Invalid payload {payload} for topic {topic}")
 
     def initialize(self):
-        """ Optional function 
-        Will get called once when the object is loaded.  
+        """ Optional function
+        Will get called once when the object is loaded.
         RVC canbus tx queue is available
-        mqtt client is ready.  
+        mqtt client is ready.
 
         This can be a good place to request data
 
@@ -440,7 +440,7 @@ class HvacClass(EntityPluginBaseClass):
                   "temperature_state_template": '{{value}}',
                   "temperature_command_topic": self.command_set_point_temp_topic,
                   "temperature_command_template": '{{value}}',
-                  
+
                   "temperaturef_state_topic": self.status_set_point_tempf_topic,
                   "temperaturef_state_template": '{{value}}',
                   "temperaturef_command_topic": self.command_set_point_tempf_topic,
@@ -474,7 +474,7 @@ rvc turn fan on high
 
 operating mode = fan only
 fan mode = on
-fan speed = 100.0  
+fan speed = 100.0
 
 rvc turn fan on low
 
