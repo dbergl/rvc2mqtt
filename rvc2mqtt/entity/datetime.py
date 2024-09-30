@@ -142,7 +142,7 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         if topic == self.command_topic:
             try:
                 dt = datetime.fromisoformat(payload)
-                pl = self._make_rvc_payload(payload)
+                pl = self._make_rvc_payload(dt)
                 self.send_queue.put({"dgn": "1FFFE", "data": pl})
             except Exception as e:
                 self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
