@@ -106,7 +106,7 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         {   'arbitration_id': '0x19fffe44', 'data': '0200645824582400',
             'priority': '5', 'dgn_h': '1FF', 'dgn_l': 'FE', 'dgn': '1FFFE',
             'source_id': '44',
-            'name': 'THERMOSTAT_COMMAND_1',
+            'name': 'SET_DATE_TIME_COMMAND',
             'year': 24,
             'month': '9',
             'date': '29',
@@ -123,16 +123,20 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         RVC_DAY_OF_WEEK = ["2","3","4","5","6","7","1"]
 
         msg_bytes = bytearray(8)
-        year = (thedatetime.year - 2000)
-        month = thedatetime.month
-        date = thedatetime.day
-        rvc_day_of_week = RVC_DAY_OF_WEEK[thedatetime.weekday()]
-        hour = thedatetime.hour
-        minute = thedatetime.minute
-        second = thedatetime.second
-        timezone = 255 #firefly seems to only set timezone to 255
+        year = int(thedatetime.year - 2000)
+        month = int(thedatetime.month)
+        day = int(thedatetime.day)
+        rvc_day_of_week = int(RVC_DAY_OF_WEEK[thedatetime.weekday()])
+        hour = int(thedatetime.hour)
+        minute = int(thedatetime.minute)
+        second = int(thedatetime.second)
+        timezone = int(255) #firefly seems to only set timezone to 255
 
-        struct.pack_into("<BBBBBBBB", msg_bytes, year, month, date, rvc_day_of_week, hour, minute, second, timezone )
+        self.Logger.debug(
+                f"payload: year:{year}, month:{month}, day:{day}, dayofweek:{rvc_day_of_week}, hour:{hour}, minute:{minute}, second:{second}, timezone:{timezone}")
+
+
+        struct.pack_into("<BBBBBBBB", msg_bytes, 0, year, month, day, rvc_day_of_week, hour, minute, second, timezone )
         return msg_bytes
 
     def process_mqtt_msg(self, topic, payload):
