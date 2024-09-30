@@ -39,30 +39,25 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
 
 
     def __init__(self, data: dict, mqtt_support: MQTT_Support):
-        self.id = "datetime-1FFFF"
+        self.id = "datetime-1FFFF" + str(data["source_id"])
         super().__init__(data, mqtt_support)
         self.Logger = logging.getLogger(__class__.__name__)
 
-        # Allow MQTT to control light
+        # Allow MQTT to set teh time
         self.command_topic = mqtt_support.make_device_topic_string(
             self.id, None, False)
         self.mqtt_support.register(self.command_topic, self.process_mqtt_msg)
 
         # RVC message must match the following to be this device
-        self.rvc_match_status = { "name": "DATE_TIME_STATUS"}
+        self.rvc_match_status = { "name": "DATE_TIME_STATUS", "source_id": data['source_id']}
         self.rvc_match_command= { "name": "SET_DATE_TIME_COMMAND"}
 
         self.Logger.debug(f"Must match: {str(self.rvc_match_status)} or {str(self.rvc_match_command)}")
 
         # save these for later to send rvc msg
+        self.name = data['instance_name']
+        self.source_id = data['source_id']
         self.state = "unknown"
-
-        self.device = {"manufacturer": "RV-C",
-                       "via_device": self.mqtt_support.get_bridge_ha_name(),
-                       "identifiers": self.unique_device_id,
-                       "name": self.name,
-                       "model": "RV-C Time and Date from DATE_TIME_STATUS"
-                       }     
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
