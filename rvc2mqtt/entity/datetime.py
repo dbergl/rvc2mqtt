@@ -126,7 +126,7 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         year = (thedatetime.year - 2000)
         month = thedatetime.month
         date = thedatetime.day
-        rvc_day_of_week = RVC_DAY_OF_WEEK[thedatetime.date.dayofweek()]
+        rvc_day_of_week = RVC_DAY_OF_WEEK[thedatetime.weekday()]
         hour = thedatetime.hour
         minute = thedatetime.minute
         second = thedatetime.second
