@@ -132,7 +132,7 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         second = thedatetime.second
         timezone = 255 #firefly seems to only set timezone to 255
 
-        struct.pack_into("<BBBBBBBB", msg_bytes, year, month, date, rvc_day_of_week, hour, minute, second, time_zone )
+        struct.pack_into("<BBBBBBBB", msg_bytes, year, month, date, rvc_day_of_week, hour, minute, second, timezone )
         return msg_bytes
 
     def process_mqtt_msg(self, topic, payload):
