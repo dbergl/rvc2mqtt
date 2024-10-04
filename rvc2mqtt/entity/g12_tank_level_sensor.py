@@ -26,7 +26,7 @@ from rvc2mqtt.mqtt import MQTT_Support
 from rvc2mqtt.entity import EntityPluginBaseClass
 
 class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
-    FACTORY_MATCH_ATTRIBUTES = {"type": "tank_level", "name": "G12_TANK_LEVEL"}
+    FACTORY_MATCH_ATTRIBUTES = {"type": "g12_tank_level", "name": "G12_TANK_LEVEL"}
 
     """ Provide specific tank level values using DGN G12_TANK_LEVEL_SENSOR
         These are broadcast by the g12 unit on 0BFC1
@@ -45,7 +45,7 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
 
         self.name = data['instance_name']
         self.instance = data['instance']
-        self.instance_name = self._get_instance_name(self.instance)
+        self.diff_min = data.get('minimum_change', 1)
 
         self.device = {"manufacturer": "RV-C",
                        "via_device": self.mqtt_support.get_bridge_ha_name(),
@@ -53,9 +53,6 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
                        "name": self.name,
                        "model": "RV-C Tank from G12_TANK_LEVEL_SENSOR"
                        }
-
-        self.waiting_for_first_msg = True
-
 
 
     def process_rvc_msg(self, new_message: dict) -> bool:
@@ -70,21 +67,13 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
         if self._is_entry_match(self.rvc_match_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
 
-            if(self.waiting_for_first_msg):
-                # because we don't have all info until first message we need to wait
-                # figure out level resolution
+            # These events happen a lot.  Lets filter down to when the value changed by more than 10
+            if abs(new_message["tank_level"] - self.tank_level) >= int(self.diff_min):
                 self.tank_level = new_message['tank_level']
-                # send auto discovery info
-                self._send_ha_mqtt_discovery_info()
-                # mark first msg sent
-                self.waiting_for_first_msg = False
-
-            
-            new_level = self.tank_level
-            if new_level != self.tank_level:
-                self.tank_level = new_level
                 self.mqtt_support.client.publish(
-                    self.status_topic, self.tank_level, retain=True)
+                        self.status_topic, self.tank_level, retain=True)
+                
+            
             return True
         return False
 
@@ -102,6 +91,9 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
         data = struct.pack("<BBBBBBBB", int("0xC1", 0), int(
             "0xBF", 0), 0, self.instance, 0, 0, 0, 0)
         self.send_queue.put({"dgn": "EAFF", "data": data})
+
+        # send auto discovery info
+        self._send_ha_mqtt_discovery_info()
 
     
     def _send_ha_mqtt_discovery_info(self):
@@ -124,16 +116,4 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
         # publish info to mqtt
         self.mqtt_support.client.publish(
             ha_config_topic, config_json, retain=True)
-
-    def _get_instance_name(self, instance: int) -> str:
-        imap = {1: "fresh water", 
-                2: "grey waste", 
-                3: "black waste", 
-                4: "second grey waste" 
-                }
-        if instance in imap:
-            return imap[instance]
-        else:
-            self.Logger.error(f"Unknown instance name for instance {str(instance)}")
-            return "unknown tank type"
 
