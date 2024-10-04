@@ -4362,8 +4362,20 @@ Z0005:
   name: UNKNOWN-0EF80
 
 0BFC1:
-  comment: Broadcast in Ethos 20DL
-  name: UNKNOWN-0BFC1
+  comment: Broadcast by G12 in Ethos 20DL
+  name: G12_TANK_LEVEL_SENSOR
+  parameters:
+    - byte: 0
+      name: instance
+      type: uint8
+      values:
+        1: fresh water
+        2: grey waste
+        3: black waste
+        4: second grey waste
+    - byte: 1-2
+      name: tank level
+      type: uint16
 
 0EBFF:
   comment: Broadcast in Ethos 20DL
