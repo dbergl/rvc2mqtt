@@ -41,11 +41,25 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
         # RVC message must match the following to be this device
         self.rvc_match_status = {"name": "G12_TANK_LEVEL_SENSOR", "instance": data['instance']}
         self.tank_level = 65535
+        self.tank_percent = 0
+        self.custom_triggers = False
         self.Logger.debug(f"Must match: {str(self.rvc_match_status)}")
 
         self.name = data['instance_name']
         self.instance = data['instance']
+        # Default to change of 1 or more if not set in floorplan
         self.diff_min = data.get('minimum_change', 1)
+
+        """ These will be None if they are not set in the floorplan file.
+            Only return a tank level % if all 3 are set
+        """
+        self.thirtythree = data.get('33_trigger')
+        self.sixtysix = data.get('66_trigger')
+        self.onehundred = data.get('100_trigger')
+        if self.thirtythree is not None and self.sixtysix is not None and self.onehundred is not None:
+            self.custom_triggers = True
+            self.status_tank_percent_topic = mqtt_support.make_device_topic_string(self.id, "tank_percent", True)
+
 
         self.device = {"manufacturer": "RV-C",
                        "via_device": self.mqtt_support.get_bridge_ha_name(),
@@ -70,20 +84,34 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
             # These events happen a lot.  Lets filter down to when the value changed by more than 10
             if abs(new_message["tank_level"] - self.tank_level) >= int(self.diff_min):
                 self.tank_level = new_message['tank_level']
+                if self.custom_triggers:
+                    new_percent = 0
+                    if self.tank_level > self.thirtythree:
+                        new_percent = 0
+                    if self.thirtythree > self.tank_level > self.sixtysix:
+                        new_percent = 33
+                    if self.sixtysix > self.tank_level > self.onehundred:
+                        new_percent = 66
+                    if self.onehundred > self.tank_level:
+                        new_percent = 100
+
+                    if new_percent != self.tank_percent:
+                        self.tank_percent = new_percent
+                        self.mqtt_support.client.publish(
+                                self.status_tank_percent_topic, self.tank_percent, retain=True)
+
                 self.mqtt_support.client.publish(
                         self.status_topic, self.tank_level, retain=True)
-                
-            
             return True
         return False
 
     def initialize(self):
-        """ Optional function 
-        Will get called once when the object is loaded.  
+        """ Optional function
+        Will get called once when the object is loaded.
         RVC canbus tx queue is available
-        mqtt client is ready.  
+        mqtt client is ready.
 
-        This can be a good place to request data    
+        This can be a good place to request data
         """
         # request dgn report - this should trigger the tanks to report
         # dgn = 0BFC1 which is actually  C1 BF 00 <instance> 00 00 00 00
@@ -95,7 +123,7 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
         # send auto discovery info
         self._send_ha_mqtt_discovery_info()
 
-    
+
     def _send_ha_mqtt_discovery_info(self):
 
         # produce the HA MQTT discovery config json
