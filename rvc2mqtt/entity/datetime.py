@@ -98,13 +98,16 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
             second = new_message["second"]
 
             date = f"{year}-{month:0>2}-{day:0>2}"
-            time = f"{hour:0>2}:{minute:0>2}:{second:0>2}"
+            time = f"{hour:0>2}:{minute:0>2}"
 
-            self.state = f"{date}T{time}"
+            state = f"{date}T{time}"
 
-            self.mqtt_support.client.publish(
-                self.status_topic, self.state, retain=True)
-            return True
+            #only publish if the time or date has changed. This should be once a minute
+            if self.state != state:
+                self.state = state
+                self.mqtt_support.client.publish(
+                    self.status_topic, self.state, retain=True)
+                return True
 
         elif self._is_entry_match(self.rvc_match_command, new_message):
             # This is the command.  Just eat the message so it doesn't show up
