@@ -112,7 +112,7 @@ API_VERSION: 0
   comment: This is only the dgn_h
   parameters:
     - byte: 0-7
-      name: msg 
+      name: msg
       type: ascii
 
 17D:
@@ -2906,6 +2906,36 @@ API_VERSION: 0
 
 1FFB6:
   name: TANK_CALIBRATION_COMMAND
+  parameters:
+    - byte: 0
+      name: instance
+      type: uint8
+      values:
+        0: fresh water
+        1: black waste
+        2: grey waste
+        3: lpg
+        16: second fresh water
+        17: second black waste
+        18: second grey waste
+        19: second lpg
+    - byte: 1
+      name: relative level
+      type: uint8
+      comment: level = relative level / resolution
+    - byte: 2
+      name: resolution
+      type: uint8
+    - byte: 3-4
+      name: absolute level
+      type: uint16
+      unit: Liter
+      comment: precision 1l, range 0-65530
+    - byte: 5-6
+      name: tank size
+      type: uint16
+      unit: Liter
+      comment: precision 1l, range 0-65530
 
 1FFB5:
   name: TANK_GEOMETRY_STATUS
@@ -3695,7 +3725,7 @@ API_VERSION: 0
       type: uint4
     - byte: 1
       bit: 4-7
-      name: max electric element level 
+      name: max electric element level
       type: uint4
     - byte: 2
       bit: 0-3
@@ -4352,7 +4382,7 @@ Z0005:
 15FCE:
   comment: Broadcast in Ethos 20DL
   name: UNKNOWN-15FCE
-    
+
 0EF70:
   comment: Broadcast in Ethos 20DL
   name: UNKNOWN-0EF70
@@ -4362,8 +4392,8 @@ Z0005:
   name: UNKNOWN-0EF80
 
 0BFC1:
-  comment: Broadcast by G12 in Ethos 20DL
   name: G12_TANK_LEVEL_SENSOR
+  comment: Broadcast by G12 in Ethos 20DL
   parameters:
     - byte: 0
       name: instance
@@ -4390,8 +4420,9 @@ Z0005:
   name: UNKNOWN-0FF01
 
 1AAFD:
-  comment: Broadcast in Ethos 20DL
-  name: UNKNOWN-1AAFD
+  name: DC_SOURCE_STATUS_G12
+  comment: Broadcast in Ethos 20DL by G12 for chassis battery
+  alias: 1FFFD
 
 1FACE:
   comment: Broadcast in Ethos 20DL
@@ -4404,3 +4435,12 @@ Z0005:
 16F84:
   comment: Broadcast in Ethos 20DL
   name: UNKNOWN-16F84
+
+1FBDA:
+  comment: Broadcast in Ethos 20DL
+  name: UNKNOWN-1FBDA
+
+16C84:
+  comment: Broadcast in Ethos 20DL
+  name: UNKNOWN-16C84
+

@@ -43,7 +43,7 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         super().__init__(data, mqtt_support)
         self.Logger = logging.getLogger(__class__.__name__)
 
-        # Allow MQTT to set teh time
+        # Allow MQTT to set the time
         self.command_topic = mqtt_support.make_device_topic_string(
             self.id, None, False)
         self.mqtt_support.register(self.command_topic, self.process_mqtt_msg)
@@ -64,6 +64,7 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         is of interest to this object.
 
         If relevant - Process the message and return True
+
         else - return False
 
         Messages look like:
@@ -86,11 +87,24 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         if self._is_entry_match(self.rvc_match_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
             '''
-            TODO: Process message and publish date and time??
+            Process RV-C message and publish date and time
+            '''
+
+            year = int(new_message["year"])+2000
+            month = new_message["month"]
+            day = new_message["date"]
+            hour = new_message["hour"]
+            minute = new_message["minute"]
+            second = new_message["second"]
+
+            date = f"{year}-{month}-{day}"
+            time = f"{hour}:{minute}:{second}"
+
+
+            self.state = f"{date}T{time}"
 
             self.mqtt_support.client.publish(
                 self.status_topic, self.state, retain=True)
-            '''
             return True
 
         elif self._is_entry_match(self.rvc_match_command, new_message):
@@ -155,10 +169,10 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
             f"Invalid payload {payload} for topic {topic}")
 
     def initialize(self):
-        """ Optional function 
-        Will get called once when the object is loaded.  
+        """ Optional function
+        Will get called once when the object is loaded.
         RVC canbus tx queue is available
-        mqtt client is ready.  
+        mqtt client is ready.
 
         This can be a good place to request data
 
