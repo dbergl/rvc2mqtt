@@ -97,9 +97,8 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
             minute = new_message["minute"]
             second = new_message["second"]
 
-            date = f"{year}-{month}-{day}"
-            time = f"{hour}:{minute}:{second}"
-
+            date = f"{year}-{month:0>2}-{day:0>2}"
+            time = f"{hour:0>2}:{minute:0>2}:{second:0>2}"
 
             self.state = f"{date}T{time}"
 
