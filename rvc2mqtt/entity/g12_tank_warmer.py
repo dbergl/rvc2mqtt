@@ -27,27 +27,29 @@ from rvc2mqtt.mqtt import MQTT_Support
 from rvc2mqtt.entity import EntityPluginBaseClass
 
 
-class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
-    FACTORY_MATCH_ATTRIBUTES = {"name": "DC_DIMMER_STATUS_3", "type": "dimmer_switch"}
+class TankHeater_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
+    FACTORY_MATCH_ATTRIBUTES = {"name": "DC_DIMMER_STATUS_3", "type": "tank_heater"}
     """
-    Dimmer switch that is tied to RVC DGN of DC_DIMMER_STATUS_3 and DC_DIMMER_COMMAND_2
+    The Tank heaters are controlled the same way as the lights and use RVC DGN of DC_DIMMER_STATUS_3
+    and DC_DIMMER_COMMAND_2
+
     Supports ON/OFF
 
-    TODO: support setting brightness
+    TODO: support turning all heaters On/Off
 
 
     """
-    LIGHT_ON = "on"
-    LIGHT_OFF = "off"
+    HEATER_ON = "on"
+    HEATER_OFF = "off"
 
     def __init__(self, data: dict, mqtt_support: MQTT_Support):
-        self.id = "dimmer-1FEDB-i" + str(data["instance"])
+        self.id = "tank_warmer-1FEDB-i" + str(data["instance"])
         super().__init__(data, mqtt_support)
         self.Logger = logging.getLogger(__class__.__name__)
 
         # Allow MQTT to control light
-        if 'status_topic' in data:
-            self.command_topic = str(f"{data['status_topic']}/set")
+        if 'command_topic' in data:
+            self.command_topic = str(data['command_topic'])
         else:
             self.command_topic = mqtt_support.make_device_topic_string(
                 self.id, None, False)
@@ -56,7 +58,6 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
 
         if 'status_topic' in data:
             self.status_topic = str(data['status_topic'])
-
 
         # RVC message must match the following to be this device
         self.rvc_match_status = { "name": "DC_DIMMER_STATUS_3", "instance": data['instance']}
@@ -90,9 +91,9 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         if self._is_entry_match(self.rvc_match_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
             if new_message["operating_status_brightness"] != 0.0:
-                self.state = DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_ON
+                self.state = TankHeater_DC_DIMMER_STATUS_3.HEATER_ON
             elif new_message["operating_status_brightness"] == 0.0:
-                self.state = DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_OFF
+                self.state = TankHeater_DC_DIMMER_STATUS_3.HEATER_OFF
             else:
                 self.state = "UNEXPECTED(" + \
                     str(new_message["operating_status"]) + ")"
@@ -115,12 +116,12 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
             f"MQTT Msg Received on topic {topic} with payload {payload}")
 
         if topic == self.command_topic:
-            if payload.lower() == DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_OFF:
-                if self.state != DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_OFF:
-                    self._rvc_light_toggle()
-            elif payload.lower() == DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_ON:
-                if self.state != DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_ON:
-                    self._rvc_light_toggle()
+            if payload.lower() == TankHeater_DC_DIMMER_STATUS_3.HEATER_OFF:
+                if self.state != TankHeater_DC_DIMMER_STATUS_3.HEATER_OFF:
+                    self._rvc_heater_toggle()
+            elif payload.lower() == TankHeater_DC_DIMMER_STATUS_3.HEATER_ON:
+                if self.state != TankHeater_DC_DIMMER_STATUS_3.HEATER_ON:
+                    self._rvc_heater_toggle()
             else:
                 self.Logger.warning(
                     f"Invalid payload {payload} for topic {topic}")
@@ -133,22 +134,7 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
     2024-09-10 22:00:39 {'arbitration_id': '0x19fedbfd', 'data': '20FFFA05FF00FFFF', 'priority': '6', 'dgn_h': '1FE', 'dgn_l': 'DB', 'dgn': '1FEDB', 'source_id': 'FD', 'name': 'DC_DIMMER_COMMAND_2', 'instance': 32, 'group': '11111111', 'desired_level': 125.0, 'command': 5, 'command_definition': 'toggle', 'delay_duration': 255, 'interlock': '00', 'interlock_definition': 'no interlock active'}
     """
 
-    def _rvc_light_off(self):
-        # 01 00 FA 00 03 FF 0000
-        msg_bytes = bytearray(8)
-        struct.pack_into("<BBBBBBB", msg_bytes, 0, self.rvc_instance, int(
-            self.rvc_group, 2), 251, 3, 0, 0, 0)
-        self.send_queue.put({"dgn": "1FEDB", "data": msg_bytes})
-
-    def _rvc_light_on(self):
-
-        # 01 00 FA 00 01 FF 0000
-        msg_bytes = bytearray(8)
-        struct.pack_into("<BBBBBBB", msg_bytes, 0, self.rvc_instance, int(
-            self.rvc_group, 2), 251, 1, 0xFF, 0, 0)
-        self.send_queue.put({"dgn": "1FEDB", "data": msg_bytes})
-
-    def _rvc_light_toggle(self):
+    def _rvc_heater_toggle(self):
 
         msg_bytes = bytearray(8)
         struct.pack_into("<BBBBBBBB", msg_bytes, 0, self.rvc_instance, int(
@@ -170,8 +156,8 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
                   "state_topic": self.status_topic,
                   "command_topic": self.command_topic,
                   "qos": 1, "retain": False,
-                  "payload_on": DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_ON,
-                  "payload_off": DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_OFF,
+                  "payload_on": TankHeater_DC_DIMMER_STATUS_3.HEATER_ON,
+                  "payload_off": TankHeater_DC_DIMMER_STATUS_3.HEATER_OFF,
                   "unique_id": self.unique_device_id,
                   "device": self.device}
 

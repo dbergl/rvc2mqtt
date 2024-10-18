@@ -2913,11 +2913,11 @@ API_VERSION: 0
       values:
         0: fresh water
         1: black waste
-        2: grey waste
+        2: gray waste
         3: lpg
         16: second fresh water
         17: second black waste
-        18: second grey waste
+        18: second gray waste
         19: second lpg
     - byte: 1
       name: relative level
@@ -4400,9 +4400,9 @@ Z0005:
       type: uint8
       values:
         1: fresh water
-        2: grey waste
+        2: gray waste
         3: black waste
-        4: second grey waste
+        4: second gray waste
     - byte: 1-2
       name: tank level
       type: uint16

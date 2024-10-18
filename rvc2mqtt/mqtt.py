@@ -26,12 +26,15 @@ class MQTT_Support(object):
     HA_AUTO_BASE = "homeassistant"
      
     
-    def __init__(self, client_id:str):
+    def __init__(self, client_id: str, topic_base: str):
         self.Logger = logging.getLogger(__name__)
         self.client_id = client_id
         self._connected = False
 
-        self.root_topic = MQTT_Support.TOPIC_BASE + "/" + self.client_id
+        if MQTT_Support.TOPIC_BASE != topic_base:
+            MQTT_Support.TOPIC_BASE = topic_base
+
+        self.root_topic = topic_base + "/" + self.client_id
         self.device_topic_base = self.root_topic + "/d"
 
         # topic strings
@@ -147,12 +150,12 @@ def on_mqtt_message(client, userdata, msg):
 def on_mqtt_disconnect(client, userdata, msg):
     gMQTTObj.on_disconnect(client, userdata, msg)
 
-def MqttInitalize(host:str, port:str, user:str, password:str, client_id:str):
+def MqttInitalize(host:str, port:str, user:str, password:str, client_id:str, topic_base:str):
     """ main function to parse config and initialize the 
     mqtt client.
     """
     global gMQTTObj
-    gMQTTObj = MQTT_Support(client_id)
+    gMQTTObj = MQTT_Support(client_id, topic_base)
 
     port = int(port)
     
