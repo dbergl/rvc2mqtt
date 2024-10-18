@@ -210,24 +210,44 @@ class HvacClass(EntityPluginBaseClass):
                        "model": "RV-C Thermostat from THERMOSTAT_STATUS_1"
                        }
 
-        # Allow MQTT to control mode
-        self.status_mode_topic = mqtt_support.make_device_topic_string(self.id, "mode", True)
-        self.command_mode_topic = mqtt_support.make_device_topic_string(self.id, "mode", False)
+        if 'status_topic' in data:
+
+            self.status_topic = str(data['status_topic'])
+            # Allow MQTT to control mode
+            self.status_mode_topic = str(f"{self.status_topic}/mode")
+            self.command_mode_topic = str(f"{self.status_topic}/mode/set")
+
+            # Allow MQTT to control fan mode
+            self.status_fan_mode_topic = str(f"{self.status_topic}/fan_mode")
+            self.command_fan_mode_topic = str(f"{self.status_topic}/fan_mode/set")
+
+            # Allow MQTT to control the target temperature
+            self.status_set_point_temp_topic = str(f"{self.status_topic}/set_point_temperature")
+            self.command_set_point_temp_topic = str(f"{self.status_topic}/set_point_temperature/set")
+
+            # Allow MQTT to control the target temperature in f
+            self.status_set_point_tempf_topic = str(f"{self.status_topic}/set_point_temperaturef")
+            self.command_set_point_tempf_topic = str(f"{self.status_topic}/set_point_temperaturef/set")
+        else:
+            # Allow MQTT to control mode
+            self.status_mode_topic = mqtt_support.make_device_topic_string(self.id, "mode", True)
+            self.command_mode_topic = mqtt_support.make_device_topic_string(self.id, "mode", False)
+
+            # Allow MQTT to control fan mode
+            self.status_fan_mode_topic = mqtt_support.make_device_topic_string(self.id, "fan_mode", True)
+            self.command_fan_mode_topic = mqtt_support.make_device_topic_string(self.id, "fan_mode", False)
+
+            # Allow MQTT to control the target temperature
+            self.status_set_point_temp_topic = mqtt_support.make_device_topic_string(self.id, "set_point_temperature", True)
+            self.command_set_point_temp_topic = mqtt_support.make_device_topic_string(self.id, "set_point_temperature", False)
+
+            # Allow MQTT to control the target temperature in f
+            self.status_set_point_tempf_topic = mqtt_support.make_device_topic_string(self.id, "set_point_temperaturef", True)
+            self.command_set_point_tempf_topic = mqtt_support.make_device_topic_string(self.id, "set_point_temperaturef", False)
+
         self.mqtt_support.register(self.command_mode_topic, self.process_mqtt_msg)
-
-        # Allow MQTT to control fan mode
-        self.status_fan_mode_topic = mqtt_support.make_device_topic_string(self.id, "fan_mode", True)
-        self.command_fan_mode_topic = mqtt_support.make_device_topic_string(self.id, "fan_mode", False)
         self.mqtt_support.register(self.command_fan_mode_topic, self.process_mqtt_msg)
-
-        # Allow MQTT to control the target temperature
-        self.status_set_point_temp_topic = mqtt_support.make_device_topic_string(self.id, "set_point_temperature", True)
-        self.command_set_point_temp_topic = mqtt_support.make_device_topic_string(self.id, "set_point_temperature", False)
         self.mqtt_support.register(self.command_set_point_temp_topic, self.process_mqtt_msg)
-
-        # Allow MQTT to control the target temperature in f
-        self.status_set_point_tempf_topic = mqtt_support.make_device_topic_string(self.id, "set_point_temperaturef", True)
-        self.command_set_point_tempf_topic = mqtt_support.make_device_topic_string(self.id, "set_point_temperaturef", False)
         self.mqtt_support.register(self.command_set_point_tempf_topic, self.process_mqtt_msg)
 
     @property
@@ -330,9 +350,18 @@ class HvacClass(EntityPluginBaseClass):
                 self.status_mode_topic, self.mode.value, retain=True
             )
 
-            self.mqtt_support.client.publish(self.status_fan_mode_topic, self.fan_mode.value, retain=True)
-            self.mqtt_support.client.publish(self.status_set_point_temp_topic, self.set_point_temperature, retain=True)
-            self.mqtt_support.client.publish(self.status_set_point_tempf_topic, self.set_point_temperaturef, retain=True)
+            self.mqtt_support.client.publish(
+                self.status_fan_mode_topic, self.fan_mode.value, retain=True
+            )
+
+            self.mqtt_support.client.publish(
+                self.status_set_point_temp_topic, self.set_point_temperature, retain=True
+            )
+
+            self.mqtt_support.client.publish(
+                self.status_set_point_tempf_topic, self.set_point_temperaturef, retain=True
+            )
+
             self._changed = False
         return False
 

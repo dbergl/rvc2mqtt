@@ -1,5 +1,5 @@
 """
-DC system sensor from DC_SOURCE_STATUS_1
+DC system sensor from DC_SOURCE_STATUS_G12
 
 
 Copyright 2022 Sean Brogan
@@ -27,9 +27,12 @@ from rvc2mqtt.entity import EntityPluginBaseClass
 
 
 class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
-    FACTORY_MATCH_ATTRIBUTES = {"type": "chassis_dc_system", "name": "DC_SOURCE_STATUS_G12"}
+    FACTORY_MATCH_ATTRIBUTES = {"type": "dc_system", "name": "DC_SOURCE_STATUS_G12"}
 
     """ Provide basic DC system information using DC_SOURCE_STATUS_G12
+
+        This non-standard DGN is broadcast by the firefly g12 in the terrain/launch/swift/ethos and seems to be the same
+        as DC_SOURCE_STATUS_1
 
     """
 
@@ -55,8 +58,14 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         self._dc_voltage = 5  # should never be this low
         self._dc_current = 50  # should not be this high
 
-        self.status_dc_voltage_topic = mqtt_support.make_device_topic_string(self.id, "dc_voltage", True)
-        self.status_dc_current_topic = mqtt_support.make_device_topic_string(self.id, "dc_current", True)
+        if 'status_topic' in data:
+            topic_base= str(data['status_topic'])
+
+            self.status_dc_voltage_topic = str(f"{topic_base}/voltage")
+            self.status_dc_current_topic = str(f"{topic_base}/current")
+        else:
+            self.status_dc_voltage_topic = mqtt_support.make_device_topic_string(self.id, "dc_voltage", True)
+            self.status_dc_current_topic = mqtt_support.make_device_topic_string(self.id, "dc_current", True)
 
     @property
     def dc_voltage(self):

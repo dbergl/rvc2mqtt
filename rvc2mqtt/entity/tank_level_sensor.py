@@ -55,6 +55,8 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
 
         self.waiting_for_first_msg = True
 
+        if 'status_topic' in data:
+            self.status_topic = str(data['status_topic'])
 
 
     def process_rvc_msg(self, new_message: dict) -> bool:

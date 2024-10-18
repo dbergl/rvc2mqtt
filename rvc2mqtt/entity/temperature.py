@@ -50,7 +50,14 @@ class TemperatureSensor_THERMOSTAT_AMBIENT_STATUS(EntityPluginBaseClass):
                        "name": self.name,
                        "model": "RV-C Temperature Sensor from THERMOSTAT_AMBIENT_STATUS"
                        }
-        self.status_tempf_topic = mqtt_support.make_device_topic_string(self.id, "tempf", True)
+
+        if 'status_topic' in data:
+            self.status_topic = str(data['status_topic'])
+
+        if 'status_tempf_topic' in data:
+            self.status_tempf_topic = str(data['status_tempf_topic'])
+        else:
+            self.status_tempf_topic = mqtt_support.make_device_topic_string(self.id, "tempf", True)
 
 
     def process_rvc_msg(self, new_message: dict) -> bool:
@@ -68,10 +75,10 @@ class TemperatureSensor_THERMOSTAT_AMBIENT_STATUS(EntityPluginBaseClass):
             if new_message["ambient_temp"] != self.reported_temp:
                 self.reported_temp = new_message["ambient_temp"]
                 self.reported_tempf =  round( ( ( self.reported_temp * ( 9 / 5 ) ) + 32 ) )
+                status_payload = {"c": self.reported_temp, "f": self.reported_tempf}
+                payload_json = json.dumps(status_payload)
                 self.mqtt_support.client.publish(
-                    self.status_topic, self.reported_temp, retain=True)
-                self.mqtt_support.client.publish(
-                    self.status_tempf_topic, self.reported_tempf, retain=True)
+                    self.status_topic, payload_json, retain=True)
             return True
         return False
 

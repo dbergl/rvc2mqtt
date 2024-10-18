@@ -29,7 +29,7 @@ from rvc2mqtt.entity import EntityPluginBaseClass
 class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
     FACTORY_MATCH_ATTRIBUTES = {"type": "dc_system", "name": "DC_SOURCE_STATUS_1"}
 
-    """ Provide basic DC system information using DC_SOURCE_STATUS_1 
+    """ Provide basic DC system information using DC_SOURCE_STATUS_1
 
     """
 
@@ -55,8 +55,14 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         self._dc_voltage = 5  # should never be this low
         self._dc_current = 50  # should not be this high
 
-        self.status_dc_voltage_topic = mqtt_support.make_device_topic_string(self.id, "dc_voltage", True)
-        self.status_dc_current_topic = mqtt_support.make_device_topic_string(self.id, "dc_current", True)
+        if 'status_topic' in data:
+            topic_base = str(data['status_topic'])
+            self.status_dc_voltage_topic = str(f"{topic_base}/voltage")
+            self.status_dc_current_topic = str(f"{topic_base}/current")
+        else:
+            self.status_dc_voltage_topic = mqtt_support.make_device_topic_string(self.id, "dc_voltage", True)
+            self.status_dc_current_topic = mqtt_support.make_device_topic_string(self.id, "dc_current", True)
+
 
     @property
     def dc_voltage(self):
@@ -85,7 +91,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         If relevant - Process the message and return True
         else - return False
 
-        {'arbitration_id': '0x19fffd80', 'data': '0114060100000000', 
+        {'arbitration_id': '0x19fffd80', 'data': '0114060100000000',
         'priority': '6', 'dgn_h': '1FF', 'dgn_l': 'FD', 'dgn': '1FFFD', 'source_id': '80',
         'name': 'DC_SOURCE_STATUS_1',
         'instance': 1, 'instance_definition': 'main house battery bank',
@@ -106,7 +112,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
     def _update_mqtt_topics_with_changed_values(self):
         ''' entry data has potentially changed.  Update mqtt'''
 
-        if self._changed:            
+        if self._changed:
             self.mqtt_support.client.publish(
                 self.status_dc_voltage_topic, self.dc_voltage, retain=True)
 
@@ -118,12 +124,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
 
     def initialize(self):
-        """ Optional function 
-        Will get called once when the object is loaded.  
+        """ Optional function
+        Will get called once when the object is loaded.
         RVC canbus tx queue is available
-        mqtt client is ready.  
+        mqtt client is ready.
 
-        This can be a good place to request data    
+        This can be a good place to request data
         """
 
         # produce the HA MQTT discovery config json

@@ -89,7 +89,7 @@ class app(object):
         # setup the mqtt broker connection
         if argsns.mqtt_host is not None:
             self.mqtt_client = MqttInitalize(
-                argsns.mqtt_host, argsns.mqtt_port, argsns.mqtt_user, argsns.mqtt_pass, argsns.mqtt_client_id)
+                argsns.mqtt_host, argsns.mqtt_port, argsns.mqtt_user, argsns.mqtt_pass, argsns.mqtt_client_id, argsns.mqtt_topic_base)
             if self.mqtt_client:
                 self.mqtt_client.client.loop_start()
 
@@ -233,6 +233,8 @@ def main():
                         help="password for mqtt", default=os.environ.get("MQTT_PASSWORD"))
 
     # optional settings
+    parser.add_argument("--MQTT_TOPIC_BASE", "--mqtt_topic_base", dest="mqtt_topic_base",
+                        help="topic base for mqtt", default=os.environ.get("MQTT_TOPIC_BASE", "rvc2mqtt"))
     parser.add_argument("--MQTT_CLIENT_ID", "--mqtt_client_id", dest="mqtt_client_id",
                         help="client id for mqtt", default=os.environ.get("MQTT_CLIENT_ID", "bridge"))
     parser.add_argument("--MQTT_CA", "--mqtt_ca", dest="mqtt_ca",

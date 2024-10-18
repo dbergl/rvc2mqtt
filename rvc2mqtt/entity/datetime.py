@@ -44,8 +44,15 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         self.Logger = logging.getLogger(__class__.__name__)
 
         # Allow MQTT to set the time
-        self.command_topic = mqtt_support.make_device_topic_string(
+        if 'status_topic' in data:
+            self.command_topic = str(f"{data['status_topic']}/set")
+        else:
+            self.command_topic = mqtt_support.make_device_topic_string(
             self.id, None, False)
+
+        if 'status_topic' in data:
+            self.status_topic = str(data['status_topic'])
+
         self.mqtt_support.register(self.command_topic, self.process_mqtt_msg)
 
         # RVC message must match the following to be this device

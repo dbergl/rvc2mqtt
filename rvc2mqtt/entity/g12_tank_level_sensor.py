@@ -40,7 +40,7 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
 
         # RVC message must match the following to be this device
         self.rvc_match_status = {"name": "G12_TANK_LEVEL_SENSOR", "instance": data['instance']}
-        self.tank_level = 65535
+        self.tank_level = 999999
         self.tank_percent = 0
         self.custom_triggers = False
         self.Logger.debug(f"Must match: {str(self.rvc_match_status)}")
@@ -50,6 +50,10 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
         # Default to change of 1 or more if not set in floorplan
         self.diff_min = data.get('minimum_change', 1)
 
+        if 'status_topic' in data:
+            topic_base = str(data['status_topic'])
+            self.status_topic = str(f"{topic_base}/sensorlvl")
+
         """ These will be None if they are not set in the floorplan file.
             Only return a tank level % if all 3 are set
         """
@@ -58,8 +62,12 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
         self.onehundred = data.get('100_trigger')
         if self.thirtythree is not None and self.sixtysix is not None and self.onehundred is not None:
             self.custom_triggers = True
-            self.status_tank_percent_topic = mqtt_support.make_device_topic_string(self.id, "tank_percent", True)
 
+            if 'status_topic' in data:
+                topic_base = str(data['status_topic'])
+                self.status_tank_percent_topic = str(f"{topic_base}/custlvl")
+            else:
+                self.status_tank_percent_topic = mqtt_support.make_device_topic_string(self.id, "tank_percent", True)
 
         self.device = {"manufacturer": "RV-C",
                        "via_device": self.mqtt_support.get_bridge_ha_name(),
@@ -67,7 +75,6 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
                        "name": self.name,
                        "model": "RV-C Tank from G12_TANK_LEVEL_SENSOR"
                        }
-
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
@@ -81,7 +88,7 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
         if self._is_entry_match(self.rvc_match_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
 
-            # These events happen a lot.  Lets filter down to when the value changed by more than 10
+            # These events happen a lot.  Lets filter down to when the value changed by more than diff_min
             if abs(new_message["tank_level"] - self.tank_level) >= int(self.diff_min):
                 self.tank_level = new_message['tank_level']
                 if self.custom_triggers:
