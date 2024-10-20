@@ -31,6 +31,9 @@ API_VERSION: 0
     - byte: 3
       name: instance
       type: uint8
+    - byte: 4
+      name: instance bank or secondary instance
+      type: uint8
 # there is also a special version of 0EA that is
 # used for source address claiming procedure.  That
 # is not supported here.

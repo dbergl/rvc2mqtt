@@ -103,7 +103,7 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
         self.Logger.debug("Sending Request for DGN")
         data = struct.pack("<BBBBBBBB", int("0xB7", 0), int(
             "0xFF", 0), 1, self.instance, 0, 0, 0, 0)
-        self.send_queue.put({"dgn": "EAFF", "data": data})
+        self.send_queue.put({"dgn": "0EAFF", "data": data})
 
     
     def _send_ha_mqtt_discovery_info(self):
