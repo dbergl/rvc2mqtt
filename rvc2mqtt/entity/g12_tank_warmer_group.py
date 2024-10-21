@@ -1,5 +1,4 @@
 """
-N
 A dimmer switch
 
 Copyright 2022 Sean Brogan
@@ -19,7 +18,7 @@ limitations under the License.
 
 """
 
-
+import time
 import queue
 import logging
 import struct
@@ -35,6 +34,7 @@ class TankHeater_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
     and DC_DIMMER_COMMAND_2
 
     Supports ON/OFF
+    TODO: keep track of lastcommand
 
     Virtual device Instance in floorplan to turn a group of tanks on/off
         - name: DC_DIMMER_STATUS_3
@@ -72,14 +72,9 @@ class TankHeater_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
             self.status_topic = str(data['status_topic'])
 
         # RVC message must match the following to be this device
-        self.rvc_match_status = { "name": "DC_DIMMER_STATUS_3", "instance": data['instance']}
-        self.rvc_match_rfd = { "name": "REQUEST_FOR_DGN", "instance": data['instance'], "dgn": "1FEDA"}
-        self.rvc_match_command= { "name": "DC_DIMMER_COMMAND_2", "instance": data['instance']}
+        self.rvc_match_rfd = { "name": "REQUEST_FOR_DGN", "instance": data['instance'], "dgn": "0EA82" }
 
-
-        self.Logger.debug(f"Must match: {str(self.rvc_match_status)} or {str(self.rvc_match_command)}")
-
-        self.tank_entity_links = []
+        self.Logger.debug(f"Must match: {str(self.rvc_match_rfd)}")
 
         # save these for later to send rvc msg
         self.rvc_instance = data['instance']
@@ -88,28 +83,11 @@ class TankHeater_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
             self.rvc_group = data['group']
         self.name = data['instance_name']
         self.state = "unknown"
-
-        self.device = {"manufacturer": "RV-C",
-                       "via_device": self.mqtt_support.get_bridge_ha_name(),
-                       "identifiers": self.unique_device_id,
-                       "name": self.name,
-                       "model": "RV-C Dimmer from DC_DIMMER_STATUS_3"
-                       }
-
+        self.tank_entity_links = []
+        
+    
     def add_entity_link(self, obj):
-        """ optional function
-        If the data of the object has an entity_links list this function
-        will get called with each entity"""
-
         self.tank_entity_links.append(obj)
-
-        self.Logger.info(f"{dir(obj)}")
-
-        #self.Logger.info(f"command topic: {obj.command_topic}")
-        #self.Logger.info(f"status_topic: {obj.status_topic}")
-        #self.Logger.info(f"rvc_match_status: {obj.rvc_match_status}")
-        #self.Logger.info(f"rvc_match_command: {obj.rvc_match_command}")
-
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
@@ -118,31 +96,10 @@ class TankHeater_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         If relevant - Process the message and return True
         else - return False
         """
-
-        if self._is_entry_match(self.rvc_match_status, new_message):
-            self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            self.Logger.info(f"Msg Match Status: {str(new_message)}")
-            if all(link.state == TankHeater_DC_DIMMER_STATUS_3.HEATER_OFF for link in self.tank_entity_links):
-                self.state = TankHeater_DC_DIMMER_STATUS_3.HEATER_OFF
-            elif all(link.state == TankHeater_DC_DIMMER_STATUS_3.HEATER_ON for link in self.tank_entity_links):
-                self.state = TankHeater_DC_DIMMER_STATUS_3.HEATER_ON
-            elif any(link.state == TankHeater_DC_DIMMER_STATUS_3.HEATER_ON for link in self.tank_entity_links):
-                self.state = TankHeater_DC_DIMMER_STATUS_3.HEATER_SOME
-            else:
-                self.state = "UNEXPECTED(" + \
-                    str(new_message["operating_status"]) + ")"
-                self.Logger.error(
-                    f"Unexpected RVC value {str(new_message['operating_status_brightness'])}")
-
-            self.mqtt_support.client.publish(self.status_topic, self.state, retain=True)
+        if self._is_entry_match(self.rvc_match_rfd, new_message):
+            self._rvc_heater_group_send_status(self.state)
             return True
 
-        elif self._is_entry_match(self.rvc_match_command, new_message):
-            # This is the command.  Just eat the message so it doesn't show up
-            # as unhandled.
-            self.Logger.debug(f"Msg Match Command: {str(new_message)}")
-            self.Logger.info(f"Msg Match Command: {str(new_message)}")
-            return True
         return False
 
     def process_mqtt_msg(self, topic, payload):
@@ -162,6 +119,9 @@ class TankHeater_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
                     self.Logger.warning(
                         f"Invalid payload {payload} for topic {topic}")
 
+            # HACK wait a bit so the linked entities have time to update their status
+            time.sleep(1)
+
             # Set the status of this topic based on the status of the linked entities
             if all(link.state == TankHeater_DC_DIMMER_STATUS_3.HEATER_OFF for link in self.tank_entity_links):
                 self.state = TankHeater_DC_DIMMER_STATUS_3.HEATER_OFF
@@ -176,14 +136,6 @@ class TankHeater_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
             self.mqtt_support.client.publish(
                 self.status_topic, self.state, retain=True)
 
-    """
-    On:
-        2024-09-10 22:00:35 {'arbitration_id': '0x19fedbfd', 'data': '20FFFA05FF00FFFF', 'priority': '6', 'dgn_h': '1FE', 'dgn_l': 'DB', 'dgn': '1FEDB', 'source_id': 'FD', 'name': 'DC_DIMMER_COMMAND_2', 'instance': 32, 'group': '11111111', 'desired_level': 125.0, 'command': 5, 'command_definition': 'toggle', 'delay_duration': 255, 'interlock': '00', 'interlock_definition': 'no interlock active'}
-
-    Off:
-    2024-09-10 22:00:39 {'arbitration_id': '0x19fedbfd', 'data': '20FFFA05FF00FFFF', 'priority': '6', 'dgn_h': '1FE', 'dgn_l': 'DB', 'dgn': '1FEDB', 'source_id': 'FD', 'name': 'DC_DIMMER_COMMAND_2', 'instance': 32, 'group': '11111111', 'desired_level': 125.0, 'command': 5, 'command_definition': 'toggle', 'delay_duration': 255, 'interlock': '00', 'interlock_definition': 'no interlock active'}
-    """
-
     def _rvc_heater_toggle(self, instance_id: int = None):
 
         if not instance_id:
@@ -193,6 +145,23 @@ class TankHeater_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         struct.pack_into("<BBBBBBBB", msg_bytes, 0, instance_id, int(
             self.rvc_group, 2), 250, 5, 0xFF, 0, 0xFF, 0xFF)
         self.send_queue.put({"dgn": "1FEDB", "data": msg_bytes})
+
+    def _rvc_heater_group_send_status(self, status: str):
+
+        if status == HEATER_ON:
+            brightness = 0xC8
+            load_status = 0x04
+        elif status == HEATER_OFF:
+            brightness = 0
+            load_status = 0
+        elif status == HEATER_SOME:
+            brightness = 0x64
+            load_status = 0x04
+
+        msg_bytes = bytearray(8)
+        struct.pack_into("<BBBBBBBB", msg_bytes, 0, instance_id, int(
+            self.rvc_group, 2), brightness, 0xFC, 0xFF, 5, load_status, 0xFF)
+        self.send_queue.put({"dgn": "1FEDA", "data": msg_bytes})
 
     def initialize(self):
         """ Optional function
@@ -204,32 +173,14 @@ class TankHeater_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
 
         """
 
-        # produce the HA MQTT discovery config json
-        config = {"name": self.name,
-                  "state_topic": self.status_topic,
-                  "command_topic": self.command_topic,
-                  "qos": 1, "retain": False,
-                  "payload_on": TankHeater_DC_DIMMER_STATUS_3.HEATER_ON,
-                  "payload_off": TankHeater_DC_DIMMER_STATUS_3.HEATER_OFF,
-                  "unique_id": self.unique_device_id,
-                  "device": self.device}
-
-        config.update(self.get_availability_discovery_info_for_ha())
-
-        config_json = json.dumps(config)
-
-        ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
-            self.unique_device_id, "dimmer_switch")
+        # request dgn report - this should trigger that dimmer to report
+        # dgn = 1FEDA which is actually  DA FE 01 <instance> FF 00 00 00
+        #self.Logger.debug("Sending Request for DGN")
+        #data = struct.pack("<BBBBBBBB", int("0xDA", 0), int(
+        #    "0xFE", 0), 1, int(self.rvc_instance), 0xFF, 0xFF, 0xFF, 0xFF)
+        #self.send_queue.put({"dgn": "0EAFF", "data": data})
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
-        self.mqtt_support.client.publish(
             self.status_topic, self.state, retain=True)
 
-        # request dgn report - this should trigger that dimmer to report
-        # dgn = 1FEDA which is actually  DA FE 01 <instance> FF 00 00 00
-        self.Logger.debug("Sending Request for DGN")
-        data = struct.pack("<BBBBBBBB", int("0xDA", 0), int(
-            "0xFE", 0), 1, self.rvc_instance, 0, 0, 0, 0)
-        self.send_queue.put({"dgn": "0EAFF", "data": data})
