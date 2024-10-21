@@ -36,7 +36,18 @@ class TankHeater_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
     Supports ON/OFF
 
     TODO: support turning all heaters On/Off
-
+    HACK: Special fake device in floorplan to turn all tanks on/off
+            - name: DC_DIMMER_STATUS_3
+                instance: 99
+                type: tank_heater
+                instance_name: tank heaters
+                status_topic: rvc/tanks/all/heater
+                link_id: tank_heater_group
+                entity_links:
+                  - fresh
+                  - gray
+                  - black
+                  - gray2
 
     """
     HEATER_ON = "on"
@@ -47,9 +58,9 @@ class TankHeater_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         super().__init__(data, mqtt_support)
         self.Logger = logging.getLogger(__class__.__name__)
 
-        # Allow MQTT to control light
-        if 'command_topic' in data:
-            self.command_topic = str(data['command_topic'])
+        # Allow MQTT to control warmer
+        if 'status_topic' in data:
+            self.command_topic = str(f"{data['status_topic']}/set")
         else:
             self.command_topic = mqtt_support.make_device_topic_string(
                 self.id, None, False)
@@ -179,4 +190,4 @@ class TankHeater_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         self.Logger.debug("Sending Request for DGN")
         data = struct.pack("<BBBBBBBB", int("0xDA", 0), int(
             "0xFE", 0), 1, self.rvc_instance, 0, 0, 0, 0)
-        self.send_queue.put({"dgn": "EAFF", "data": data})
+        self.send_queue.put({"dgn": "0EAFF", "data": data})

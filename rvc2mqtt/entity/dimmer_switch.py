@@ -191,6 +191,8 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         # request dgn report - this should trigger that dimmer to report
         # dgn = 1FEDA which is actually  DA FE 01 <instance> FF 00 00 00
         self.Logger.debug("Sending Request for DGN")
-        data = struct.pack("<BBBBBBBB", int("0xDA", 0), int(
-            "0xFE", 0), 1, self.rvc_instance, 0, 0, 0, 0)
-        self.send_queue.put({"dgn": "EAFF", "data": data})
+        msg_bytes = bytearray(8)
+        struct.pack_into("<BBBBBBBB", msg_bytes, 0, 0xDA,
+            0xFE, 1, self.rvc_instance, 0, 0, 0, 0)
+
+        self.send_queue.put({"dgn": "0EAFF", "data": msg_bytes})

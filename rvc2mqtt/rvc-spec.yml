@@ -31,6 +31,9 @@ API_VERSION: 0
     - byte: 3
       name: instance
       type: uint8
+    - byte: 4
+      name: instance bank or secondary instance
+      type: uint8
 # there is also a special version of 0EA that is
 # used for source address claiming procedure.  That
 # is not supported here.
@@ -2657,7 +2660,7 @@ API_VERSION: 0
     - byte: 2
       name: operating status brightness
       type: uint8
-      unit: Pct
+      unit: pct
     - byte: 3
       name: lock status
       type: bit2
@@ -2729,6 +2732,11 @@ API_VERSION: 0
         00: operating status is zero
         01: operating status is non-zero or flashing
         11: interlock command is not supported
+    - byte: 7
+      name: master memory value
+      type: uint8
+      unit: pct
+      comment: last saved brightness
 
 1FFB9:
   name: DC_DIMMER_COMMAND
