@@ -328,7 +328,7 @@ API_VERSION: 0
         4: overcharge
         5: equalize
         6: float
-        7: constant voltage current
+        7: constant voltage/current
     - byte: 3-4
       name: desired dc voltage
       type: uint16
@@ -4380,8 +4380,9 @@ Z0005:
       unit: Hz
 
 1FEA5:
-  comment: Broadcast in Ethos 20DL
-  name: UNKNOWN-1FEA5
+  comment: non-standard dgn broadcast by APS-500 in Ethos 20DL
+  name: BATTERY_STATUS_11
+  alias: 1FE8B
 
 0FED5:
   comment: Broadcast in Ethos 20DL
@@ -4451,4 +4452,12 @@ Z0005:
 16C84:
   comment: Broadcast in Ethos 20DL
   name: UNKNOWN-16C84
+
+1AAB7:
+  comment: Broadcast in Ethos 20DL
+  name: UNKNOWN-1AAB7
+
+1AADC:
+  comment: Broadcast in Ethos 20DL
+  name: UNKNOWN-1AADC
 
