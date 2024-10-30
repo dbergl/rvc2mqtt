@@ -207,7 +207,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 self.mqtt_support.client.publish(
                     self.operating_state_topic, new_message["operating_state_definition"].title(), retain=True)
             if self._power_up_default_state != new_message["default_state_on_power-up"]:
-                _power_up_default_state = new_message["default_state_on_power-up"]
+                self._power_up_default_state = new_message["default_state_on_power-up"]
                 self.mqtt_support.client.publish(
                     self.power_up_default_state_topic, new_message["default_state_on_power-up_definition"].title(), retain=True)
             if self._auto_recharge_enable != new_message["auto_recharge_enable"]:
@@ -245,10 +245,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
 
             if self._charge_detected != new_message["charge_detected"]:
+                self._charge_detected = new_message["charge_detected"]
                 self.mqtt_support.client.publish(
                 self.charge_detected_topic, new_message["charge_detected_definition"].title(), retain=True)
 
             if self._reserve_status != new_message["reserve_status"]: 
+                self._reserve_status = new_message["reserve_status"]
                 self.mqtt_support.client.publish(
                 self.reserve_status_topic, new_message["reserve_status_definition"].title(), retain=True)
 
