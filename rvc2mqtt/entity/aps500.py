@@ -51,6 +51,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         2024-10-25 23:55:02 {'arbitration_id': '0x19fec980', 'data': '01780746040884F3', 'priority': '6', 'dgn_h': '1FE', 'dgn_l': 'C9', 'dgn': '1FEC9', 'source_id': '80', 'name': 'DC_SOURCE_STATUS_4', 'instance': 1, 'instance_definition': 'main house battery bank', 'device_priority': 120, 'device_priority_definition': 'battery soc device', 'desired_charge_state': 7, 'desired_charge_state_definition': 'constant voltage current', 'desired_dc_voltage': 54.7, 'desired_dc_current': 90.0, 'battery_type': 3, 'battery_type_definition': 'lithium iron phosphate'}
         2024-10-25 23:55:02 {'arbitration_id': '0x19fec880', 'data': '01782CD10000FFFF', 'priority': '6', 'dgn_h': '1FE', 'dgn_l': 'C8', 'dgn': '1FEC8', 'source_id': '80', 'name': 'DC_SOURCE_STATUS_5', 'dc_instance': 1, 'dc_instance_definition': 'main house battery bank', 'device_priority': 120, 'device_priority_definition': 'battery soc device', 'hp_dc_voltage': 'n/a', 'deprecated': 65535}
         
+        2024-10-29 23:13:35 {'arbitration_id': '0x19fea580', 'data': '017815D2000C01FF', 'priority': '6', 'dgn_h': '1FE', 'dgn_l': 'A5', 'dgn': '1FEA5', 'source_id': '80', 'name': 'BATTERY_STATUS_11', 'instance': 1, 'dc_instance': 120, 'discharge_on_off_status': '01', 'discharge_on_off_status_definition': 'battery discharge bus connected', 'charge_on_off_status': '01', 'charge_on_off_status_definition': 'charge bus connected', 'charge_detected': '01', 'charge_detected_definition': 'charge detected', 'reserve_status': '00', 'reserve_status_definition': 'battery charge is above reserve level', 'full_capacity': 210, 'dc_power': 268}
     """
 
     def __init__(self, data: dict, mqtt_support: MQTT_Support):
@@ -64,6 +65,8 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         self.rvc_match_source_status_3 = {'name': 'DC_SOURCE_STATUS_3', 'source_id': str(data['source_id'])}
         self.rvc_match_source_status_4 = {'name': 'DC_SOURCE_STATUS_4', 'source_id': str(data['source_id'])}
         self.rvc_match_source_status_5 = {'name': 'DC_SOURCE_STATUS_5', 'source_id': str(data['source_id'])}
+
+        self.rvc_match_battery_status_11 = {'name': 'BATTERY_STATUS_11', 'source_id': str(data['source_id'])}
         
         self.rvc_match_charger_status = {'name': 'CHARGER_STATUS', 'source_id': str(data['source_id'])}
         self.rvc_match_charger_status_2 = {'name': 'CHARGER_STATUS_2', 'source_id': str(data['source_id'])}
@@ -88,9 +91,13 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         self._power_up_default_state = "unknown"
         self._auto_recharge_enable = "unknown"
         self._force_charge = "unknown"
+        #CHARGER_CONFIGURATION_STATUS
         self._charging_algorithm = "unknown"
         self._charging_mode = "unknown"
         self._battery_sensor_present = "unknown"
+        #BATTERY_STATUS_11
+        self._charge_detected = "unknown"
+        self._reserve_status = "unknown"
 
 
         if 'status_topic' in data:
@@ -122,11 +129,13 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             self.charging_algorithm_topic = str(f"{topic_base}/charging_algorithm")
             self.charging_mode_topic = str(f"{topic_base}/charging_mode")
             self.battery_sensor_present_topic = str(f"{topic_base}/battery_sensor_present")
+        
+            # BATTERY_STATUS_11
+            self.charge_detected_topic = str(f"{topic_base}/charge_detected")
+            self.reserve_status_topic = str(f"{topic_base}/reserve_status")
 
             # ???
             self.hp_dc_voltage_topic = str(f"{topic_base}/hp_dc_voltage") 
-            self.charge_detected_topic = str(f"{topic_base}/charge_detected")
-            self.reserve_status_topic = str(f"{topic_base}/reserve_status")
             self.max_charging_current_topic = str(f"{topic_base}/max_charging_current")
             self.max_charging_current_pct_topic = str(f"{topic_base}/max_charging_current_pct")
 
@@ -229,6 +238,19 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 self._battery_sensor_present = new_message["battery_sensor_present"]
                 self.mqtt_support.client.publish(
                     self.battery_sensor_present_topic, new_message["battery_sensor_present_definition"].title(), retain=True)
+
+            return True
+
+        if self._is_entry_match(self.rvc_match_battery_status_11, new_message):
+            self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+
+            if self._charge_detected != new_message["charge_detected"]:
+                self.mqtt_support.client.publish(
+                self.charge_detected_topic, new_message["charge_detected_definition"].title(), retain=True)
+
+            if self._reserve_status != new_message["reserve_status"]: 
+                self.mqtt_support.client.publish(
+                self.reserve_status_topic, new_message["reserve_status_definition"].title(), retain=True)
 
             return True
 
