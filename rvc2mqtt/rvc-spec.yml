@@ -1932,15 +1932,15 @@ API_VERSION: 0
     - byte: 3-4
       name: charging voltage
       type: uint16
-      unit: vdc
+      unit: v
     - byte: 5-6
       name: charging current
       type: uint16
-      unit: adc
+      unit: a
     - byte: 7
       name: charger temperature
       type: uint8
-      unit: c
+      unit: deg c
 
 1FFC6:
   name: CHARGER_CONFIGURATION_STATUS
