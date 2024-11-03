@@ -245,14 +245,14 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         if self._is_entry_match(self.rvc_match_source_status_5, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
             #For some reason the APC does not send this in standard RV-C format
-            # and instead sends this as 2 bytes in (bytes 2&3) little-endian byte order
+            # and instead sends this as 2 bytes (bytes 2&3) in little-endian byte order
             hp_dc_voltage = struct.unpack_from('<xxHxxx', bytearray.fromhex(new_message["data"]))
-            hp_dc_voltage = float(hp_dc_voltage[0]) * 0.001
 
             if self._hp_dc_voltage != hp_dc_voltage:
                 self._hp_dc_voltage = hp_dc_voltage
                 self.mqtt_support.client.publish(
-                    self.hp_dc_voltage_topic, self._hp_dc_voltage, retain=True)
+                    self.hp_dc_voltage_topic, f"{float(self._hp_dc_voltage[0]) * 0.001:.3f}",
+                    retain=True)
             return True
 
         if self._is_entry_match(self.rvc_match_charger_status, new_message):
@@ -346,11 +346,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         if self._is_entry_match(self.rvc_match_dm_rv, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
 
-            message_fault_code = str(int(f"{new_message['spn-msb']:08b}{new_message['spn-isb']:08b}{new_message['spn-lsb']:03b}",2) - 0x7F000)
-            #self.Logger.info(f"spn-msb: {new_message['spn-msb']:08b}, spn-isb:{new_message['spn-isb']:08b}, spn-lsb: {new_message['spn-lsb']:03b}")
-            #self.Logger.info(f"Fault Code: {message_fault_code}")
-            #self.Logger.info(f"Fault Desc: {self.apcfaults.get(message_fault_code, "Internal Error")}")
-            #self.Logger.info(f"{self.apcfaults}")
+            message_fault_code = str(
+                int(f"{new_message['spn-msb']:08b}"
+                    f"{new_message['spn-isb']:08b}"
+                    f"{new_message['spn-lsb']:03b}"
+                ,2) - 0x7F000)
+
             fault_description = self.apcfaults.get(message_fault_code, "Internal Error")
             lamp_status = "n/a"
 
@@ -366,9 +367,13 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 self._fault_description = fault_description
                 # Fault_code 4095 actually means "No Fault" so publish "" instead
                 self.mqtt_support.client.publish(
-                self.dm_rv_fault_code_topic,  "" if self._fault_code == "4095" else str(self._fault_code), retain=True)
+                    self.dm_rv_fault_code_topic,
+                    "" if self._fault_code == "4095" else str(self._fault_code),
+                    retain=True)
+
                 self.mqtt_support.client.publish(
-                self.dm_rv_fault_description_topic, self._fault_description, retain=True)
+                    self.dm_rv_fault_description_topic,
+                    self._fault_description, retain=True)
 
             if self._lamp != lamp_status:
                 self._lamp = lamp_status
@@ -411,6 +416,4 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             0xFF, 1, 0xFF, 0, 0, 0, 0)
 
         self.send_queue.put({"dgn": "0EA80", "data": msg_bytes})
-
-
 
