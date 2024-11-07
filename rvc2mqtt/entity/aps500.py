@@ -32,26 +32,6 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
     """ Provide basic DC system information as published by the APS-500 using DC_SOURCE_STATUS_1 - 5,
         CHARGER_STATUS, CHARGER_STATUS_2, and CHARGER_EQUALIZATION_STATUS
-
-        2024-10-25 23:55:02 {'arbitration_id': '0x19ffc780', 'data': '3146040884000101', 'priority': '6', 'dgn_h': '1FF', 'dgn_l': 'C7', 'dgn': '1FFC7', 'source_id': '80', 'name': 'CHARGER_STATUS', 'instance': 49, 'charge_voltage': 54.7, 'charge_current': 90.0, 'charge_current_percent_of_maximum': 0.0, 'operating_state': 1, 'operating_state_definition': 'do not charge', 'default_state_on_power-up': '01', 'default_state_on_power-up_definition': 'enabled', 'auto_recharge_enable': '00', 'auto_recharge_enable_definition': 'disabled', 'force_charge': 0, 'force_charge_definition': 'charging not forced'}
-        2024-10-25 23:55:02 {'arbitration_id': '0x19fea380', 'data': '3101782E04007D35', 'priority': '6', 'dgn_h': '1FE', 'dgn_l': 'A3', 'dgn': '1FEA3', 'source_id': '80', 'name': 'CHARGER_STATUS_2', 'charger_instance': 49, 'dc_source_instance': 1, 'charger_priority': 120, 'charging_voltage': 1070, 'charging_current': 32000, 'charger_temperature': 53}
-
-        2024-10-29 19:29:54 {'arbitration_id': '0x19ffc680', 'data': '3102000DD200FFFF', 'priority': '6', 'dgn_h': '1FF', 'dgn_l': 'C6', 'dgn': '1FFC6', 'source_id': '80', 'name': 'CHARGER_CONFIGURATION_STATUS', 'instance': 49, 'charging_algorithm': 2, 'charging_algorithm_definition': '3-stage', 'charger_mode': 0, 'charger_mode_definition': 'stand-alone', 'battery_sensor_present': 1, 'battery_sensor_present_definition': 'sensor present and active', 'charger_installation_line': 3, 'battery_type': 0, 'battery_type_definition': 'flooded', 'battery_bank_size': 210, 'maximum_charging_current': 'n/a'}
-        2024-10-29 19:29:54 {'arbitration_id': '0x19ff9680', 'data': '3100FFFF410000FF', 'priority': '6', 'dgn_h': '1FF', 'dgn_l': '96', 'dgn': '1FF96', 'source_id': '80', 'name': 'CHARGER_CONFIGURATION_STATUS_2', 'instance': 49, 'maximum_charge_current_as_percent': 0.0, 'charge_rate_limit_as_percent_of_bank_size': 255, 'shore_breaker_size': 255, 'default_battery_temperature': 25, 'recharge_voltage': 0.0}
-        2024-10-29 19:29:54 {'arbitration_id': '0x19fecc80', 'data': '311F041F041F0400', 'priority': '6', 'dgn_h': '1FE', 'dgn_l': 'CC', 'dgn': '1FECC', 'source_id': '80', 'name': 'CHARGER_CONFIGURATION_STATUS_3', 'instance': 49, 'bulk_voltage': 52.75, 'absorption_voltage': 52.75, 'float_voltage': 52.75, 'temperature_compensation_constant': 0}
-        2024-10-29 19:29:54 {'arbitration_id': '0x19febf80', 'data': '31FAFF00000000FF', 'priority': '6', 'dgn_h': '1FE', 'dgn_l': 'BF', 'dgn': '1FEBF', 'source_id': '80', 'name': 'CHARGER_CONFIGURATION_STATUS_4', 'instance': 49, 'bulk_time': 65530, 'absorption_time': 0, 'float_time': 0}
-
-        2024-10-25 23:55:02 {'arbitration_id': '0x19ff9980', 'data': '31FFFFFCFFFFFFFF', 'priority': '6', 'dgn_h': '1FF', 'dgn_l': '99', 'dgn': '1FF99', 'source_id': '80', 'name': 'CHARGER_EQUALIZATION_STATUS', 'instance': 49, 'time_remaining': 65535, 'pre-charging_status': 0, 'pre-charging_status_definition': 'pre-charging not in process'}
-
-        2024-10-25 23:55:02 {'arbitration_id': '0x19feca80', 'data': '054CFFFFFFFF00FF', 'priority': '6', 'dgn_h': '1FE', 'dgn_l': 'CA', 'dgn': '1FECA', 'source_id': '80', 'name': 'DM_RV', 'operating_status': '0101', 'operating_status_definition': 'on normal', 'yellow_lamp_status': '00', 'red_lamp_status': '00', 'dsa': 76, 'spn-msb': 255, 'spn-isb': 255, 'fmi': 31, 'fmi_definition': 'failure mode not available', 'spn-lsb': 7, 'occurrence_count': 127, 'dsa_extension': 0, 'bank_select': 15}
-
-        2024-10-25 23:55:02 {'arbitration_id': '0x19fffd80', 'data': '01782E0478803577', 'priority': '6', 'dgn_h': '1FF', 'dgn_l': 'FD', 'dgn': '1FFFD', 'source_id': '80', 'name': 'DC_SOURCE_STATUS_1', 'instance': 1, 'instance_definition': 'main house battery bank', 'device_priority': 120, 'device_priority_definition': 'battery soc device', 'dc_voltage': 53.5, 'dc_current': -5.0}
-        2024-10-25 23:55:02 {'arbitration_id': '0x19fffc80', 'data': '01782024C80100FD', 'priority': '6', 'dgn_h': '1FF', 'dgn_l': 'FC', 'dgn': '1FFFC', 'source_id': '80', 'name': 'DC_SOURCE_STATUS_2', 'instance': 1, 'instance_definition': 'main house battery bank', 'device_priority': 120, 'device_priority_definition': 'battery soc device', 'source_temperature': 16.0, 'state_of_charge': 100.0, 'time_remaining': 1}
-        2024-10-25 23:55:02 {'arbitration_id': '0x19fffb80', 'data': '0178FFD200FFFFFF', 'priority': '6', 'dgn_h': '1FF', 'dgn_l': 'FB', 'dgn': '1FFFB', 'source_id': '80', 'name': 'DC_SOURCE_STATUS_3', 'instance': 1, 'instance_definition': 'main house battery bank', 'device_priority': 120, 'device_priority_definition': 'battery soc device', 'state_of_health': 255, 'capacity_remaining': 210, 'relative_capacity': 255, 'ac_rms_ripple': 65535}
-        2024-10-25 23:55:02 {'arbitration_id': '0x19fec980', 'data': '01780746040884F3', 'priority': '6', 'dgn_h': '1FE', 'dgn_l': 'C9', 'dgn': '1FEC9', 'source_id': '80', 'name': 'DC_SOURCE_STATUS_4', 'instance': 1, 'instance_definition': 'main house battery bank', 'device_priority': 120, 'device_priority_definition': 'battery soc device', 'desired_charge_state': 7, 'desired_charge_state_definition': 'constant voltage current', 'desired_dc_voltage': 54.7, 'desired_dc_current': 90.0, 'battery_type': 3, 'battery_type_definition': 'lithium iron phosphate'}
-        2024-10-25 23:55:02 {'arbitration_id': '0x19fec880', 'data': '01782CD10000FFFF', 'priority': '6', 'dgn_h': '1FE', 'dgn_l': 'C8', 'dgn': '1FEC8', 'source_id': '80', 'name': 'DC_SOURCE_STATUS_5', 'dc_instance': 1, 'dc_instance_definition': 'main house battery bank', 'device_priority': 120, 'device_priority_definition': 'battery soc device', 'hp_dc_voltage': 'n/a', 'deprecated': 65535}
-
-        2024-10-29 23:13:35 {'arbitration_id': '0x19fea580', 'data': '017815D2000C01FF', 'priority': '6', 'dgn_h': '1FE', 'dgn_l': 'A5', 'dgn': '1FEA5', 'source_id': '80', 'name': 'BATTERY_STATUS_11', 'instance': 1, 'dc_instance': 120, 'discharge_on_off_status': '01', 'discharge_on_off_status_definition': 'battery discharge bus connected', 'charge_on_off_status': '01', 'charge_on_off_status_definition': 'charge bus connected', 'charge_detected': '01', 'charge_detected_definition': 'charge detected', 'reserve_status': '00', 'reserve_status_definition': 'battery charge is above reserve level', 'full_capacity': 210, 'dc_power': 268}
     """
     apcfaults = {
         "12": "Battery Temperature greatly exceeded configured upper limit.",
@@ -106,7 +86,9 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         self.rvc_match_charger_status = {'name': 'CHARGER_STATUS', 'source_id': str(data['source_id'])}
         self.rvc_match_charger_status_2 = {'name': 'CHARGER_STATUS_2', 'source_id': str(data['source_id'])}
+
         self.rvc_match_charger_configuration_status = {'name': 'CHARGER_CONFIGURATION_STATUS', 'source_id': str(data['source_id'])}
+
         self.rvc_match_charger_equalization_status = {'name': 'CHARGER_EQUALIZATION_STATUS', 'source_id': str(data['source_id'])}
 
         self.rvc_match_dm_rv = {'name': 'DM_RV', 'source_id': str(data['source_id'])}
@@ -150,9 +132,10 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         self._fault_description = "unknown"
         self._lamp = "unknown"
 
-
         if 'status_topic' in data:
             topic_base= str(data['status_topic'])
+
+            self.reset_command_topic = str(f"{topic_base}/reset")
 
             # DC_SOURCE_STATUS_1
             #dc_voltage
@@ -383,6 +366,31 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             return True
 
         return False
+
+    def process_mqtt_msg(self, topic, payload):
+        self.Logger.debug(
+            f"MQTT Msg Received on topic {topic} with payload {payload}")
+
+        if topic == self.reset_command_topic:
+            try:
+                reset_aps()
+            except Exception as e:
+                self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+        else:
+            self.Logger.warning(
+            f"Invalid payload {payload} for topic {topic}")
+
+    def reset_aps(self):
+        """
+        Sends GENERAL_RESET dgn = 17F00 to the APS-500
+        Only sends reset message
+        """
+        self.Logger.debug("Sending reset message")
+        msg_bytes = bytearray(8)
+        struct.pack_into("<BBBBBBBB", msg_bytes, 0, 1,
+            0, 0, 0, 0, 0, 0, 0)
+
+        self.send_queue.put({"dgn": "17F80", "data": msg_bytes})
 
     def refresh(self):
         """
