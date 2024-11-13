@@ -79,21 +79,30 @@ class Generator_GENERATOR_STATUS_1(EntityPluginBaseClass):
             self.seven_day_total_topic = str(f"{topic_base}/history/7-day-total")
             self.cumulative_power_generation_topic = str(f"{topic_base}/history/cumulative-power-generation")
             # SOLAR_CONTROLLER_STATUS_6
-            self.operating_days__topic = str(f"{topic_base}/history/operating-days")
-            self.temperature_topic = str(f"{topic_base}/temp")
+            self.operating_days_topic = str(f"{topic_base}/history/operating-days")
+            self.temperature_topic = str(f"{topic_base}/temperature")
             # SOLAR_CONTROLLER_SOLAR_ARRAY_STATUS
-            self.array_voltage_topic = str(f"{topic_base}/solar_array_voltage")
-            self.array_current_topic = str(f"{topic_base}/solar_array_current")
+            self.array_voltage_topic = str(f"{topic_base}/solar-array-voltage")
+            self.array_current_topic = str(f"{topic_base}/solar-array-current")
             # SOLAR_CONTROLLER_BATTERY_STATUS
-            self.battery_voltage_topic = str(f"{topic_base}/battery_voltage")
-            self.battery_current_topic = str(f"{topic_base}/battery_current")
-                    
+            self.battery_voltage_topic = str(f"{topic_base}/battery-voltage")
+            self.battery_current_topic = str(f"{topic_base}/battery-current")
 
-            self.hours_topic = str(f"{topic_base}/")
         else:
-            self.status_topic = mqtt_support.make_device_topic_string(self.id, "status", True)
-            self.hours_topic = mqtt_support.make_device_topic_string(self.id, "hours", True)
-
+            self.operating_state_topic = mqtt_support.make_device_topic_string(self.id, "operating-state", True)
+            self.power_up_state_topic = mqtt_support.make_device_topic_string(self.id, "power-up-state", True)
+            self.force_charge_topic = mqtt_support.make_device_topic_string(self.id, "force-charge", True)
+            self.today_topic =mqtt_support.make_device_topic_string(self.id, "history/today", True)
+            self.yesterday_topic = mqtt_support.make_device_topic_string(self.id, "history/yesterday", True)
+            self.two_days_ago_topic = mqtt_support.make_device_topic_string(self.id, "history/2-days-ago", True)
+            self.seven_day_total_topic = mqtt_support.make_device_topic_string(self.id, "history/7-day-total", True)
+            self.cumulative_power_generation_topic = mqtt_support.make_device_topic_string(self.id, "history/cumulative-power-generation", True)
+            self.operating_days_topic = mqtt_support.make_device_topic_string(self.id, "operating-days", True)
+            self.temperature_topic = mqtt_support.make_device_topic_string(self.id, "temperature", True)
+            self.array_voltage_topic = mqtt_support.make_device_topic_string(self.id, "solar-array-voltage", True)
+            self.array_current_topic = mqtt_support.make_device_topic_string(self.id, "solar-array-voltage", True)
+            self.battery_voltage_topic = mqtt_support.make_device_topic_string(self.id, "battery-voltage", True)
+            self.battery_current_topic = mqtt_support.make_device_topic_string(self.id, "battery-current", True)
 
         # RVC message must match the following to be this device
         self.rvc_match_status = { "name": "GENERATOR_STATUS_1"}
@@ -103,19 +112,22 @@ class Generator_GENERATOR_STATUS_1(EntityPluginBaseClass):
         self.Logger.debug(f"Must match: {str(self.rvc_match_status)}")
 
         # save these for later to send rvc msg
-        self.rvc_group = '11111111'
-        if 'group' in data:
-            self.rvc_group = data['group']
         self.name = data['instance_name']
-        self.state = "unknown"
-        self.run_time = "unknown"
 
-        self.device = {"manufacturer": "RV-C",
-                       "via_device": self.mqtt_support.get_bridge_ha_name(),
-                       "identifiers": self.unique_device_id,
-                       "name": self.name,
-                       "model": "RV-C Dimmer from DC_DIMMER_STATUS_3"
-                       }
+        self.operating_state = "unknown"
+        self.power_up_state = "unknown"
+        self.force_charge = "unknown"
+        self.today = "unknown"
+        self.yesterday = "unknown"
+        self.two_days_ago = "unknown"
+        self.seven_day_total = "unknown"
+        self.cumulative_power_generation = "unknown"
+        self.operating_days = "unknown"
+        self.temperature = "unknown"
+        self.array_voltage = "unknown"
+        self.array_current = "unknown"
+        self.battery_voltage = "unknown"
+        self.battery_current = "unknown"
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
