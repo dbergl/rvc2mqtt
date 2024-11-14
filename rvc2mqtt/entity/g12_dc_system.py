@@ -52,7 +52,8 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                        "name": self.name,
                        "model": "RV-C DC System Sensor from DC_SOURCE_STATUS_G12"
                        }
-        self._changed = True  # property change tracking
+        self._voltage_changed = True  # property change tracking
+        self._current_changed = True  # property change tracking
 
         # class specific values that change
         self._dc_voltage = 5  # should never be this low
@@ -75,7 +76,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
     def dc_voltage(self, value):
         if value != self._dc_voltage:
             self._dc_voltage = value
-            self._changed = True
+            self._voltage_changed = True
 
     @property
     def dc_current(self):
@@ -85,7 +86,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
     def dc_current(self, value):
         if value != self._dc_current:
             self._dc_current = value
-            self._changed = True
+            self._rhanged = True
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
@@ -115,14 +116,16 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
     def _update_mqtt_topics_with_changed_values(self):
         ''' entry data has potentially changed.  Update mqtt'''
 
-        if self._changed:
+        if self._voltage_changed:
             self.mqtt_support.client.publish(
-                self.status_dc_voltage_topic, self.dc_voltage, retain=True)
+                self.status_dc_voltage_topic, f"{self.dc_voltage:.2f}", retain=True)
+            self._voltage_changed = False
 
+        if self._current_changed:
             self.mqtt_support.client.publish(
                 self.status_dc_current_topic, self.dc_current, retain=True)
+            self._current_changed = False
 
-            self._changed = False
         return False
 
 

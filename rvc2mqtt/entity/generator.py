@@ -73,7 +73,7 @@ class Generator_GENERATOR_STATUS_1(EntityPluginBaseClass):
         #self.mqtt_support.register(self.command_topic, self.process_mqtt_msg)
 
         if 'status_topic' in data:
-            topic_base = str(data['status_topic'])
+            topic_base = f"{data['status_topic']}"
 
             self.status_topic = str(f"{topic_base}/status")
             self.hours_topic = str(f"{topic_base}/hours")
