@@ -26,8 +26,8 @@ from rvc2mqtt.mqtt import MQTT_Support
 from rvc2mqtt.entity import EntityPluginBaseClass
 
 
-class Generator_GENERATOR_STATUS_1(EntityPluginBaseClass):
-    FACTORY_MATCH_ATTRIBUTES = {"name": "GENERATOR_STATUS_1", "type": "generator"}
+class SolarController_SOLAR_CONTROLLER_STATUS(EntityPluginBaseClass):
+    FACTORY_MATCH_ATTRIBUTES = {"name": "SOLAR_CONTROLLER_STATUS", "type": "solar"}
     """
     Solar Charge Controller that is tied to at least these RVC DGNs:
     SOLAR_EQUALIZATION_STATUS
@@ -68,66 +68,76 @@ class Generator_GENERATOR_STATUS_1(EntityPluginBaseClass):
             topic_base = f"{str(data['status_topic'])}/{str(self.rvc_instance)}"
 
             # SOLAR_CONTROLLER_STATUS
-            self.operating_state_topic = str(f"{topic_base}/operating-state")
-            self.power_up_state_topic = str(f"{topic_base}/power-up-state")
-            self.force_charge_topic = str(f"{topic_base}/force-charge")
+            self.operating_state_topic  = str(f"{topic_base}/operating-state")
+            self.power_up_state_topic   = str(f"{topic_base}/power-up-state")
+            self.force_charge_topic     = str(f"{topic_base}/force-charge")
             # SOLAR_CONTROLLER_STATUS_4
-            self.today_topic = str(f"{topic_base}/history/today")
-            self.yesterday_topic = str(f"{topic_base}/history/yesterday")
-            self.two_days_ago_topic = str(f"{topic_base}/history/2-days-ago")
+            self.today_topic            = str(f"{topic_base}/history/today")
+            self.yesterday_topic        = str(f"{topic_base}/history/yesterday")
+            self.two_days_ago_topic     = str(f"{topic_base}/history/2-days-ago")
             # SOLAR_CONTROLLER_STATUS_5
-            self.seven_day_total_topic = str(f"{topic_base}/history/7-day-total")
-            self.cumulative_power_generation_topic = str(f"{topic_base}/history/cumulative-power-generation")
+            self.seven_day_total_topic  = str(f"{topic_base}/history/7-day-total")
+            self.power_generation_topic = str(f"{topic_base}/history/cumulative-power-generation")
             # SOLAR_CONTROLLER_STATUS_6
-            self.operating_days_topic = str(f"{topic_base}/history/operating-days")
-            self.temperature_topic = str(f"{topic_base}/temperature")
+            self.operating_days_topic   = str(f"{topic_base}/history/operating-days")
+            self.temperature_topic      = str(f"{topic_base}/temperature")
             # SOLAR_CONTROLLER_SOLAR_ARRAY_STATUS
-            self.array_voltage_topic = str(f"{topic_base}/solar-array-voltage")
-            self.array_current_topic = str(f"{topic_base}/solar-array-current")
+            self.array_voltage_topic    = str(f"{topic_base}/solar-array-voltage")
+            self.array_current_topic    = str(f"{topic_base}/solar-array-current")
+            self.array_power_topic      = str(f"{topic_base}/solar-array-power")
             # SOLAR_CONTROLLER_BATTERY_STATUS
-            self.battery_voltage_topic = str(f"{topic_base}/battery-voltage")
-            self.battery_current_topic = str(f"{topic_base}/battery-current")
+            self.battery_voltage_topic  = str(f"{topic_base}/battery-voltage")
+            self.battery_current_topic  = str(f"{topic_base}/battery-current")
 
         else:
-            self.operating_state_topic = mqtt_support.make_device_topic_string(self.id, "operating-state", True)
-            self.power_up_state_topic = mqtt_support.make_device_topic_string(self.id, "power-up-state", True)
-            self.force_charge_topic = mqtt_support.make_device_topic_string(self.id, "force-charge", True)
-            self.today_topic =mqtt_support.make_device_topic_string(self.id, "history/today", True)
-            self.yesterday_topic = mqtt_support.make_device_topic_string(self.id, "history/yesterday", True)
-            self.two_days_ago_topic = mqtt_support.make_device_topic_string(self.id, "history/2-days-ago", True)
-            self.seven_day_total_topic = mqtt_support.make_device_topic_string(self.id, "history/7-day-total", True)
-            self.cumulative_power_generation_topic = mqtt_support.make_device_topic_string(self.id, "history/cumulative-power-generation", True)
-            self.operating_days_topic = mqtt_support.make_device_topic_string(self.id, "operating-days", True)
-            self.temperature_topic = mqtt_support.make_device_topic_string(self.id, "temperature", True)
-            self.array_voltage_topic = mqtt_support.make_device_topic_string(self.id, "solar-array-voltage", True)
-            self.array_current_topic = mqtt_support.make_device_topic_string(self.id, "solar-array-voltage", True)
-            self.battery_voltage_topic = mqtt_support.make_device_topic_string(self.id, "battery-voltage", True)
-            self.battery_current_topic = mqtt_support.make_device_topic_string(self.id, "battery-current", True)
+            self.operating_state_topic  = mqtt_support.make_device_topic_string(self.id, "operating-state", True)
+            self.power_up_state_topic   = mqtt_support.make_device_topic_string(self.id, "power-up-state", True)
+            self.force_charge_topic     = mqtt_support.make_device_topic_string(self.id, "force-charge", True)
+            self.today_topic            = mqtt_support.make_device_topic_string(self.id, "history/today", True)
+            self.yesterday_topic        = mqtt_support.make_device_topic_string(self.id, "history/yesterday", True)
+            self.two_days_ago_topic     = mqtt_support.make_device_topic_string(self.id, "history/2-days-ago", True)
+            self.seven_day_total_topic  = mqtt_support.make_device_topic_string(self.id, "history/7-day-total", True)
+            self.power_generation_topic = mqtt_support.make_device_topic_string(self.id, "history/cumulative-power-generation", True)
+            self.operating_days_topic   = mqtt_support.make_device_topic_string(self.id, "operating-days", True)
+            self.temperature_topic      = mqtt_support.make_device_topic_string(self.id, "temperature", True)
+            self.array_voltage_topic    = mqtt_support.make_device_topic_string(self.id, "solar-array-voltage", True)
+            self.array_current_topic    = mqtt_support.make_device_topic_string(self.id, "solar-array-voltage", True)
+            self.array_power_topic      = mqtt_support.make_device_topic_string(self.id, "solar-array-voltage", True)
+            self.battery_voltage_topic  = mqtt_support.make_device_topic_string(self.id, "battery-voltage", True)
+            self.battery_current_topic  = mqtt_support.make_device_topic_string(self.id, "battery-current", True)
 
         # RVC message must match the following to be this device
-        self.rvc_match_status = { "name": "GENERATOR_STATUS_1"}
+
+        self.rvc_solar_controller_status   = { "name": "SOLAR_CONTROLLER_STATUS", "instance": self.rvc_instance}
+        self.rvc_solar_controller_4_status = { "name": "SOLAR_CONTROLLER_STATUS_4", "instance": self.rvc_instance}
+        self.rvc_solar_controller_5_status = { "name": "SOLAR_CONTROLLER_STATUS_5", "instance": self.rvc_instance}
+        self.rvc_solar_controller_6_status = { "name": "SOLAR_CONTROLLER_STATUS_6", "instance": self.rvc_instance}
+        self.rvc_solar_array_status        = { "name": "SOLAR_CONTROLLER_SOLAR_ARRAY_STATUS", "instance": self.rvc_instance}
+        self.rvc_solar_battery_status      = { "name": "SOLAR_CONTROLLER_BATTERY_STATUS", "instance": self.rvc_instance}
+
         #self.rvc_match_command= { "name": "DC_DIMMER_COMMAND_2", "instance": self.rvc_instance }
 
         #self.Logger.debug(f"Must match: {str(self.rvc_match_status)} or {str(self.rvc_match_command)}")
-        self.Logger.debug(f"Must match: {str(self.rvc_match_status)}")
+        self.Logger.debug(f"Must match: {str(self.rvc_solar_controller_status)}")
 
         # save these for later to send rvc msg
         self.name = data['instance_name']
 
-        self.operating_state = "unknown"
-        self.power_up_state = "unknown"
-        self.force_charge = "unknown"
-        self.today = "unknown"
-        self.yesterday = "unknown"
-        self.two_days_ago = "unknown"
-        self.seven_day_total = "unknown"
-        self.cumulative_power_generation = "unknown"
-        self.operating_days = "unknown"
-        self.temperature = "unknown"
-        self.array_voltage = "unknown"
-        self.array_current = "unknown"
-        self.battery_voltage = "unknown"
-        self.battery_current = "unknown"
+        self.operating_state  = "unknown"
+        self.power_up_state   = "unknown"
+        self.force_charge     = "unknown"
+        self.today            = "unknown"
+        self.yesterday        = "unknown"
+        self.two_days_ago     = "unknown"
+        self.seven_day_total  = "unknown"
+        self.power_generation = "unknown"
+        self.operating_days   = "unknown"
+        self.temperature      = "unknown"
+        self.array_voltage    = "unknown"
+        self.array_current    = "unknown"
+        self.array_power      = "unknown"
+        self.battery_voltage  = "unknown"
+        self.battery_current  = "unknown"
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
@@ -137,17 +147,109 @@ class Generator_GENERATOR_STATUS_1(EntityPluginBaseClass):
         else - return False
         """
 
-        if self._is_entry_match(self.rvc_match_status, new_message):
+        if self._is_entry_match(self.rvc_solar_controller_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            if new_message["status"] != self.state:
-                self.state = new_message["status"]
+            if new_message["operating_state"] != self.operating_state:
+                self.operating_state = new_message["operating_state"]
                 self.mqtt_support.client.publish(
-                    self.status_topic, new_message["status_definition"].title(), retain=True)
+                    self.operating_state_topic, new_message["operating_state_definition"].title(), retain=True)
 
-            if new_message["engine_run_time"] != self.run_time:
-                self.run_time = new_message["status"]
+            if new_message["power-up_state"] != self.power_up_state:
+                self.power_up_state = new_message["power-up_state"]
                 self.mqtt_support.client.publish(
-                    self.hours_topic, f'{float(new_message["engine_run_time"])/60:.2f}', retain=True)
+                    self.power_up_state_topic, new_message["power-up_state_definition"].title(), retain=True)
+
+            if new_message["force_charge"] != self.force_charge:
+                self.force_charge = new_message["force_charge"]
+                self.mqtt_support.client.publish(
+                    self.force_charge_topic, new_message["force_charge_definition"].title(), retain=True)
+
+            return True
+
+        if self._is_entry_match(self.rvc_solar_controller_4_status, new_message):
+            self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+            if new_message["today's_amp-hours_to_battery"] != self.today:
+                self.today = new_message["today's_amp-hours_to_battery"]
+                self.mqtt_support.client.publish(
+                    self.today_topic, new_message["today's_amp-hours_to_battery"], retain=True)
+
+            if new_message["yesterday's_amp-hours_to_battery"] != self.yesterday:
+                self.yesterday = new_message["yesterday's_amp-hours_to_battery"]
+                self.mqtt_support.client.publish(
+                    self.yesterday_topic, new_message["yesterday's_amp-hours_to_battery"], retain=True)
+
+            if new_message["day_before_yesterday's_amp-hours_to_battery"] != self.two_days_ago:
+                self.two_days_ago = new_message["day_before_yesterday's_amp-hours_to_battery"]
+                self.mqtt_support.client.publish(
+                    self.two_days_ago_topic, new_message["day_before_yesterday's_amp-hours_to_battery"], retain=True)
+
+            return True
+
+        if self._is_entry_match(self.rvc_solar_controller_5_status, new_message):
+            self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+
+            if new_message["last_7_days_amp-hours_to_battery"] != self.seven_day_total:
+                self.seven_day_total = new_message["last_7_days_amp-hours_to_battery"]
+                self.mqtt_support.client.publish(
+                    self.seven_day_total_topic, new_message["last_7_days_amp-hours_to_battery"], retain=True)
+
+            if new_message["cumulative_power_generation"] != self.power_generation:
+                self.power_generation = new_message["cumulative_power_generation"]
+                # The value needs to be divided by 2, I think, because there are 2 battery banks. This should match firefly screen
+                self.mqtt_support.client.publish(
+                    self.power_generation_topic, f"{round(float(new_message["cumulative_power_generation"]) / 2 )}", retain=True)
+
+            return True
+
+        if self._is_entry_match(self.rvc_solar_controller_6_status, new_message):
+            self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+
+            if new_message["total_number_of_operating_days"] != self.operating_days:
+                self.operating_days = new_message["total_number_of_operating_days"]
+                self.mqtt_support.client.publish(
+                    self.operating_days_topic, new_message["total_number_of_operating_days"], retain=True)
+
+            if new_message["solar_charge_controller_measured_temperature"] != self.temperature:
+                self.temperature = new_message["solar_charge_controller_measured_temperature"]
+                self.mqtt_support.client.publish(
+                    self.temperature_topic, new_message["solar_charge_controller_measured_temperature"], retain=True)
+
+            return True
+
+        if self._is_entry_match(self.rvc_solar_array_status, new_message):
+            self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+
+            if new_message["solar_array_measured_voltage"] != self.array_voltage:
+                self.array_voltage = new_message["solar_array_measured_voltage"]
+                self.mqtt_support.client.publish(
+                    self.array_voltage_topic, new_message["solar_array_measured_voltage"], retain=True)
+
+            if new_message["solar_array_measured_current"] != self.array_current:
+                self.array_current = new_message["solar_array_measured_current"]
+                self.mqtt_support.client.publish(
+                    self.array_current_topic, new_message["solar_array_measured_current"], retain=True)
+
+            # power (watts) is calculated v * a
+            _calc_power = round(float(self.array_voltage) * float(self.array_current),1)
+            if self.array_power != _calc_power:
+                self.array_power = _calc_power
+                self.mqtt_support.client.publish(
+                    self.array_power_topic, f"{self.array_power}", retain=True)
+
+            return True
+
+        if self._is_entry_match(self.rvc_solar_battery_status, new_message):
+            self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+
+            if new_message["measured_voltage"] != self.battery_voltage:
+                self.battery_voltage = new_message["measured_voltage"]
+                self.mqtt_support.client.publish(
+                    self.battery_voltage_topic, new_message["measured_voltage"], retain=True)
+
+            if new_message["measured_current"] != self.battery_current:
+                self.battery_current = new_message["measured_current"]
+                self.mqtt_support.client.publish(
+                    self.battery_current_topic, new_message["measured_current"], retain=True)
 
             return True
 
@@ -162,46 +264,10 @@ class Generator_GENERATOR_STATUS_1(EntityPluginBaseClass):
         self.Logger.info(
             f"MQTT Msg Received on topic {topic} with payload {payload}")
 
-        if topic == self.command_topic:
-            if payload.lower() == DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_OFF:
-                if self.state != DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_OFF:
-                    self._rvc_light_toggle()
-            elif payload.lower() == DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_ON:
-                if self.state != DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_ON:
-                    self._rvc_light_toggle()
-            else:
-                self.Logger.warning(
-                    f"Invalid payload {payload} for topic {topic}")
-
-    """
-    On:
-        2024-09-10 22:00:35 {'arbitration_id': '0x19fedbfd', 'data': '20FFFA05FF00FFFF', 'priority': '6', 'dgn_h': '1FE', 'dgn_l': 'DB', 'dgn': '1FEDB', 'source_id': 'FD', 'name': 'DC_DIMMER_COMMAND_2', 'instance': 32, 'group': '11111111', 'desired_level': 125.0, 'command': 5, 'command_definition': 'toggle', 'delay_duration': 255, 'interlock': '00', 'interlock_definition': 'no interlock active'}
-
-    Off:
-    2024-09-10 22:00:39 {'arbitration_id': '0x19fedbfd', 'data': '20FFFA05FF00FFFF', 'priority': '6', 'dgn_h': '1FE', 'dgn_l': 'DB', 'dgn': '1FEDB', 'source_id': 'FD', 'name': 'DC_DIMMER_COMMAND_2', 'instance': 32, 'group': '11111111', 'desired_level': 125.0, 'command': 5, 'command_definition': 'toggle', 'delay_duration': 255, 'interlock': '00', 'interlock_definition': 'no interlock active'}
-    """
-
-    def _rvc_light_off(self):
-        # 01 00 FA 00 03 FF 0000
-        msg_bytes = bytearray(8)
-        struct.pack_into("<BBBBBBB", msg_bytes, 0, self.rvc_instance, int(
-            self.rvc_group, 2), 251, 3, 0, 0, 0)
-        self.send_queue.put({"dgn": "1FEDB", "data": msg_bytes})
-
-    def _rvc_light_on(self):
-
-        # 01 00 FA 00 01 FF 0000
-        msg_bytes = bytearray(8)
-        struct.pack_into("<BBBBBBB", msg_bytes, 0, self.rvc_instance, int(
-            self.rvc_group, 2), 251, 1, 0xFF, 0, 0)
-        self.send_queue.put({"dgn": "1FEDB", "data": msg_bytes})
-
-    def _rvc_light_toggle(self):
-
-        msg_bytes = bytearray(8)
-        struct.pack_into("<BBBBBBBB", msg_bytes, 0, self.rvc_instance, int(
-            self.rvc_group, 2), 250, 5, 0xFF, 0, 0xFF, 0xFF)
-        self.send_queue.put({"dgn": "1FEDB", "data": msg_bytes})
+        #if topic == self.command_topic:
+        #    else:
+        #        self.Logger.warning(
+        #            f"Invalid payload {payload} for topic {topic}")
 
     def initialize(self):
         """ Optional function
@@ -213,34 +279,3 @@ class Generator_GENERATOR_STATUS_1(EntityPluginBaseClass):
 
         """
 
-        # produce the HA MQTT discovery config json
-        config = {"name": self.name,
-                  "state_topic": self.status_topic,
-                  #"command_topic": self.command_topic,
-                  "qos": 1, "retain": False,
-                  "payload_on": "Running",
-                  "payload_off": "Stopped",
-                  "unique_id": self.unique_device_id,
-                  "device": self.device}
-
-        config.update(self.get_availability_discovery_info_for_ha())
-
-        config_json = json.dumps(config)
-
-        ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
-            self.unique_device_id, "dimmer_switch")
-
-        # publish info to mqtt
-        self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_topic, self.state, retain=True)
-
-        # request dgn report - this should trigger that dimmer to report
-        # dgn = 1FEDA which is actually  DA FE 01 <instance> FF 00 00 00
-        self.Logger.debug("Sending Request for DGN")
-        msg_bytes = bytearray(8)
-        struct.pack_into("<BBBBBBBB", msg_bytes, 0, 0xDA,
-            0xFE, 1, self.rvc_instance, 0, 0, 0, 0)
-
-        self.send_queue.put({"dgn": "0EAFF", "data": msg_bytes})

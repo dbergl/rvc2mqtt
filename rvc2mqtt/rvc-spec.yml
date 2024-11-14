@@ -3432,6 +3432,15 @@ API_VERSION: 0
     - byte: 6
       name: operating state
       unit: uint8
+      values:
+        0: undefined
+        1: do not charge
+        2: bulk
+        3: absorption
+        4: overcharge
+        5: equalize
+        6: float
+        7: constant voltage / current
     - byte: 7
       bit: 0-1
       name: power-up state

@@ -351,7 +351,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 # Fault_code 4095 actually means "No Fault" so publish "" instead
                 self.mqtt_support.client.publish(
                     self.dm_rv_fault_code_topic,
-                    "" if self._fault_code == "4095" else str(self._fault_code),
+                    "00" if self._fault_code == "4095" else str(self._fault_code),
                     retain=True)
 
                 self.mqtt_support.client.publish(
