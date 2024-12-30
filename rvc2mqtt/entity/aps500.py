@@ -134,8 +134,15 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         if 'status_topic' in data:
             topic_base= str(data['status_topic'])
-
             self.reset_command_topic = str(f"{topic_base}/reset")
+        else:
+            self.command_topic = mqtt_support.make_device_topic_string(
+                self.id, None, False)
+
+        self.mqtt_support.register(self.reset_command_topic, self.process_mqtt_msg)
+
+        if 'status_topic' in data:
+            topic_base= str(data['status_topic'])
 
             # DC_SOURCE_STATUS_1
             #dc_voltage
@@ -367,30 +374,42 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         return False
 
-    def process_mqtt_msg(self, topic, payload):
-        self.Logger.debug(
-            f"MQTT Msg Received on topic {topic} with payload {payload}")
-
-        if topic == self.reset_command_topic:
-            try:
-                reset_aps()
-            except Exception as e:
-                self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
-        else:
-            self.Logger.warning(
-            f"Invalid payload {payload} for topic {topic}")
-
     def reset_aps(self):
         """
         Sends GENERAL_RESET dgn = 17F00 to the APS-500
         Only sends reset message
         """
-        self.Logger.debug("Sending reset message")
+        self.Logger.debug("Sending GENERAL_RESET message")
         msg_bytes = bytearray(8)
-        struct.pack_into("<BBBBBBBB", msg_bytes, 0, 1,
-            0, 0, 0, 0, 0, 0, 0)
+        struct.pack_into("<BBBBBBBB", msg_bytes, 0, 0x05,
+            0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
 
         self.send_queue.put({"dgn": "17F80", "data": msg_bytes})
+
+    def reboot_aps(self):
+        """
+        Sends $RBT: to TERMINAL dgn = 17E80 to the APS-500
+        $RBT:@ = 24 52 42 54 3A 40
+        """
+        self.Logger.debug("Sending reboot ASCII message")
+        msg_bytes = bytearray(8)
+        struct.pack_into("<BBBBBBBB", msg_bytes, 0, 0x24,
+            0x52, 0x42, 0x54, 0x3A, 0x40, 0xFF, 0xFF)
+
+        self.send_queue.put({"dgn": "17E80", "data": msg_bytes})
+
+    def process_mqtt_msg(self, topic, payload):
+        self.Logger.info(
+            f"MQTT Msg Received on topic {topic} with payload {payload}")
+
+        if topic == self.reset_command_topic:
+            try:
+                self.reset_aps()
+            except Exception as e:
+                self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+        else:
+            self.Logger.warning(
+            f"Invalid payload {payload} for topic {topic}")
 
     def refresh(self):
         """
@@ -404,7 +423,6 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             0xFF, 1, 0xFF, 0, 0, 0, 0)
 
         self.send_queue.put({"dgn": "0EA80", "data": msg_bytes})
-
 
     def initialize(self):
         """ Optional function

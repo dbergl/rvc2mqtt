@@ -71,6 +71,7 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
             self.rvc_group = data['group']
         self.name = data['instance_name']
         self.state = "unknown"
+        self.messagestate = "unknown"
 
         self.device = {"manufacturer": "RV-C",
                        "via_device": self.mqtt_support.get_bridge_ha_name(),
@@ -90,17 +91,20 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         if self._is_entry_match(self.rvc_match_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
             if new_message["operating_status_brightness"] != 0.0:
-                self.state = DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_ON
+                self.messagestate = DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_ON
             elif new_message["operating_status_brightness"] == 0.0:
-                self.state = DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_OFF
+                self.messagestate = DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_OFF
             else:
-                self.state = "UNEXPECTED(" + \
+                self.messagestate = "UNEXPECTED(" + \
                     str(new_message["operating_status"]) + ")"
                 self.Logger.error(
                     f"Unexpected RVC value {str(new_message['operating_status_brightness'])}")
 
-            self.mqtt_support.client.publish(
-                self.status_topic, self.state, retain=True)
+            # Only publish if the state has changed
+            if self.messagestate != self.state:
+                self.mqtt_support.client.publish(
+                    self.status_topic, self.messagestate, retain=True)
+                self.state = self.messagestate
             return True
 
         elif self._is_entry_match(self.rvc_match_command, new_message):
