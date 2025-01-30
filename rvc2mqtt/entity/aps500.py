@@ -23,6 +23,7 @@ import queue
 import logging
 import struct
 import json
+import time
 from rvc2mqtt.mqtt import MQTT_Support
 from rvc2mqtt.entity import EntityPluginBaseClass
 
@@ -93,6 +94,8 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         self.rvc_match_dm_rv = {'name': 'DM_RV', 'source_id': str(data['source_id'])}
 
+        self.rvc_match_terminal = {'name': 'TERMINAL', 'source_id': str(data['source_id'])}
+
         self.Logger.debug(f"Must match: {str(self.rvc_match_source_status_1)}")
 
         self.name = data['instance_name']
@@ -132,14 +135,19 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         self._fault_description = "unknown"
         self._lamp = "unknown"
 
-        if 'status_topic' in data:
-            topic_base= str(data['status_topic'])
+        #TERMINAL
+        self._response = ""
+
+        if 'command_topic' in data:
+            topic_base= str(data['command_topic'])
             self.reset_command_topic = str(f"{topic_base}/reset")
+            self.override_command_topic = str(f"{topic_base}/override")
         else:
             self.command_topic = mqtt_support.make_device_topic_string(
                 self.id, None, False)
 
         self.mqtt_support.register(self.reset_command_topic, self.process_mqtt_msg)
+        self.mqtt_support.register(self.override_command_topic, self.process_mqtt_msg)
 
         if 'status_topic' in data:
             topic_base= str(data['status_topic'])
@@ -183,6 +191,9 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             self.dm_rv_fault_code_topic = str(f"{topic_base}/fault/code")
             self.dm_rv_fault_description_topic = str(f"{topic_base}/fault/description")
             self.dm_rv_lamp_topic = str(f"{topic_base}/fault/lamp")
+
+            #TERMINAL
+            self.terminal_response_topic = str(f"{topic_base}/response")
 
             # ???
             self.max_charging_current_topic = str(f"{topic_base}/max_charging_current")
@@ -392,24 +403,93 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         $RBT:@ = 24 52 42 54 3A 40
         """
         self.Logger.debug("Sending reboot ASCII message")
-        msg_bytes = bytearray(8)
-        struct.pack_into("<BBBBBBBB", msg_bytes, 0, 0x24,
-            0x52, 0x42, 0x54, 0x3A, 0x40, 0xFF, 0xFF)
+
+        msg_bytes = bytearray(b'$RBT:@\xff\xff')
 
         self.send_queue.put({"dgn": "17E80", "data": msg_bytes})
+
+    def cap_max_current(self):
+        """
+        Sends:
+            $SCA: 0,100,0.31,0.23,0.00,0,0,0,10000,0,0,30,8,6@
+        """
+
+    def override_bms_control(self):
+        """
+        Sends:
+            $CCN: 0,1,120, 2,1,1,0,201,0,0,13.4,0   <-- Sets to constant voltage charging on fault instead of disabled
+        """
+        self.Logger.debug("Sending $CCN Override ASCII message")
+
+        msg_bytes_a = bytearray(b'$CCN: 0,')
+        msg_bytes_b = bytearray(b'1,120, 2')
+        msg_bytes_c = bytearray(b',1,1,0,2')
+        msg_bytes_d = bytearray(b'01,0,0,1')
+        msg_bytes_e = bytearray(b'3.40,0\x0d\x0a')
+
+        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_a})
+        time.sleep(.10)
+        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_b})
+        time.sleep(.10)
+        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_c})
+        time.sleep(.10)
+        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_d})
+        time.sleep(.10)
+        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_e})
+        time.sleep(.10)
+
+
+    def use_bms_control(self):
+        """
+        Sends:
+            $CCN: 0,1,120, 2,1,1,0,201,0,0,0.0,0@    <-- Sets back to restart on Fault. AKA Jayco default setting
+        """
+        self.Logger.debug("Sending $CCN Jayco Default ASCII message")
+
+        msg_bytes_aa = bytearray(b'$CCN: 0,')
+        msg_bytes_ba = bytearray(b'1,120, 2')
+        msg_bytes_ca = bytearray(b',1,1,0,2')
+        msg_bytes_da = bytearray(b'01,0,0,0')
+        msg_bytes_ea = bytearray(b'.0,0\x0d\x0a\xff\xff')
+
+        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_aa})
+        time.sleep(.10)
+        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_ba})
+        time.sleep(.10)
+        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_ca})
+        time.sleep(.10)
+        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_da})
+        time.sleep(.10)
+        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_ea})
+        time.sleep(.10)
 
     def process_mqtt_msg(self, topic, payload):
         self.Logger.info(
             f"MQTT Msg Received on topic {topic} with payload {payload}")
+        match topic:
+            case self.reset_command_topic:
+                try:
+                    match payload:
+                        case '1':
+                            self.reboot_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
 
-        if topic == self.reset_command_topic:
-            try:
-                self.reset_aps()
-            except Exception as e:
-                self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
-        else:
-            self.Logger.warning(
-            f"Invalid payload {payload} for topic {topic}")
+            case self.override_command_topic:
+                try:
+                    match payload:
+                        case '0':
+                            self.use_bms_control()
+                        case '1':
+                            self.override_bms_control()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
 
     def refresh(self):
         """

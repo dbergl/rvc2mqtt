@@ -54,12 +54,6 @@ class TemperatureSensor_THERMOSTAT_AMBIENT_STATUS(EntityPluginBaseClass):
         if 'status_topic' in data:
             self.status_topic = str(data['status_topic'])
 
-        if 'status_tempf_topic' in data:
-            self.status_tempf_topic = str(data['status_tempf_topic'])
-        else:
-            self.status_tempf_topic = mqtt_support.make_device_topic_string(self.id, "tempf", True)
-
-
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
         is of interest to this object.
