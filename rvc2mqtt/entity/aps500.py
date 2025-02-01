@@ -2,7 +2,7 @@
 DC system sensor from DC_SOURCE_STATUS_G12
 
 
-Copyright 2022 Sean Brogan
+Copyright 2025 Dan Berglund
 SPDX-License-Identifier: Apache-2.0
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -135,19 +135,20 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         self._fault_description = "unknown"
         self._lamp = "unknown"
 
-        #TERMINAL
-        self._response = ""
-
         if 'command_topic' in data:
             topic_base= str(data['command_topic'])
             self.reset_command_topic = str(f"{topic_base}/reset")
-            self.override_command_topic = str(f"{topic_base}/override")
+            self.reboot_command_topic = str(f"{topic_base}/reboot")
+            self.lowtempoverride_command_topic = str(f"{topic_base}/danger/lowtempoverride")
+            self.ignorefaults_command_topic = str(f"{topic_base}/danger/ignorefaults")
+            self.cap_command_topic = str(f"{topic_base}/danger/capwatts")
         else:
             self.command_topic = mqtt_support.make_device_topic_string(
                 self.id, None, False)
 
         self.mqtt_support.register(self.reset_command_topic, self.process_mqtt_msg)
-        self.mqtt_support.register(self.override_command_topic, self.process_mqtt_msg)
+        self.mqtt_support.register(self.ignorefaults_command_topic, self.process_mqtt_msg)
+        self.mqtt_support.register(self.cap_command_topic, self.process_mqtt_msg)
 
         if 'status_topic' in data:
             topic_base= str(data['status_topic'])
@@ -194,6 +195,9 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
             #TERMINAL
             self.terminal_response_topic = str(f"{topic_base}/response")
+            self.ignorefaults_status_topic = str(f"{topic_base}/danger/ignorefaults")
+            self.cap_status_topic = str(f"{topic_base}/danger/capwatts")
+
 
             # ???
             self.max_charging_current_topic = str(f"{topic_base}/max_charging_current")
@@ -383,7 +387,28 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
             return True
 
+        if self._is_entry_match(self.rvc_match_terminal, new_message):
+            self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+
+            self.mqtt_support.client.publish(
+                self.terminal_response_topic, bytearray.fromhex(new_message["data"]).decode(), retain=True)
+
+            return True
+
         return False
+
+
+    def send_terminal_message(self, message: list):
+        """
+        Expects a list of bytearray and then clears Response and sends the messages
+        """
+        self.mqtt_support.client.publish(
+            self.terminal_response_topic, "", retain=True)
+
+        for msg_bytes in message:
+            self.send_queue.put({"dgn": "17E80", "data": msg_bytes})
+            time.sleep(.10)
+
 
     def reset_aps(self):
         """
@@ -397,6 +422,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         self.send_queue.put({"dgn": "17F80", "data": msg_bytes})
 
+
     def reboot_aps(self):
         """
         Sends $RBT: to TERMINAL dgn = 17E80 to the APS-500
@@ -404,70 +430,80 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         """
         self.Logger.debug("Sending reboot ASCII message")
 
-        msg_bytes = bytearray(b'$RBT:@\xff\xff')
+        message = [bytearray(b'$RBT:@\xff\xff')]
 
-        self.send_queue.put({"dgn": "17E80", "data": msg_bytes})
+        self.send_terminal_message(message)
 
-    def cap_max_current(self):
+
+    def cap_max_watts(self, cap: bool):
         """
         Sends:
-            $SCA: 0,100,0.31,0.23,0.00,0,0,0,10000,0,0,30,8,6@
+            cap == True:  $SCA: 0,100,0.31,0.23,0.00,0,0,1000,10000,0,0,30,8,6\x0d\x0a
+            cap == False: $SCA: 0,100,0.31,0.23,0.00,0,0,0,10000,0,0,30,8,6\x0d\x0a
         """
+        message = []
+        message.append(bytearray(b'$SCA: 0,'))
+        message.append(bytearray(b'100,0.31'))
+        message.append(bytearray(b',0.23,0.'))
 
-    def override_bms_control(self):
+        if cap:
+            self.Logger.debug("Sending $SCA Override ASCII message")
+
+            message.append(bytearray(b'00,0,0,6'))
+            message.append(bytearray(b'45,10000'))
+            message.append(bytearray(b',0,0,30,'))
+            message.append(bytearray(b'8,6\x0d\x0a\xff\xff\xff'))
+        else:
+            self.Logger.debug("Sending Default Jayco $SCA ASCII message")
+
+            message.append(bytearray(b'00,0,0,0'))
+            message.append(bytearray(b',10000,0'))
+            message.append(bytearray(b',0,30,8,'))
+            message.append(bytearray(b'6\x0d\x0a\xff\xff\xff\xff\xff'))
+
+        self.send_terminal_message(message)
+
+
+    def ignore_bms_faults(self, override: bool):
         """
         Sends:
-            $CCN: 0,1,120, 2,1,1,0,201,0,0,13.4,0   <-- Sets to constant voltage charging on fault instead of disabled
+            True : $CCN: 0,1,120, 2,1,1,0,201,0,0,13.4,0\x0d\x0a  <-- Sets to constant voltage charging on fault instead of disabled
+            False: $CCN: 0,1,120, 2,1,1,0,201,0,0,0.0,0\x0d\x0a  <-- Sets to constant voltage charging on fault instead of disabled
         """
         self.Logger.debug("Sending $CCN Override ASCII message")
 
-        msg_bytes_a = bytearray(b'$CCN: 0,')
-        msg_bytes_b = bytearray(b'1,120, 2')
-        msg_bytes_c = bytearray(b',1,1,0,2')
-        msg_bytes_d = bytearray(b'01,0,0,1')
-        msg_bytes_e = bytearray(b'3.40,0\x0d\x0a')
+        message = []
+        message.append(bytearray(b'$CCN: 0,'))
+        message.append(bytearray(b'1,120, 2'))
+        message.append(bytearray(b',1,1,0,2'))
 
-        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_a})
-        time.sleep(.10)
-        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_b})
-        time.sleep(.10)
-        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_c})
-        time.sleep(.10)
-        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_d})
-        time.sleep(.10)
-        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_e})
-        time.sleep(.10)
+        if override:
+            message.append(bytearray(b'01,0,0,1'))
+            message.append(bytearray(b'3.40,0\x0d\x0a'))
 
+        else:
+            message.append(bytearray(b'01,0,0,0'))
+            message.append(bytearray(b'.0,0\x0d\x0a\xff\xff'))
 
-    def use_bms_control(self):
-        """
-        Sends:
-            $CCN: 0,1,120, 2,1,1,0,201,0,0,0.0,0@    <-- Sets back to restart on Fault. AKA Jayco default setting
-        """
-        self.Logger.debug("Sending $CCN Jayco Default ASCII message")
+        self.send_terminal_message(message)
 
-        msg_bytes_aa = bytearray(b'$CCN: 0,')
-        msg_bytes_ba = bytearray(b'1,120, 2')
-        msg_bytes_ca = bytearray(b',1,1,0,2')
-        msg_bytes_da = bytearray(b'01,0,0,0')
-        msg_bytes_ea = bytearray(b'.0,0\x0d\x0a\xff\xff')
-
-        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_aa})
-        time.sleep(.10)
-        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_ba})
-        time.sleep(.10)
-        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_ca})
-        time.sleep(.10)
-        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_da})
-        time.sleep(.10)
-        self.send_queue.put({"dgn": "17E80", "data": msg_bytes_ea})
-        time.sleep(.10)
 
     def process_mqtt_msg(self, topic, payload):
         self.Logger.info(
             f"MQTT Msg Received on topic {topic} with payload {payload}")
         match topic:
             case self.reset_command_topic:
+                try:
+                    match payload:
+                        case '1':
+                            self.reset_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.reboot_command_topic:
                 try:
                     match payload:
                         case '1':
@@ -478,13 +514,26 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 except Exception as e:
                     self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
 
-            case self.override_command_topic:
+            case self.ignorefaults_command_topic:
                 try:
                     match payload:
                         case '0':
-                            self.use_bms_control()
+                            self.ignore_bms_faults(False)
                         case '1':
-                            self.override_bms_control()
+                            self.ignore_bms_faults(True)
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.cap_command_topic:
+                try:
+                    match payload:
+                        case '0':
+                            self.cap_max_watts(False)
+                        case '1':
+                            self.cap_max_watts(True)
                         case _:
                             self.Logger.warning(
                             f"Invalid payload {payload} for topic {topic}")
@@ -512,6 +561,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         This can be a good place to request data
         """
+
+        self.mqtt_support.client.publish(
+            self.ignorefaults_status_topic, "unknown", retain=True)
+
+        self.mqtt_support.client.publish(
+            self.cap_status_topic, "unknown", retain=True)
 
         # request dgn report - this should trigger this device to report
         # dgn = 1FFC6 which is actually  C6 FF 01 <instance> 00 00 00 00

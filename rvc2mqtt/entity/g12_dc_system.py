@@ -1,8 +1,8 @@
 """
-DC system sensor from DC_SOURCE_STATUS_G12
+Firefly G12 DC system from DC_SOURCE_STATUS_G12
 
 
-Copyright 2022 Sean Brogan
+Copyright 2025 Dan Berglund
 SPDX-License-Identifier: Apache-2.0
 
 Licensed under the Apache License, Version 2.0 (the "License");

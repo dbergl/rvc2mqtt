@@ -213,6 +213,7 @@ class HvacClass(EntityPluginBaseClass):
         if 'status_topic' in data and 'command_topic' in data:
 
             self.status_topic = str(data['status_topic'])
+            self.command_topic = str(data['command_topic'])
             # Allow MQTT to control mode
             self.status_mode_topic = str(f"{self.status_topic}/mode")
             self.command_mode_topic = str(f"{self.command_topic}/mode")

@@ -1,7 +1,7 @@
 """
-A dimmer switch
+A firefly tank warmer which is just a dimmer contact
 
-Copyright 2022 Sean Brogan
+Copyright 2025 Dan Berglund
 SPDX-License-Identifier: Apache-2.0
 
 Licensed under the Apache License, Version 2.0 (the "License");

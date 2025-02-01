@@ -42,7 +42,7 @@ class CAN_Watcher(threading.Thread):
     def run(self):
         while not self.kill_received:
             message = self.bus.recv(.25)  # read messages from a canbus
-            if message is not None:
+            if message is not None and not message.is_error_frame:
                 self.rx.put(message)  # Put message into queue
 
             if not self.tx.empty():   # pending message to send
