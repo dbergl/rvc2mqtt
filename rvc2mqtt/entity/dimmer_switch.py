@@ -114,7 +114,7 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
             return True
         return False
 
-    def process_mqtt_msg(self, topic, payload):
+    def process_mqtt_msg(self, topic, payload, properties = None):
         self.Logger.info(
             f"MQTT Msg Received on topic {topic} with payload {payload}")
 

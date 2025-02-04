@@ -260,7 +260,7 @@ class SolarController_SOLAR_CONTROLLER_STATUS(EntityPluginBaseClass):
         #    return True
         return False
 
-    def process_mqtt_msg(self, topic, payload):
+    def process_mqtt_msg(self, topic, payload, properties = None):
         self.Logger.info(
             f"MQTT Msg Received on topic {topic} with payload {payload}")
 

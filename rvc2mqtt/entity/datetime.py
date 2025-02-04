@@ -162,7 +162,7 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         struct.pack_into("<BBBBBBBB", msg_bytes, 0, year, month, day, rvc_day_of_week, hour, minute, second, timezone )
         return msg_bytes
 
-    def process_mqtt_msg(self, topic, payload):
+    def process_mqtt_msg(self, topic, payload, properties = None):
         self.Logger.debug(
             f"MQTT Msg Received on topic {topic} with payload {payload}")
 

@@ -395,7 +395,7 @@ class HvacClass(EntityPluginBaseClass):
         return msg_bytes
 
 
-    def process_mqtt_msg(self, topic, payload):
+    def process_mqtt_msg(self, topic, payload, properties = None):
         """ Read mqtt incoming command message
 
             convert the new value into entity format

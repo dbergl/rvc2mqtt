@@ -102,7 +102,7 @@ class LightSwitch_DC_LOAD_STATUS(EntityPluginBaseClass):
             return True
         return False
 
-    def process_mqtt_msg(self, topic, payload):
+    def process_mqtt_msg(self, topic, payload, properties = None):
         self.Logger.debug(
             f"MQTT Msg Received on topic {topic} with payload {payload}")
 
