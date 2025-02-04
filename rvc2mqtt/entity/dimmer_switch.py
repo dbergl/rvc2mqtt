@@ -46,8 +46,8 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         self.Logger = logging.getLogger(__class__.__name__)
 
         # Allow MQTT to control light
-        if 'status_topic' in data:
-            self.command_topic = str(f"{data['status_topic']}/set")
+        if 'command_topic' in data:
+            self.command_topic = str(data['command_topic'])
         else:
             self.command_topic = mqtt_support.make_device_topic_string(
                 self.id, None, False)
@@ -114,7 +114,7 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
             return True
         return False
 
-    def process_mqtt_msg(self, topic, payload):
+    def process_mqtt_msg(self, topic, payload, properties = None):
         self.Logger.info(
             f"MQTT Msg Received on topic {topic} with payload {payload}")
 

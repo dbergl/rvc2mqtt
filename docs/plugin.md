@@ -104,5 +104,5 @@ any topic of interest.  This subscription requires a callback.
 The callback has a function prototype like
 
 ```python
-def process_mqtt_msg(self, topic, payload):
+def process_mqtt_msg(self, topic, payload, properties = None):
 ```

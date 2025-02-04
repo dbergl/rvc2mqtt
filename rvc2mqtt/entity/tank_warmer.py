@@ -112,7 +112,7 @@ class TankWarmer_DC_LOAD_STATUS(EntityPluginBaseClass):
         
         return False
 
-    def process_mqtt_msg(self, topic, payload):
+    def process_mqtt_msg(self, topic, payload, properties = None):
         '''
         turn off -
         {'arbitration_id': '0x19ffbc44', 'data': '2200FA0001FF0000', 

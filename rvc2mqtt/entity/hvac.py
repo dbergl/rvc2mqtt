@@ -210,24 +210,25 @@ class HvacClass(EntityPluginBaseClass):
                        "model": "RV-C Thermostat from THERMOSTAT_STATUS_1"
                        }
 
-        if 'status_topic' in data:
+        if 'status_topic' in data and 'command_topic' in data:
 
             self.status_topic = str(data['status_topic'])
+            self.command_topic = str(data['command_topic'])
             # Allow MQTT to control mode
             self.status_mode_topic = str(f"{self.status_topic}/mode")
-            self.command_mode_topic = str(f"{self.status_topic}/mode/set")
+            self.command_mode_topic = str(f"{self.command_topic}/mode")
 
             # Allow MQTT to control fan mode
             self.status_fan_mode_topic = str(f"{self.status_topic}/fan_mode")
-            self.command_fan_mode_topic = str(f"{self.status_topic}/fan_mode/set")
+            self.command_fan_mode_topic = str(f"{self.command_topic}/fan_mode")
 
             # Allow MQTT to control the target temperature
             self.status_set_point_temp_topic = str(f"{self.status_topic}/set_point_temperature")
-            self.command_set_point_temp_topic = str(f"{self.status_topic}/set_point_temperature/set")
+            self.command_set_point_temp_topic = str(f"{self.command_topic}/set_point_temperature")
 
             # Allow MQTT to control the target temperature in f
             self.status_set_point_tempf_topic = str(f"{self.status_topic}/set_point_temperaturef")
-            self.command_set_point_tempf_topic = str(f"{self.status_topic}/set_point_temperaturef/set")
+            self.command_set_point_tempf_topic = str(f"{self.command_topic}/set_point_temperaturef")
         else:
             # Allow MQTT to control mode
             self.status_mode_topic = mqtt_support.make_device_topic_string(self.id, "mode", True)
@@ -394,7 +395,7 @@ class HvacClass(EntityPluginBaseClass):
         return msg_bytes
 
 
-    def process_mqtt_msg(self, topic, payload):
+    def process_mqtt_msg(self, topic, payload, properties = None):
         """ Read mqtt incoming command message
 
             convert the new value into entity format

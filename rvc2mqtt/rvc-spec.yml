@@ -4628,6 +4628,10 @@ Z0005:
   comment: Broadcast in Ethos 20DL
   name: UNKNOWN-0ECFF
 
+0EEFF:
+  comment: Broadcast by APS-500 in Ethol 20DL
+  name: UNKNOWN-0EEFF
+
 0FF01:
   comment: Broadcast in Ethos 20DL
   name: UNKNOWN-0FF01

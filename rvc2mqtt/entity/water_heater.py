@@ -288,7 +288,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
             return True
         return False
 
-    def process_mqtt_msg(self, topic, payload):
+    def process_mqtt_msg(self, topic, payload, properties = None):
         """ mqtt message:
                 Turn Gas On/Off
                 Turn AC element On/Off

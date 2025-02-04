@@ -64,8 +64,8 @@ class Generator_GENERATOR_STATUS_1(EntityPluginBaseClass):
         self.Logger = logging.getLogger(__class__.__name__)
 
         ## Allow MQTT to Generator
-        #if 'status_topic' in data:
-        #    self.command_topic = str(f"{data['status_topic']}/set")
+        #if 'command_topic' in data:
+        #    self.command_topic = str(['status_topic'])
         #else:
         #    self.command_topic = mqtt_support.make_device_topic_string(
         #        self.id, None, False)
@@ -133,7 +133,7 @@ class Generator_GENERATOR_STATUS_1(EntityPluginBaseClass):
         #    return True
         return False
 
-    def process_mqtt_msg(self, topic, payload):
+    def process_mqtt_msg(self, topic, payload, properties = None):
         self.Logger.info(
             f"MQTT Msg Received on topic {topic} with payload {payload}")
 

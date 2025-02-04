@@ -44,8 +44,8 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         self.Logger = logging.getLogger(__class__.__name__)
 
         # Allow MQTT to set the time
-        if 'status_topic' in data:
-            self.command_topic = str(f"{data['status_topic']}/set")
+        if 'command_topic' in data:
+            self.command_topic = str(data['command_topic'])
         else:
             self.command_topic = mqtt_support.make_device_topic_string(
             self.id, None, False)
@@ -162,7 +162,7 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         struct.pack_into("<BBBBBBBB", msg_bytes, 0, year, month, day, rvc_day_of_week, hour, minute, second, timezone )
         return msg_bytes
 
-    def process_mqtt_msg(self, topic, payload):
+    def process_mqtt_msg(self, topic, payload, properties = None):
         self.Logger.debug(
             f"MQTT Msg Received on topic {topic} with payload {payload}")
 

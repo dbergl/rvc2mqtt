@@ -2,7 +2,7 @@
 DC system sensor from DC_SOURCE_STATUS_G12
 
 
-Copyright 2022 Sean Brogan
+Copyright 2025 Dan Berglund
 SPDX-License-Identifier: Apache-2.0
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,8 +23,11 @@ import queue
 import logging
 import struct
 import json
+import time
 from rvc2mqtt.mqtt import MQTT_Support
 from rvc2mqtt.entity import EntityPluginBaseClass
+from paho.mqtt.properties import Properties
+from paho.mqtt.packettypes import PacketTypes
 
 
 class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
@@ -93,6 +96,8 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         self.rvc_match_dm_rv = {'name': 'DM_RV', 'source_id': str(data['source_id'])}
 
+        self.rvc_match_terminal = {'name': 'TERMINAL', 'source_id': str(data['source_id'])}
+
         self.Logger.debug(f"Must match: {str(self.rvc_match_source_status_1)}")
 
         self.name = data['instance_name']
@@ -132,14 +137,23 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         self._fault_description = "unknown"
         self._lamp = "unknown"
 
-        if 'status_topic' in data:
-            topic_base= str(data['status_topic'])
+        self._terminal_message_call = {}
+
+        if 'command_topic' in data:
+            topic_base= str(data['command_topic'])
             self.reset_command_topic = str(f"{topic_base}/reset")
+            self.reboot_command_topic = str(f"{topic_base}/reboot")
+            self.lowtempoverride_command_topic = str(f"{topic_base}/danger/lowtempoverride")
+            self.ignorefaults_command_topic = str(f"{topic_base}/danger/ignorefaults")
+            self.capwatts_command_topic = str(f"{topic_base}/danger/capwatts")
         else:
             self.command_topic = mqtt_support.make_device_topic_string(
                 self.id, None, False)
 
         self.mqtt_support.register(self.reset_command_topic, self.process_mqtt_msg)
+        self.mqtt_support.register(self.reboot_command_topic, self.process_mqtt_msg)
+        self.mqtt_support.register(self.ignorefaults_command_topic, self.process_mqtt_msg)
+        self.mqtt_support.register(self.capwatts_command_topic, self.process_mqtt_msg)
 
         if 'status_topic' in data:
             topic_base= str(data['status_topic'])
@@ -188,7 +202,10 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             self.max_charging_current_topic = str(f"{topic_base}/max_charging_current")
             self.max_charging_current_pct_topic = str(f"{topic_base}/max_charging_current_pct")
 
-            self.faults_topic = str(f"{topic_base}/faults")
+            self.override_status_topic = str(f"{topic_base}/danger/overridestatus")
+            self.ignorefaults_status_topic = str(f"{topic_base}/danger/ignorefaults")
+            self.capwatts_status_topic = str(f"{topic_base}/danger/capwatts")
+
         else:
             self.status_dc_voltage_topic = mqtt_support.make_device_topic_string(self.id, "dc_voltage", True)
             self.status_dc_current_topic = mqtt_support.make_device_topic_string(self.id, "dc_current", True)
@@ -372,7 +389,44 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
             return True
 
+        if self._is_entry_match(self.rvc_match_terminal, new_message):
+            self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+   
+            # Set CorrelationData and ResponseTopic
+            messageproperties = Properties(PacketTypes.PUBLISH)
+            if self._terminal_message_call["properties"] is not None:
+                messageproperties.CorrelationData = self._terminal_message_call["properties"].CorrelationData
+            messageproperties.ResponseTopic = self._terminal_message_call["responsetopic"]
+
+            response_timestamp = time.time()
+            if response_timestamp > self._terminal_message_call["timestamp"] and response_timestamp - self._terminal_message_call["timestamp"] < 10.0:
+                if (bytearray.fromhex(new_message["data"]).decode()).rstrip() == "AOK;":
+                    self.mqtt_support.client.publish(topic=self._terminal_message_call["responsetopic"],
+                        payload=self._terminal_message_call["payload"], retain=True, properties=messageproperties)
+                    # Clear the messages since we are done with them
+
+                    self._terminal_message_call = {}
+
+                    return True
+
+                else:
+                    # Maybe some sort of retry?
+                    print(f"Possible unrelated message? {bytearray.fromhex(new_message["data"]).decode().rstrip()}")
+                    return True
+
+            return True
+
         return False
+
+
+    def send_terminal_message(self, message: list):
+        """
+        Expects a list of bytearray
+        """
+        for msg_bytes in message:
+            self.send_queue.put({"dgn": "17E80", "data": msg_bytes})
+            time.sleep(.10)
+
 
     def reset_aps(self):
         """
@@ -386,30 +440,134 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         self.send_queue.put({"dgn": "17F80", "data": msg_bytes})
 
+
     def reboot_aps(self):
         """
         Sends $RBT: to TERMINAL dgn = 17E80 to the APS-500
         $RBT:@ = 24 52 42 54 3A 40
         """
         self.Logger.debug("Sending reboot ASCII message")
-        msg_bytes = bytearray(8)
-        struct.pack_into("<BBBBBBBB", msg_bytes, 0, 0x24,
-            0x52, 0x42, 0x54, 0x3A, 0x40, 0xFF, 0xFF)
 
-        self.send_queue.put({"dgn": "17E80", "data": msg_bytes})
+        message = [bytearray(b'$RBT:@\xff\xff')]
 
-    def process_mqtt_msg(self, topic, payload):
+        self.send_terminal_message(message)
+
+
+    def cap_max_watts(self, cap: bool, properties = None):
+        """
+        Sends:
+            cap == True:  $SCA: 0,100,0.31,0.23,0.00,0,0,1000,10000,0,0,30,8,6\x0d\x0a
+            cap == False: $SCA: 0,100,0.31,0.23,0.00,0,0,0,10000,0,0,30,8,6\x0d\x0a
+        """
+        message = []
+        message.append(bytearray(b'$SCA: 0,'))
+        message.append(bytearray(b'100,0.31'))
+        message.append(bytearray(b',0.23,0.'))
+
+        if cap:
+            self.Logger.debug("Sending $SCA Override ASCII message")
+
+            message.append(bytearray(b'00,0,0,6'))
+            message.append(bytearray(b'45,10000'))
+            message.append(bytearray(b',0,0,30,'))
+            message.append(bytearray(b'8,6\x0d\x0a\xff\xff\xff'))
+        else:
+            self.Logger.debug("Sending Default Jayco $SCA ASCII message")
+
+            message.append(bytearray(b'00,0,0,0'))
+            message.append(bytearray(b',10000,0'))
+            message.append(bytearray(b',0,30,8,'))
+            message.append(bytearray(b'6\x0d\x0a\xff\xff\xff\xff\xff'))
+
+        self._terminal_message_call["payload"] = 1 if cap else 0
+        self._terminal_message_call["responsetopic"] = self.capwatts_status_topic
+        self._terminal_message_call["properties"] = properties
+        self._terminal_message_call["timestamp"] = time.time()
+
+        self.send_terminal_message(message)
+
+
+    def ignore_bms_faults(self, override: bool, properties = None):
+        """
+        Sends:
+            True : $CCN: 0,1,120, 2,1,1,0,201,0,0,13.6,0\x0d\x0a  <-- Sets to constant voltage charging on fault instead of disabled
+            False: $CCN: 0,1,120, 2,1,1,0,201,0,0,0.0,0\x0d\x0a  <-- Sets to constant voltage charging on fault instead of disabled
+        """
+        self.Logger.debug("Sending $CCN Override ASCII message")
+
+        message = []
+        message.append(bytearray(b'$CCN: 0,'))
+        message.append(bytearray(b'1,120, 2'))
+        message.append(bytearray(b',1,1,0,2'))
+
+        if override:
+            message.append(bytearray(b'01,0,0,1'))
+            message.append(bytearray(b'3.60,0\x0d\x0a'))
+
+        else:
+            message.append(bytearray(b'01,0,0,0'))
+            message.append(bytearray(b'.0,0\x0d\x0a\xff\xff'))
+
+        self._terminal_message_call["payload"] = 1 if override else 0
+        self._terminal_message_call["responsetopic"] = self.ignorefaults_status_topic
+        self._terminal_message_call["properties"] = properties
+        self._terminal_message_call["timestamp"] = time.time()
+
+        self.send_terminal_message(message)
+
+
+    def process_mqtt_msg(self, topic, payload, properties = None):
         self.Logger.info(
             f"MQTT Msg Received on topic {topic} with payload {payload}")
+        match topic:
+            case self.reset_command_topic:
+                try:
+                    match payload:
+                        case '1':
+                            self.reset_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
 
-        if topic == self.reset_command_topic:
-            try:
-                self.reset_aps()
-            except Exception as e:
-                self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
-        else:
-            self.Logger.warning(
-            f"Invalid payload {payload} for topic {topic}")
+            case self.reboot_command_topic:
+                try:
+                    match payload:
+                        case '1':
+                            self.reboot_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.ignorefaults_command_topic:
+                print(f"{properties}")
+                try:
+                    match payload:
+                        case '0':
+                            self.ignore_bms_faults(False, properties)
+                        case '1':
+                            self.ignore_bms_faults(True, properties)
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.capwatts_command_topic:
+                try:
+                    match payload:
+                        case '0':
+                            self.cap_max_watts(False, properties)
+                        case '1':
+                            self.cap_max_watts(True, properties)
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
 
     def refresh(self):
         """
@@ -432,6 +590,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         This can be a good place to request data
         """
+
+        self.mqtt_support.client.publish(
+            self.ignorefaults_status_topic, "unknown", retain=True)
+
+        self.mqtt_support.client.publish(
+            self.capwatts_status_topic, "unknown", retain=True)
 
         # request dgn report - this should trigger this device to report
         # dgn = 1FFC6 which is actually  C6 FF 01 <instance> 00 00 00 00

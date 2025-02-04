@@ -19,6 +19,9 @@ limitations under the License.
 """
 import logging
 import paho.mqtt.client as mqc
+from paho.mqtt.subscribeoptions import SubscribeOptions
+from paho.mqtt.properties import Properties
+from paho.mqtt.packettypes import PacketTypes
 
 
 class MQTT_Support(object):
@@ -47,17 +50,17 @@ class MQTT_Support(object):
     def register(self, topic, func):
         self.registered_mqtt_devices[topic] = func
         if self._connected:
-            self.client.subscribe((topic,0))
+            self.client.subscribe(topic, options=SubscribeOptions(qos=0), properties=Properties(PacketTypes.SUBSCRIBE))
 
     def set_client(self, client: mqc):
         self.client = client
 
-    def on_connect(self, client, userdata, flags, rc):
+    def on_connect(self, client, userdata, flags, reason_code, properties):
         """ callback function for when it has been connected.
         Should subscribe to topics
         """
-        self.Logger.info(f"MQTT connected: {mqc.connack_string(rc)}")
-        if rc == mqc.CONNACK_ACCEPTED:
+        self.Logger.info(f"MQTT connected: {reason_code}")
+        if reason_code == 0:
             # publish topic
             self.client.publish(self.bridge_state_topic, "online", retain=True)
             
@@ -67,19 +70,19 @@ class MQTT_Support(object):
                 self.client.subscribe(topic_tuple_list)
 
         else:
-            self.Logger.critical(f"Failed to connect to mqtt broker: {mqc.connack_string(rc)}")
+            self.Logger.critical(f"Failed to connect to mqtt broker: {reason_code}")
 
-    def on_subscribe(self, client, userdata, mid, granted_qos):
+    def on_subscribe(self, client, userdata, mid, reason_codes, properties):
         pass
 
     def on_message(self, client, userdata, msg):
         if msg.topic in self.registered_mqtt_devices:
             func = self.registered_mqtt_devices[msg.topic]
-            func(msg.topic, msg.payload.decode('utf-8'))
+            func(msg.topic, msg.payload.decode('utf-8'), msg.properties)
         else:
             self.Logger.warning("Received mqtt message without a device registered '" + str(msg.payload) + "' on topic '" + msg.topic + "' with QoS " + str(msg.qos))
     
-    def on_disconnect(self, client, userdata, msg):
+    def on_disconnect(self, client, userdata, reason_code, properties):
         self.Logger.critical("MQTT disconnected")
         self._connected = False
 
@@ -138,17 +141,17 @@ class MQTT_Support(object):
 gMQTTObj:MQTT_Support = None
 
 
-def on_mqtt_connect(client, userdata, flags, rc):
-    gMQTTObj.on_connect(client, userdata, flags, rc)
+def on_mqtt_connect(client, userdata, flags, reason_code, properties):
+    gMQTTObj.on_connect(client, userdata, flags, reason_code, properties)
 
-def on_mqtt_subscribe(client, userdata, mid, granted_qos):
-    gMQTTObj.on_subscribe(client, userdata, mid, granted_qos)
+def on_mqtt_subscribe(client, userdata, mid, reason_codes, properties):
+    gMQTTObj.on_subscribe(client, userdata, mid, reason_codes, properties)
 
 def on_mqtt_message(client, userdata, msg):
     gMQTTObj.on_message(client, userdata, msg)
 
-def on_mqtt_disconnect(client, userdata, msg):
-    gMQTTObj.on_disconnect(client, userdata, msg)
+def on_mqtt_disconnect(client, userdata, flags, reason_code, properties):
+    gMQTTObj.on_disconnect(client, userdata, flags, reason_code, properties)
 
 def MqttInitalize(host:str, port:str, user:str, password:str, client_id:str, topic_base:str):
     """ main function to parse config and initialize the 
@@ -159,7 +162,7 @@ def MqttInitalize(host:str, port:str, user:str, password:str, client_id:str, top
 
     port = int(port)
     
-    mqttc = mqc.Client(mqc.CallbackAPIVersion.VERSION1, client_id=client_id, protocol=mqc.MQTTv311)
+    mqttc = mqc.Client(mqc.CallbackAPIVersion.VERSION2, client_id=client_id, protocol=mqc.MQTTv5)
     gMQTTObj.set_client(mqttc)
     mqttc.on_connect = on_mqtt_connect
     mqttc.on_subscribe = on_mqtt_subscribe
@@ -171,7 +174,8 @@ def MqttInitalize(host:str, port:str, user:str, password:str, client_id:str, top
 
     try:
         logging.getLogger(__name__).info(f"Connecting to MQTT broker {host}:{port}")
-        mqttc.connect(host, port=port)
+        connproperties = Properties(PacketTypes.CONNECT)
+        mqttc.connect(host, port=port, properties=Properties(PacketTypes.CONNECT))
         return gMQTTObj
     
     except Exception as e:
