@@ -86,8 +86,10 @@ class SolarController_SOLAR_CONTROLLER_STATUS(EntityPluginBaseClass):
             self.array_current_topic    = str(f"{topic_base}/solar-array-current")
             self.array_power_topic      = str(f"{topic_base}/solar-array-power")
             # SOLAR_CONTROLLER_BATTERY_STATUS
-            self.battery_voltage_topic  = str(f"{topic_base}/battery-voltage")
-            self.battery_current_topic  = str(f"{topic_base}/battery-current")
+            self.battery_voltage_topic        = str(f"{topic_base}/battery-voltage")
+            self.battery_current_topic        = str(f"{topic_base}/battery-current")
+            self.battery_power_topic          = str(f"{topic_base}/battery-power")
+            self.battery_temperature_topic    = str(f"{topic_base}/battery-temperature")
 
         else:
             self.operating_state_topic  = mqtt_support.make_device_topic_string(self.id, "operating-state", True)
@@ -123,21 +125,22 @@ class SolarController_SOLAR_CONTROLLER_STATUS(EntityPluginBaseClass):
         # save these for later to send rvc msg
         self.name = data['instance_name']
 
-        self.operating_state  = "unknown"
-        self.power_up_state   = "unknown"
-        self.force_charge     = "unknown"
-        self.today            = "unknown"
-        self.yesterday        = "unknown"
-        self.two_days_ago     = "unknown"
-        self.seven_day_total  = "unknown"
-        self.power_generation = "unknown"
-        self.operating_days   = "unknown"
-        self.temperature      = "unknown"
-        self.array_voltage    = "unknown"
-        self.array_current    = "unknown"
-        self.array_power      = "unknown"
-        self.battery_voltage  = "unknown"
-        self.battery_current  = "unknown"
+        self.operating_state      = "unknown"
+        self.power_up_state       = "unknown"
+        self.force_charge         = "unknown"
+        self.today                = "unknown"
+        self.yesterday            = "unknown"
+        self.two_days_ago         = "unknown"
+        self.seven_day_total      = "unknown"
+        self.power_generation     = "unknown"
+        self.operating_days       = "unknown"
+        self.temperature          = "unknown"
+        self.array_voltage        = "unknown"
+        self.array_current        = "unknown"
+        self.array_power          = "unknown"
+        self.battery_voltage      = "unknown"
+        self.battery_current      = "unknown"
+        self.battery_temperature  = "unknown"
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
@@ -250,6 +253,18 @@ class SolarController_SOLAR_CONTROLLER_STATUS(EntityPluginBaseClass):
                 self.battery_current = new_message["measured_current"]
                 self.mqtt_support.client.publish(
                     self.battery_current_topic, new_message["measured_current"], retain=True)
+
+            if new_message["measured_temperature"] != self.battery_temperature:
+                self.battery_temperature = new_message["measured_temperature"]
+                self.mqtt_support.client.publish(
+                    self.battery_temperature_topic, new_message["measured_temperature"], retain=True)
+
+            # power (watts) is calculated v * a
+            _calc_power = round(float(self.battery_voltage) * float(self.battery_current),1)
+            if self.battery_power != _calc_power:
+                self.battery_power = _calc_power
+                self.mqtt_support.client.publish(
+                    self.battery_power_topic, f"{self.battery_power}", retain=True)
 
             return True
 
