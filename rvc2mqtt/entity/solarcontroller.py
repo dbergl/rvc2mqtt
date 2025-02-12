@@ -141,6 +141,7 @@ class SolarController_SOLAR_CONTROLLER_STATUS(EntityPluginBaseClass):
         self.battery_voltage      = "unknown"
         self.battery_current      = "unknown"
         self.battery_temperature  = "unknown"
+        self.battery_power        = "unknown"
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
