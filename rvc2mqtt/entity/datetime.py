@@ -56,7 +56,7 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         self.mqtt_support.register(self.command_topic, self.process_mqtt_msg)
 
         # RVC message must match the following to be this device
-        self.rvc_match_status = { "name": "DATE_TIME_STATUS", "source_id": data['source_id']}
+        self.rvc_match_status = { "name": "DATE_TIME_STATUS" }
         self.rvc_match_command= { "name": "SET_DATE_TIME_COMMAND"}
 
         self.Logger.debug(f"Must match: {str(self.rvc_match_status)} or {str(self.rvc_match_command)}")
