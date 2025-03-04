@@ -1747,11 +1747,34 @@ API_VERSION: 0
       name: instance
       type: uint8
     - byte: 1-2
-      name: fet temperature
+      name: fet 1 temperature
       type: uint16
       unit: deg c
     - byte: 3-4
       name: transformer temperature
+      type: uint16
+      unit: deg c
+    - byte: 5-6
+      name: fet 2 temperature
+      type: uint16
+      unit: deg c
+
+1FDCB:
+  name: INVERTER_TEMPERATURE_STATUS_2
+  parameters:
+    - byte: 0
+      name: instance
+      type: uint8
+    - byte: 1-2
+      name: control/power board temperature
+      type: uint16
+      unit: deg c
+    - byte: 3-4
+      name: capacitor temperature
+      type: uint16
+      unit: deg c
+    - byte: 5-6
+      name: ambient temperature
       type: uint16
       unit: deg c
 
