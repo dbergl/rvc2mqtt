@@ -18,7 +18,6 @@ limitations under the License.
 
 """
 
-
 import queue
 import logging
 import struct
@@ -26,11 +25,11 @@ import json
 from rvc2mqtt.mqtt import MQTT_Support
 from rvc2mqtt.entity import EntityPluginBaseClass
 
-
 class Generator_GENERATOR(EntityPluginBaseClass):
     FACTORY_MATCH_ATTRIBUTES = {"name": "GENERATOR", "type": "generator"}
     """
     Dimmer switch that is tied to RVC DGN of GENERATOR_STATUS_1 and DC_DIMMER_COMMAND_2
+    Expects an instance_name of either start_trigger or stop_trigger
     """
 
     def __init__(self, data: dict, mqtt_support: MQTT_Support):
@@ -43,19 +42,16 @@ class Generator_GENERATOR(EntityPluginBaseClass):
         # Allow MQTT to control Generator
         if 'command_topic' in data:
             topic_base = f"{data['command_topic']}"
-            self.start_command_topic = str(f"{topic_base}/start_trigger")
-            self.stop_command_topic = str(f"{topic_base}/stop_trigger")
-
-            self.mqtt_support.register(self.start_command_topic, self.process_mqtt_msg)
-            self.mqtt_support.register(self.stop_command_topic, self.process_mqtt_msg)
+            self.command_topic = str(f"{topic_base}/{self.rvc_instance_name}")
+            self.mqtt_support.register(self.command_topic, self.process_mqtt_msg)
 
         if 'status_topic' in data:
             topic_base = f"{data['status_topic']}"
 
             self.status_topic = str(f"{topic_base}/status")
             self.hours_topic = str(f"{topic_base}/hours")
-            self.send_start_status_topic = str(f"{topic_base}/start_trigger")
-            self.send_stop_status_topic = str(f"{topic_base}/stop_trigger")
+            self.startstop_trigger_topic = str(f"{topic_base}/{self.rvc_instance_name}")
+
         else:
             self.status_topic = mqtt_support.make_device_topic_string(self.id, "status", True)
             self.hours_topic = mqtt_support.make_device_topic_string(self.id, "hours", True)
@@ -64,7 +60,7 @@ class Generator_GENERATOR(EntityPluginBaseClass):
         # RVC message must match the following to be this device
         self.rvc_match_status = { "name": "GENERATOR_STATUS_1" }
         self.rvc_match_command = { "name": "DC_DIMMER_COMMAND_2", "instance": self.rvc_instance }
-        self.rvc_match_command = { "name": "DC_DIMMER_STATUS_3", "instance": self.rvc_instance }
+        self.rvc_match_dimmer_status = { "name": "DC_DIMMER_STATUS_3", "instance": self.rvc_instance }
 
         self.Logger.debug(f"Must match: {str(self.rvc_match_status)} or {str(self.rvc_match_command)}")
 
@@ -75,8 +71,8 @@ class Generator_GENERATOR(EntityPluginBaseClass):
         self.name = data['instance_name']
         self.status = "unknown"
         self.run_time = "unknown"
-        self.send_start_status = "unknown"
-        self.send_stop_status = "unknown"
+        self.state = "unknown"
+        self.messagestate = "unknown"
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
@@ -104,6 +100,26 @@ class Generator_GENERATOR(EntityPluginBaseClass):
 
             return True
 
+        elif self._is_entry_match(self.rvc_match_dimmer_status, new_message):
+            self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+            if new_message["operating_status_brightness"] != 0.0:
+                self.messagestate = "on"
+            elif new_message["operating_status_brightness"] == 0.0:
+                self.messagestate = "off"
+            else:
+                self.messagestate = "UNEXPECTED(" + \
+                    str(new_message["operating_status"]) + ")"
+                self.Logger.error(
+                    f"Unexpected RVC value {str(new_message['operating_status_brightness'])}")
+
+            # Only publish if the state has changed
+            if self.messagestate != self.state:
+                self.mqtt_support.client.publish(
+                    self.startstop_trigger_topic, self.messagestate, retain=True)
+                self.state = self.messagestate
+
+            return True
+
         elif self._is_entry_match(self.rvc_match_command, new_message):
             # This is the command.  Just eat the message so it doesn't show up
             # as unhandled.
@@ -116,26 +132,17 @@ class Generator_GENERATOR(EntityPluginBaseClass):
         self.Logger.info(
             f"MQTT Msg Received on topic {topic} with payload {payload}")
 
-        if topic == self.start_command_topic and self.rvc_instance != 0:
-            print("Start received")
+        if topic == self.command_topic:
             if payload.lower() == "on":
-                print("Start received and set to on")
-                self._rvc_start_trigger_on()
+                if self.rvc_instance_name == "start_trigger":
+                    self._rvc_start_trigger_on()
+                elif self.rvc_instance_name == "stop_trigger":
+                    self._rvc_stop_trigger_on()
             elif payload.lower() == "off":
-                print("Start received and set to off")
-                self._rvc_start_trigger_off()
-            else:
-                self.Logger.warning(
-                    f"Invalid payload {payload} for topic {topic}")
-
-        if topic == self.stop_command_topic and self.rvc_instance != 0:
-            print("Stop received")
-            if payload.lower() == "on":
-                print("Stop received and set to on")
-                self._rvc_stop_trigger_on()
-            elif payload.lower() == "off":
-                print("Stop received and set to off")
-                self._rvc_stop_trigger_off()
+                if self.rvc_instance_name == "start_trigger":
+                    self._rvc_start_trigger_off()
+                elif self.rvc_instance_name == "stop_trigger":
+                    self._rvc_stop_trigger_off()
             else:
                 self.Logger.warning(
                     f"Invalid payload {payload} for topic {topic}")
@@ -148,7 +155,7 @@ class Generator_GENERATOR(EntityPluginBaseClass):
         self.send_queue.put({"dgn": "1FEDB", "data": msg_bytes})
 
     def _rvc_start_trigger_off(self):
-        # 13 FF 00 03 FF 00 FF FF 
+        # 13 FF 00 03 FF 00 FF FF
         msg_bytes = bytearray(8)
         struct.pack_into("<BBBBBBBB", msg_bytes, 0, self.rvc_instance, int(
             self.rvc_group, 2), 0, 3, 255, 0, 255, 255)
