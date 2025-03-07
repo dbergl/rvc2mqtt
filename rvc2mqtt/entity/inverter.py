@@ -68,7 +68,7 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
 
             # INVERTER_STATUS
             self.status_topic                  = str(f"status")
-            self.status_definition_topic       = str(f"status_definition")
+            self.status_def_topic              = str(f"status_definition")
             self.batt_sensor_pres_topic        = str(f"batt_sensor_present")
             self.batt_sensor_pres_def_topic    = str(f"batt_sensor_present_definition")
 
@@ -82,39 +82,45 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
             self.fault_ground_current_topic    = str(f"fault/ground_current")
 
             # INVERTER_AC_STATUS_2
-            self.peak_voltage_topic            = str(f"{topic_base}/peak_voltage")
-            self.peak_current_topic            = str(f"{topic_base}/peak_current")
-            self.ground_current_topic          = str(f"{topic_base}/ground_current")
-            self.capacity_topic                = str(f"{topic_base}/capacity_current")
+            self.peak_voltage_topic            = str(f"peak_voltage")
+            self.peak_current_topic            = str(f"peak_current")
+            self.ground_current_topic          = str(f"ground_current")
+            self.capacity_topic                = str(f"capacity")
 
             # INVERTER_AC_STATUS_3
-            # INVERTER_AC_STATUS_4
-            # INVERTER_DC_STATUS
-            # INVERTER_TEMPERATURE_STATUS
-            # GENERIC_ALARM_STATUS
+            self.waveform_topic                = str(f"waveform")
+            self.waveform_def_topic            = str(f"waveform_definition")
+            self.phase_status_topic            = str(f"phase_status")
+            self.phase_status_def_topic        = str(f"phase_status_definition")
+            self.real_power_topic              = str(f"real_power")
+            self.reactive_power_topic          = str(f"reactive_power")
+            self.harmonic_distortion_topic     = str(f"harmonic_distortion")
+            self.complementary_leg_topic       = str(f"complementary_leg")
 
-            self.operating_state_topic  = str(f"{topic_base}/operating-state")
-            self.power_up_state_topic   = str(f"{topic_base}/power-up-state")
-            self.force_charge_topic     = str(f"{topic_base}/force-charge")
-            # SOLAR_CONTROLLER_STATUS_4
-            self.today_topic            = str(f"{topic_base}/history/today")
-            self.yesterday_topic        = str(f"{topic_base}/history/yesterday")
-            self.two_days_ago_topic     = str(f"{topic_base}/history/2-days-ago")
-            # SOLAR_CONTROLLER_STATUS_5
-            self.seven_day_total_topic  = str(f"{topic_base}/history/7-day-total")
-            self.power_generation_topic = str(f"{topic_base}/history/cumulative-power-generation")
-            # SOLAR_CONTROLLER_STATUS_6
-            self.operating_days_topic   = str(f"{topic_base}/history/operating-days")
-            self.temperature_topic      = str(f"{topic_base}/temperature")
-            # SOLAR_CONTROLLER_SOLAR_ARRAY_STATUS
-            self.array_voltage_topic    = str(f"{topic_base}/solar-array-voltage")
-            self.array_current_topic    = str(f"{topic_base}/solar-array-current")
-            self.array_power_topic      = str(f"{topic_base}/solar-array-power")
-            # SOLAR_CONTROLLER_BATTERY_STATUS
-            self.battery_voltage_topic        = str(f"{topic_base}/battery-voltage")
-            self.battery_current_topic        = str(f"{topic_base}/battery-current")
-            self.battery_power_topic          = str(f"{topic_base}/battery-power")
-            self.battery_temperature_topic    = str(f"{topic_base}/battery-temperature")
+            # INVERTER_AC_STATUS_4
+            self.voltage_fault_topic           = str(f"fault/voltage")
+            self.voltage_fault_def_topic       = str(f"fault/voltage_definition")
+            self.fault_surge_prot_topic        = str(f"fault/surge_protection")
+            self.fault_surge_prot_def_topic    = str(f"fault/surge_protection_definition")
+            self.high_frequency_topic          = str(f"fault/high_frequency")
+            self.high_frequency_def_topic      = str(f"fault/high_frequency_definition")
+            self.low_frequency_topic           = str(f"fault/low_frequency")
+            self.low_frequency_def_topic       = str(f"fault/low_frequency_definition")
+            self.bypass_mode_active_topic      = str(f"bypass_mode_active")
+            self.bypass_mode_active_def_topic  = str(f"bypass_mode_active_definition")
+            self.qualification_status_topic     = str(f"qualification_status")
+            self.qualification_status_def_topic = str(f"qualification_status_definition")
+
+            # INVERTER_DC_STATUS
+            self.dc_voltage_topic              = str(f"dc_voltage")
+            self.dc_amperage_topic             = str(f"dc_amperage")
+
+            # INVERTER_TEMPERATURE_STATUS
+            self.fet1_temperature_topic        = str(f"temps/fet1")
+            self.transformer_temperature_topic = str(f"temps/transformer")
+            self.fet2_temperature_topic        = str(f"temps/fet2")
+
+            # GENERIC_ALARM_STATUS
 
         else:
             self.operating_state_topic  = mqtt_support.make_device_topic_string(self.id, "operating-state", True)
