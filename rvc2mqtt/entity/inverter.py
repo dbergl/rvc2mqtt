@@ -59,21 +59,27 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
         #self.mqtt_support.register(self.command_topic, self.process_mqtt_msg)
 
         if 'status_topic' in data:
-            topic_base = f"{str(data['status_topic'])}"
+            self.topic_base = f"{str(data['status_topic'])}"
+
+            # These messages can be broadcast with multiple lines and input or output
+            # This is stored in the Instance byte 0
+            # we will need to piece together the topic after we get the message
+            # i.e {self.topic_base} + "/" + {line} + "/" + {input/output} + "/" + {self.status}
 
             # INVERTER_STATUS
-            self.status_definition_topic       = str(f"{topic_base}/status")
+            self.status_topic                  = str(f"status")
+            self.status_definition_topic       = str(f"status_definition")
+            self.batt_sensor_pres_topic        = str(f"batt_sensor_present")
+            self.batt_sensor_pres_def_topic    = str(f"batt_sensor_present_definition")
 
             # INVERTER_AC_STATUS_1
-            self.rms_voltage_topic             = str(rms_voltage")
-            self.rms_current_topic             = str(rms_current")
-            self.frequency_topic               = str(frequency")
-            self.fault_open_ground_topic       = str(fault/open_ground")
-            self.fault_open_neutral_topic      = str(fault/open_neutral")
-            self.fault_reverse_polarity_topic  = str(fault/reverse_polarity")
-            self.fault_ground_current_topic    = str(fault/ground_current")
-            #self.line_definition_topic         = str(f"{topic_base}/line")
-            #self.input_output_definition_topic = str(f"{topic_base}/input_output")
+            self.rms_voltage_topic             = str(f"rms_voltage")
+            self.rms_current_topic             = str(f"rms_current")
+            self.frequency_topic               = str(f"frequency")
+            self.fault_open_ground_topic       = str(f"fault/open_ground")
+            self.fault_open_neutral_topic      = str(f"fault/open_neutral")
+            self.fault_reverse_polarity_topic  = str(f"fault/reverse_polarity")
+            self.fault_ground_current_topic    = str(f"fault/ground_current")
 
             # INVERTER_AC_STATUS_2
             self.peak_voltage_topic            = str(f"{topic_base}/peak_voltage")
