@@ -122,31 +122,15 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
 
             # GENERIC_ALARM_STATUS
 
-        else:
-            self.operating_state_topic  = mqtt_support.make_device_topic_string(self.id, "operating-state", True)
-            self.power_up_state_topic   = mqtt_support.make_device_topic_string(self.id, "power-up-state", True)
-            self.force_charge_topic     = mqtt_support.make_device_topic_string(self.id, "force-charge", True)
-            self.today_topic            = mqtt_support.make_device_topic_string(self.id, "history/today", True)
-            self.yesterday_topic        = mqtt_support.make_device_topic_string(self.id, "history/yesterday", True)
-            self.two_days_ago_topic     = mqtt_support.make_device_topic_string(self.id, "history/2-days-ago", True)
-            self.seven_day_total_topic  = mqtt_support.make_device_topic_string(self.id, "history/7-day-total", True)
-            self.power_generation_topic = mqtt_support.make_device_topic_string(self.id, "history/cumulative-power-generation", True)
-            self.operating_days_topic   = mqtt_support.make_device_topic_string(self.id, "operating-days", True)
-            self.temperature_topic      = mqtt_support.make_device_topic_string(self.id, "temperature", True)
-            self.array_voltage_topic    = mqtt_support.make_device_topic_string(self.id, "solar-array-voltage", True)
-            self.array_current_topic    = mqtt_support.make_device_topic_string(self.id, "solar-array-voltage", True)
-            self.array_power_topic      = mqtt_support.make_device_topic_string(self.id, "solar-array-voltage", True)
-            self.battery_voltage_topic  = mqtt_support.make_device_topic_string(self.id, "battery-voltage", True)
-            self.battery_current_topic  = mqtt_support.make_device_topic_string(self.id, "battery-current", True)
-
         # RVC message must match the following to be this device
 
-        self.rvc_solar_controller_status   = { "name": "SOLAR_CONTROLLER_STATUS", "instance": self.rvc_instance}
-        self.rvc_solar_controller_4_status = { "name": "SOLAR_CONTROLLER_STATUS_4", "instance": self.rvc_instance}
-        self.rvc_solar_controller_5_status = { "name": "SOLAR_CONTROLLER_STATUS_5", "instance": self.rvc_instance}
-        self.rvc_solar_controller_6_status = { "name": "SOLAR_CONTROLLER_STATUS_6", "instance": self.rvc_instance}
-        self.rvc_solar_array_status        = { "name": "SOLAR_CONTROLLER_SOLAR_ARRAY_STATUS", "instance": self.rvc_instance}
-        self.rvc_solar_battery_status      = { "name": "SOLAR_CONTROLLER_BATTERY_STATUS", "instance": self.rvc_instance}
+        self.rvc_match_inverter_status             = { "name": "INVERTER_STATUS", "instance": self.rvc_instance}
+        self.rvc_match_inverter_ac_status_1        = { "name": "INVERTER_AC_STATUS_1", "instance": self.rvc_instance}
+        self.rvc_match_inverter_ac_status_2        = { "name": "INVERTER_AC_STATUS_2", "instance": self.rvc_instance}
+        self.rvc_match_inverter_ac_status_3        = { "name": "INVERTER_AC_STATUS_3", "instance": self.rvc_instance}
+        self.rvc_match_inverter_ac_status_4        = { "name": "INVERTER_AC_STATUS_4", "instance": self.rvc_instance}
+        self.rvc_match_inverter_dc_status          = { "name": "INVERTER_DC_STATUS", "instance": self.rvc_instance}
+        self.rvc_match_inverter_temperature_status = { "name": "INVERTER_DC_STATUS", "instance": self.rvc_instance}
 
         #self.rvc_match_command= { "name": "DC_DIMMER_COMMAND_2", "instance": self.rvc_instance }
 
