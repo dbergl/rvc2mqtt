@@ -121,6 +121,7 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
             self.fet2_temperature_topic        = str(f"temps/fet2")
 
             # GENERIC_ALARM_STATUS
+            # TODO ???
 
         # RVC message must match the following to be this device
 
@@ -135,28 +136,55 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
         #self.rvc_match_command= { "name": "DC_DIMMER_COMMAND_2", "instance": self.rvc_instance }
 
         #self.Logger.debug(f"Must match: {str(self.rvc_match_status)} or {str(self.rvc_match_command)}")
-        self.Logger.debug(f"Must match: {str(self.rvc_solar_controller_status)}")
+        self.Logger.debug(f"Must match: {str(self.rvc_match_inverter_status)}")
 
         # save these for later to send rvc msg
         self.name = data['instance_name']
 
-        self.operating_state      = "unknown"
-        self.power_up_state       = "unknown"
-        self.force_charge         = "unknown"
-        self.today                = "unknown"
-        self.yesterday            = "unknown"
-        self.two_days_ago         = "unknown"
-        self.seven_day_total      = "unknown"
-        self.power_generation     = "unknown"
-        self.operating_days       = "unknown"
-        self.temperature          = "unknown"
-        self.array_voltage        = "unknown"
-        self.array_current        = "unknown"
-        self.array_power          = "unknown"
-        self.battery_voltage      = "unknown"
-        self.battery_current      = "unknown"
-        self.battery_temperature  = "unknown"
-        self.battery_power        = "unknown"
+        # INVERTER_STATUS
+        self.status = {}
+        self.batt_sensor_present = {}
+
+        # INVERTER_AC_STATUS_1
+        self.rms_voltage = {}
+        self.rms_current = {}
+        self.frequency = {}
+        self.open_ground = {}
+        self.open_neutral = {}
+        self.reverse_polarity = {}
+        self.ground_current = {}
+
+        # INVERTER_AC_STATUS_2
+        self.peak_voltage = {}
+        self.peak_current = {}
+        self.ground_current = {}
+        self.capacity = {}
+
+        # INVERTER_AC_STATUS_3
+        self.waveform = {}
+        self.phase_status = {}
+        self.real_power = {}
+        self.reactive_power = {}
+        self.harmonic_distortion = {}
+        self.complementary_leg = {}
+
+        # INVERTER_AC_STATUS_4
+        self.voltage_fault = {}
+        self.fault_surge_prot = {}
+        self.high_frequency = {}
+        self.low_frequency = {}
+        self.bypass_mode_active = {}
+        self.qualification_status = {}
+
+        # INVERTER_DC_STATUS
+        self.dc_voltage = {}
+        self.dc_amperage = {}
+
+        # INVERTER_TEMPERATURE_STATUS
+        self.fet1_temperature = {}
+        self.transformer_temperature = {}
+        self.fet2_temperature = {}
+
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
@@ -166,41 +194,84 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
         else - return False
         """
 
-        if self._is_entry_match(self.rvc_solar_controller_status, new_message):
+        if self._is_entry_match(self.rvc_match_inverter_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            if new_message["operating_state"] != self.operating_state:
-                self.operating_state = new_message["operating_state"]
+            if new_message["status"] != self.status:
+                self.status = new_message["status"]
                 self.mqtt_support.client.publish(
-                    self.operating_state_topic, new_message["operating_state_definition"].title(), retain=True)
+                    self.status_topic, self.status, retain=True)
+                self.mqtt_support.client.publish(
+                    self.status_def_topic, new_message["status_definition"].title(), retain=True)
 
-            if new_message["power-up_state"] != self.power_up_state:
-                self.power_up_state = new_message["power-up_state"]
+            if new_message["battery_temperature_sensor_present"] != self.batt_sensor_pres:
+                self.batt_sensor_pres = new_message["battery_temperature_sensor_present"]
                 self.mqtt_support.client.publish(
-                    self.power_up_state_topic, new_message["power-up_state_definition"].title(), retain=True)
-
-            if new_message["force_charge"] != self.force_charge:
-                self.force_charge = new_message["force_charge"]
+                    self.batt_sensor_pres_topic, self.batt_sensor_pres, retain=True)
                 self.mqtt_support.client.publish(
-                    self.force_charge_topic, new_message["force_charge_definition"].title(), retain=True)
+                    self.batt_sensor_pres_def_topic, new_message["battery_temperature_sensor_present_definition"].title(), retain=True)
 
             return True
 
-        if self._is_entry_match(self.rvc_solar_controller_4_status, new_message):
+        elif self._is_entry_match(self.rvc_match_inverter_ac_status_1, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            if new_message["today's_amp-hours_to_battery"] != self.today:
-                self.today = new_message["today's_amp-hours_to_battery"]
-                self.mqtt_support.client.publish(
-                    self.today_topic, new_message["today's_amp-hours_to_battery"], retain=True)
+            _line = new_message["line_definition"]
+            _in_out = new_message["input_output_definition"]
+            _volt = new_message["rms_voltage"]
+            _volt_key = f"{_line}-{_in_out}-rms_voltage"
+            _volt_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.rms_voltage_topic}"
+            _curr = new_message["rms_current"]
+            _curr_key = f"{_line}-{_in_out}-rms_current"
+            _curr_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.rms_current_topic}"
+            _freq = new_message["frequency"]
+            _freq_key = f"{_line}-{_in_out}-frequency"
+            _freq_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.frequency_topic}"
+            _f_o_g = new_message["fault_open_ground"]
+            _f_o_g_key = f"{_line}-{_in_out}-fault_open_ground"
+            _f_o_g_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.fault_open_ground_topic}"
+            _f_o_n = new_message["fault_open_neutral"]
+            _f_o_n_key = f"{_line}-{_in_out}-fault_open_neutral"
+            _f_o_n_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.fault_open_neutral_topic}"
+            _f_r_p = new_message["fault_reverse_polarity"]
+            _f_r_p_key = f"{_line}-{_in_out}-fault_reverse_polarity"
+            _f_r_p_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.fault_reverse_polarity_topic}"
+            _f_g_c = new_message["fault_ground_current"]
+            _f_g_c_key = f"{_line}-{_in_out}-fault_ground_current"
+            _f_g_c_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.fault_ground_current_topic}"
 
-            if new_message["yesterday's_amp-hours_to_battery"] != self.yesterday:
-                self.yesterday = new_message["yesterday's_amp-hours_to_battery"]
+            if _volt != self.rms_voltage.get(_volt_key, "unknown"):
+                self.rms_voltage.update(_volt_key=_volt)
                 self.mqtt_support.client.publish(
-                    self.yesterday_topic, new_message["yesterday's_amp-hours_to_battery"], retain=True)
+                    _volt_topic, _volt, retain=True)
 
-            if new_message["day_before_yesterday's_amp-hours_to_battery"] != self.two_days_ago:
-                self.two_days_ago = new_message["day_before_yesterday's_amp-hours_to_battery"]
+            if _curr != self.rms_current.get(_curr_key, "unknown"):
+                self.rms_current.update(_curr_key=_curr)
                 self.mqtt_support.client.publish(
-                    self.two_days_ago_topic, new_message["day_before_yesterday's_amp-hours_to_battery"], retain=True)
+                    _curr_topic, _curr, retain=True)
+
+            if _freq != self.frequency.get(_freq_key, "unknown"):
+                self.frequency.update(_freq_key=_freq)
+                self.mqtt_support.client.publish(
+                    _freq_topic, _freq, retain=True)
+
+            if _f_o_g != self.open_ground.get(_f_o_g_key, "unknown"):
+                self.open_ground.update(_f_o_g_key=_f_o_g)
+                self.mqtt_support.client.publish(
+                    _f_o_g_topic, _f_o_g, retain=True)
+
+            if _f_o_n != self.open_neutral.get(_f_o_n_key, "unknown"):
+                self.open_neutral.update(_f_o_n_key=_f_o_n)
+                self.mqtt_support.client.publish(
+                    _f_o_n_topic, _f_o_n, retain=True)
+
+            if _f_r_p != self.reverse_polarity.get(_f_r_p_key, "unknown"):
+                self.reverse_polarity.update(_f_r_p_key=_f_r_p)
+                self.mqtt_support.client.publish(
+                    _f_r_p_topic, _f_r_p, retain=True)
+
+            if _f_g_c != self.ground_current.get(_f_g_c_key, "unknown"):
+                self.ground_current.update(_f_g_c_key=_f_g_c)
+                self.mqtt_support.client.publish(
+                    _f_g_c_topic, _f_g_c, retain=True)
 
             return True
 
