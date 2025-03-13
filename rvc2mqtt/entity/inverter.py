@@ -199,19 +199,24 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
 
         if self._is_entry_match(self.rvc_match_inverter_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+            _stat_topic = f"{self.topic_base}/{self.status_topic}"
+            _stat_def_topic = f"{self.topic_base}/{self.status_def_topic}"
+            _batt_topic = f"{self.topic_base}/{self.batt_sensor_pres_topic}"
+            _batt_def_topic = f"{self.topic_base}/{self.batt_sensor_pres_def_topic}"
+
             if new_message["status"] != self.status:
                 self.status = new_message["status"]
                 self.mqtt_support.client.publish(
-                    self.status_topic, self.status, retain=True)
+                    _stat_topic, self.status, retain=True)
                 self.mqtt_support.client.publish(
-                    self.status_def_topic, new_message.get("status_definition", "unknown").title(), retain=True)
+                    _stat_def_topic, new_message.get("status_definition", "unknown").title(), retain=True)
 
             if new_message["battery_temperature_sensor_present"] != self.batt_sensor_present:
                 self.batt_sensor_present = new_message["battery_temperature_sensor_present"]
                 self.mqtt_support.client.publish(
-                    self.batt_sensor_pres_topic, self.batt_sensor_present, retain=True)
+                    _batt_topic, self.batt_sensor_present, retain=True)
                 self.mqtt_support.client.publish(
-                    self.batt_sensor_pres_def_topic, new_message.get("battery_temperature_sensor_present_definition", "unknown").title(), retain=True)
+                    _batt_def_topic, new_message.get("battery_temperature_sensor_present_definition", "unknown").title(), retain=True)
 
             return True
 
@@ -342,11 +347,15 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
                 self.waveform.update(_wave_key=_wave)
                 self.mqtt_support.client.publish(
                     _wave_topic, _wave, retain=True)
+                self.mqtt_support.client.publish(
+                    _wave_def_topic, _wave_def, retain=True)
 
             if _phase != self.phase_status.get(_phase_key, "unknown"):
                 self.phase_status.update(_phase_key=_phase)
                 self.mqtt_support.client.publish(
                     _phase_topic, _phase, retain=True)
+                self.mqtt_support.client.publish(
+                    _phase_def_topic, _phase_def, retain=True)
 
             if _realp != self.real_power.get(_realp_key, "unknown"):
                 self.real_power.update(_realp_key=_realp)
