@@ -194,8 +194,8 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
         else - return False
         """
 
-        _line = new_message["line_definition"]
-        _in_out = new_message["input_output_definition"]
+        _line = new_message.get("line_definition", "unknown")
+        _in_out = new_message.get("input_output_definition", "unknown")
 
         if self._is_entry_match(self.rvc_match_inverter_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
