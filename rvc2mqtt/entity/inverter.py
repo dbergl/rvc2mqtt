@@ -313,6 +313,63 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
 
             return True
 
+        elif self._is_entry_match(self.rvc_match_inverter_ac_status_3, new_message):
+            self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+            _wave = new_message["waveform"]
+            _wave_key = f"{_line}-{_in_out}-waveform"
+            _wave_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.waveform_topic}"
+            _wave_def = new_message["waveform_definition"]
+            _wave_def_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.waveform_def_topic}"
+            _phase = new_message["phase_status"]
+            _phase_key = f"{_line}-{_in_out}-phase_status"
+            _phase_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.phase_status_topic}"
+            _phase_def = new_message["phase_status_definition"]
+            _phase_def_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.phase_status_def_topic}"
+            _realp = new_message["real_power"]
+            _realp_key = f"{_line}-{_in_out}-real_power"
+            _realp_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.real_power_topic}"
+            _reactp = new_message["reactive_power"]
+            _reactp_key = f"{_line}-{_in_out}-reactive_power"
+            _reactp_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.reactive_power_topic}"
+            _harmd = new_message["harmonic_distortion"]
+            _harmd_key = f"{_line}-{_in_out}-harmonic_distortion"
+            _harmd_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.harmonic_distortion_topic}"
+            _compleg = new_message["complementary_leg"]
+            _compleg_key = f"{_line}-{_in_out}-complementary_leg"
+            _compleg_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.complementary_leg_topic}"
+
+            if _wave != self.waveform.get(_wave_key, "unknown"):
+                self.waveform.update(_wave_key=_wave)
+                self.mqtt_support.client.publish(
+                    _wave_topic, _wave, retain=True)
+
+            if _phase != self.phase_status.get(_phase_key, "unknown"):
+                self.phase_status.update(_phase_key=_phase)
+                self.mqtt_support.client.publish(
+                    _phase_topic, _phase, retain=True)
+
+            if _realp != self.real_power.get(_realp_key, "unknown"):
+                self.real_power.update(_realp_key=_realp)
+                self.mqtt_support.client.publish(
+                    _realp_topic, _realp, retain=True)
+
+            if _reactp != self.reactive_power.get(_reactp_key, "unknown"):
+                self.reactive_power.update(_reactp_key=_reactp)
+                self.mqtt_support.client.publish(
+                    _reactp_topic, _reactp, retain=True)
+
+            if _harmd != self.harmonic_distortion.get(_harmd_key, "unknown"):
+                self.harmonic_distortion.update(_harmd_key=_harmd)
+                self.mqtt_support.client.publish(
+                    _harmd_topic, _harmd, retain=True)
+
+            if _compleg != self.complementary_leg.get(_compleg_key, "unknown"):
+                self.complementary_leg.update(_compleg_key=_compleg)
+                self.mqtt_support.client.publish(
+                    _compleg_topic, _compleg, retain=True)
+
+            return True
+
         #elif self._is_entry_match(self.rvc_match_command, new_message):
         #    # This is the command.  Just eat the message so it doesn't show up
         #    # as unhandled.
