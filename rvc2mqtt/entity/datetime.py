@@ -39,7 +39,7 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
 
 
     def __init__(self, data: dict, mqtt_support: MQTT_Support):
-        self.id = "datetime-1FFFF" + str(data["source_id"])
+        self.id = "datetime-1FFFF" + str(data["instance_name"])
         super().__init__(data, mqtt_support)
         self.Logger = logging.getLogger(__class__.__name__)
 
@@ -63,7 +63,6 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
 
         # save these for later to send rvc msg
         self.name = data['instance_name']
-        self.source_id = data['source_id']
         self.state = "unknown"
 
     def process_rvc_msg(self, new_message: dict) -> bool:
