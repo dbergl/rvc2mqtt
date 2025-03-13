@@ -204,14 +204,14 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
                 self.mqtt_support.client.publish(
                     self.status_topic, self.status, retain=True)
                 self.mqtt_support.client.publish(
-                    self.status_def_topic, new_message["status_definition"].title(), retain=True)
+                    self.status_def_topic, new_message.get("status_definition", "unknown").title(), retain=True)
 
             if new_message["battery_temperature_sensor_present"] != self.batt_sensor_present:
                 self.batt_sensor_present = new_message["battery_temperature_sensor_present"]
                 self.mqtt_support.client.publish(
                     self.batt_sensor_pres_topic, self.batt_sensor_present, retain=True)
                 self.mqtt_support.client.publish(
-                    self.batt_sensor_pres_def_topic, new_message["battery_temperature_sensor_present_definition"].title(), retain=True)
+                    self.batt_sensor_pres_def_topic, new_message.get("battery_temperature_sensor_present_definition", "unknown").title(), retain=True)
 
             return True
 
@@ -318,12 +318,12 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
             _wave = new_message["waveform"]
             _wave_key = f"{_line}-{_in_out}-waveform"
             _wave_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.waveform_topic}"
-            _wave_def = new_message["waveform_definition"]
+            _wave_def = new_message.get("waveform_definition", "unknown")
             _wave_def_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.waveform_def_topic}"
             _phase = new_message["phase_status"]
             _phase_key = f"{_line}-{_in_out}-phase_status"
             _phase_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.phase_status_topic}"
-            _phase_def = new_message["phase_status_definition"]
+            _phase_def = new_message.get("phase_status_definition", "unknown")
             _phase_def_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.phase_status_def_topic}"
             _realp = new_message["real_power"]
             _realp_key = f"{_line}-{_in_out}-real_power"
