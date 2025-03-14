@@ -61,16 +61,16 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
         if 'status_topic' in data:
             self.topic_base = f"{str(data['status_topic'])}"
 
-            # These messages can be broadcast with multiple lines and input or output
+            # some of these messages can be broadcast with multiple lines and input or output
             # This is stored in the Instance byte 0
             # we will need to piece together the topic after we get the message
-            # i.e {self.topic_base} + "/" + {line} + "/" + {input/output} + "/" + {self.status}
+            # i.e {self.topic_base} + "/" + {line} + "/" + {input/output} + "/" + {self.rms_voltage_topic}
 
             # INVERTER_STATUS
-            self.status_topic                  = str(f"status")
-            self.status_def_topic              = str(f"status_definition")
-            self.batt_sensor_pres_topic        = str(f"batt_sensor_present")
-            self.batt_sensor_pres_def_topic    = str(f"batt_sensor_present_definition")
+            self.status_topic                  = str(f"{self.topic_base}/status")
+            self.status_def_topic              = str(f"{self.topic_base}/status_definition")
+            self.batt_sensor_pres_topic        = str(f"{self.topic_base}/batt_sensor_present")
+            self.batt_sensor_pres_def_topic    = str(f"{self.topic_base}/batt_sensor_present_definition")
 
             # INVERTER_AC_STATUS_1
             self.rms_voltage_topic             = str(f"rms_voltage")
@@ -112,13 +112,13 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
             self.qualification_status_def_topic = str(f"qualification_status_definition")
 
             # INVERTER_DC_STATUS
-            self.dc_voltage_topic              = str(f"dc_voltage")
-            self.dc_amperage_topic             = str(f"dc_amperage")
+            self.dc_voltage_topic              = str(f"{self.topic_base}/dc_voltage")
+            self.dc_amperage_topic             = str(f"{self.topic_base}/dc_amperage")
 
             # INVERTER_TEMPERATURE_STATUS
-            self.fet1_temperature_topic        = str(f"temps/fet1")
-            self.transformer_temperature_topic = str(f"temps/transformer")
-            self.fet2_temperature_topic        = str(f"temps/fet2")
+            self.fet_1_temperature_topic        = str(f"{self.topic_base}/temps/fet1")
+            self.transformer_temperature_topic = str(f"{self.topic_base}/temps/transformer")
+            self.fet_2_temperature_topic        = str(f"{self.topic_base}/temps/fet2")
 
             # GENERIC_ALARM_STATUS
             # TODO ???
@@ -177,13 +177,13 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
         self.qualification_status = {}
 
         # INVERTER_DC_STATUS
-        self.dc_voltage = {}
-        self.dc_amperage = {}
+        self.dc_voltage = "unknown"
+        self.dc_amperage = "unknown"
 
         # INVERTER_TEMPERATURE_STATUS
-        self.fet1_temperature = {}
-        self.transformer_temperature = {}
-        self.fet2_temperature = {}
+        self.fet_1_temperature = "unknown"
+        self.transformer_temperature = "unknown"
+        self.fet_2_temperature = "unknown"
 
 
     def process_rvc_msg(self, new_message: dict) -> bool:
@@ -196,27 +196,24 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
 
         _line = new_message.get("line_definition", "unknown")
         _in_out = new_message.get("input_output_definition", "unknown")
+        _prefix = f"{self.topic_base}/line{_line}/{_in_out}"
 
         if self._is_entry_match(self.rvc_match_inverter_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            _stat_topic = f"{self.topic_base}/{self.status_topic}"
-            _stat_def_topic = f"{self.topic_base}/{self.status_def_topic}"
-            _batt_topic = f"{self.topic_base}/{self.batt_sensor_pres_topic}"
-            _batt_def_topic = f"{self.topic_base}/{self.batt_sensor_pres_def_topic}"
 
             if new_message["status"] != self.status:
                 self.status = new_message["status"]
                 self.mqtt_support.client.publish(
-                    _stat_topic, self.status, retain=True)
+                    self.status_topic, self.status, retain=True)
                 self.mqtt_support.client.publish(
-                    _stat_def_topic, new_message.get("status_definition", "unknown").title(), retain=True)
+                    self.status_def_topic, new_message.get("status_definition", "unknown").title(), retain=True)
 
             if new_message["battery_temperature_sensor_present"] != self.batt_sensor_present:
                 self.batt_sensor_present = new_message["battery_temperature_sensor_present"]
                 self.mqtt_support.client.publish(
-                    _batt_topic, self.batt_sensor_present, retain=True)
+                    self.batt_sensor_pres_topic, self.batt_sensor_present, retain=True)
                 self.mqtt_support.client.publish(
-                    _batt_def_topic, new_message.get("battery_temperature_sensor_present_definition", "unknown").title(), retain=True)
+                    self.batt_sensor_pres_def_topic, new_message.get("battery_temperature_sensor_present_definition", "unknown").title(), retain=True)
 
             return True
 
@@ -224,25 +221,25 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
             _volt = new_message["rms_voltage"]
             _volt_key = f"{_line}-{_in_out}-rms_voltage"
-            _volt_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.rms_voltage_topic}"
+            _volt_topic = f"{prefix}/{self.rms_voltage_topic}"
             _curr = new_message["rms_current"]
             _curr_key = f"{_line}-{_in_out}-rms_current"
-            _curr_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.rms_current_topic}"
+            _curr_topic = f"{_prefix}/{self.rms_current_topic}"
             _freq = new_message["frequency"]
             _freq_key = f"{_line}-{_in_out}-frequency"
-            _freq_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.frequency_topic}"
+            _freq_topic = f"{_prefix}/{self.frequency_topic}"
             _f_o_g = new_message["fault_open_ground"]
             _f_o_g_key = f"{_line}-{_in_out}-fault_open_ground"
-            _f_o_g_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.fault_open_ground_topic}"
+            _f_o_g_topic = f"{_prefix}/{self.fault_open_ground_topic}"
             _f_o_n = new_message["fault_open_neutral"]
             _f_o_n_key = f"{_line}-{_in_out}-fault_open_neutral"
-            _f_o_n_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.fault_open_neutral_topic}"
+            _f_o_n_topic = f"{_prefix}/{self.fault_open_neutral_topic}"
             _f_r_p = new_message["fault_reverse_polarity"]
             _f_r_p_key = f"{_line}-{_in_out}-fault_reverse_polarity"
-            _f_r_p_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.fault_reverse_polarity_topic}"
+            _f_r_p_topic = f"{_prefix}/{self.fault_reverse_polarity_topic}"
             _f_g_c = new_message["fault_ground_current"]
             _f_g_c_key = f"{_line}-{_in_out}-fault_ground_current"
-            _f_g_c_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.fault_ground_current_topic}"
+            _f_g_c_topic = f"{_prefix}/{self.fault_ground_current_topic}"
 
             if _volt != self.rms_voltage.get(_volt_key, "unknown"):
                 self.rms_voltage.update(_volt_key=_volt)
@@ -285,16 +282,16 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
             _volt = new_message["peak_voltage"]
             _volt_key = f"{_line}-{_in_out}-peak_voltage"
-            _volt_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.peak_voltage_topic}"
+            _volt_topic = f"{_prefix}/{self.peak_voltage_topic}"
             _curr = new_message["peak_current"]
             _curr_key = f"{_line}-{_in_out}-peak_current"
-            _curr_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.peak_current_topic}"
+            _curr_topic = f"{_prefix}/{self.peak_current_topic}"
             _gcur = new_message["ground_current"]
             _gcur_key = f"{_line}-{_in_out}-ground_current"
-            _gcur_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.ground_current_topic}"
+            _gcur_topic = f"{_prefix}/{self.ground_current_topic}"
             _cap = new_message["capacity"]
             _cap_key = f"{_line}-{_in_out}-capacity"
-            _cap_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.capacity_topic}"
+            _cap_topic = f"{_prefix}/{self.capacity_topic}"
 
             if _volt != self.rms_voltage.get(_volt_key, "unknown"):
                 self.rms_voltage.update(_volt_key=_volt)
@@ -322,26 +319,26 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
             _wave = new_message["waveform"]
             _wave_key = f"{_line}-{_in_out}-waveform"
-            _wave_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.waveform_topic}"
+            _wave_topic = f"{_prefix}/{self.waveform_topic}"
             _wave_def = new_message.get("waveform_definition", "unknown")
-            _wave_def_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.waveform_def_topic}"
+            _wave_def_topic = f"{_prefix}/{self.waveform_def_topic}"
             _phase = new_message["phase_status"]
             _phase_key = f"{_line}-{_in_out}-phase_status"
-            _phase_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.phase_status_topic}"
+            _phase_topic = f"{_prefix}/{self.phase_status_topic}"
             _phase_def = new_message.get("phase_status_definition", "unknown")
-            _phase_def_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.phase_status_def_topic}"
+            _phase_def_topic = f"{_prefix}/{self.phase_status_def_topic}"
             _realp = new_message["real_power"]
             _realp_key = f"{_line}-{_in_out}-real_power"
-            _realp_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.real_power_topic}"
+            _realp_topic = f"{_prefix}/{self.real_power_topic}"
             _reactp = new_message["reactive_power"]
             _reactp_key = f"{_line}-{_in_out}-reactive_power"
-            _reactp_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.reactive_power_topic}"
+            _reactp_topic = f"{_prefix}/{self.reactive_power_topic}"
             _harmd = new_message["harmonic_distortion"]
             _harmd_key = f"{_line}-{_in_out}-harmonic_distortion"
-            _harmd_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.harmonic_distortion_topic}"
+            _harmd_topic = f"{_prefix}/{self.harmonic_distortion_topic}"
             _compleg = new_message["complementary_leg"]
             _compleg_key = f"{_line}-{_in_out}-complementary_leg"
-            _compleg_topic = f"{self.topic_base}/line{_line}/{_in_out}/{self.complementary_leg_topic}"
+            _compleg_topic = f"{_prefix}/{self.complementary_leg_topic}"
 
             if _wave != self.waveform.get(_wave_key, "unknown"):
                 self.waveform.update(_wave_key=_wave)
@@ -378,6 +375,120 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
                     _compleg_topic, _compleg, retain=True)
 
             return True
+
+        elif self._is_entry_match(self.rvc_match_inverter_ac_status_4, new_message):
+            self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+            _f_volt            = new_message["voltage_fault"]
+            _f_volt_key        = f"{_line}-{_in_out}-voltage_fault"
+            _f_volt_topic      = f"{_prefix}/{self.voltage_fault_topic}"
+            _f_volt_def        = new_message.get("voltage_fault_definition", "unknown")
+            _f_volt_def_topic  = f"{_prefix}/{self.voltage_fault_def_topic}"
+            _f_surge           = new_message["fault_surge_protection"]
+            _f_surge_key       = f"{_line}-{_in_out}-fault_surge_protection"
+            _f_surge_topic     = f"{_prefix}/{self.fault_surge_prot_topic}"
+            _f_surge_def       = new_message.get("fault_surge_protection_definition", "unknown")
+            _f_surge_def_topic = f"{_prefix}/{self.fault_surge_prot_def_topic}"
+            _f_hfreq           = new_message["fault_high_frequency"]
+            _f_hfreq_key       = f"{_line}-{_in_out}-fault_high_frequency"
+            _f_hfreq_topic     = f"{_prefix}/{self.fault_high_frequency_topic}"
+            _f_hfreq_def       = new_message.get("fault_surge_protection_definition", "unknown")
+            _f_hfreq_def_topic = f"{_prefix}/{self.fault_high_frequency_def_topic}"
+            _f_lfreq           = new_message["fault_low_frequency"]
+            _f_lfreq_key       = f"{_line}-{_in_out}-fault_low_frequency"
+            _f_lfreq_topic     = f"{_prefix}/{self.fault_low_frequency_topic}"
+            _f_lfreq_def       = new_message.get("fault_low_frequency_definition", "unknown")
+            _f_lfreq_def_topic = f"{_prefix}/{self.fault_low_frequency_def_topic}"
+            _f_bypas           = new_message["bypass_mode_active"]
+            _f_bypas_key       = f"{_line}-{_in_out}-bypass_mode_active"
+            _f_bypas_topic     = f"{_prefix}/{self.bypass_mode_active_topic}"
+            _f_bypas_def       = new_message.get("bypass_mode_active_definition", "unknown")
+            _f_bypas_def_topic = f"{_prefix}/{self.bypass_mode_active_def_topic}"
+            _f_qual           = new_message["qualification_status"]
+            _f_qual_key       = f"{_line}-{_in_out}-qualification_status"
+            _f_qual_topic     = f"{_prefix}/{self.qualification_status_topic}"
+            _f_qual_def       = new_message.get("qualification_status", "unknown")
+            _f_qual_def_topic = f"{_prefix}/{self.qualification_status_def_topic}"
+
+
+            if _f_volt != self.voltage_fault.get(_f_volt_key, "unknown"):
+                self.voltage_fault.update(_f_volt_key=_f_volt)
+                self.mqtt_support.client.publish(
+                    _f_volt_topic, _f_volt, retain=True)
+                self.mqtt_support.client.publish(
+                    _f_volt_def_topic, _f_volt_def, retain=True)
+
+            if _f_surge != self.fault_surge_protection.get(_f_surge_key, "unknown"):
+                self.fault_surge_protection.update(_f_surge_key=_f_surge)
+                self.mqtt_support.client.publish(
+                    _f_surge_topic, _f_surge, retain=True)
+                self.mqtt_support.client.publish(
+                    _f_surge_def_topic, _f_surge_def, retain=True)
+
+            if _f_hfreq != self.fault_high_frequency.get(_f_hfreq_key, "unknown"):
+                self.fault_high_frequency.update(_f_hfreq_key=_f_hfreq)
+                self.mqtt_support.client.publish(
+                    _f_hfreq_topic, _f_hfreq, retain=True)
+                self.mqtt_support.client.publish(
+                    _f_hfreq_def_topic, _f_hfreq_def, retain=True)
+
+            if _f_lfreq != self.fault_low_frequency.get(_f_lfreq_key, "unknown"):
+                self.fault_low_frequency.update(_f_lfreq_key=_f_lfreq)
+                self.mqtt_support.client.publish(
+                    _f_lfreq_topic, _f_lfreq, retain=True)
+                self.mqtt_support.client.publish(
+                    _f_lfreq_def_topic, _f_lfreq_def, retain=True)
+
+            if _f_bypas != self.bypass_mode_active.get(_f_bypas_key, "unknown"):
+                self.bypass_mode_active.update(_f_bypas_key=_f_bypas)
+                self.mqtt_support.client.publish(
+                    _f_bypas_topic, _f_bypas, retain=True)
+                self.mqtt_support.client.publish(
+                    _f_bypas_def_topic, _f_bypas_def, retain=True)
+
+            if _f_qual != self.qualification_status.get(_f_qual_key, "unknown"):
+                self.qualification_status.update(_f_qual_key=_f_qual)
+                self.mqtt_support.client.publish(
+                    _f_qual_topic, _f_qual, retain=True)
+                self.mqtt_support.client.publish(
+                    _f_qual_def_topic, _f_qual_def, retain=True)
+
+            return True
+
+        elif self._is_entry_match(self.rvc_match_inverter_dc_status, new_message):
+            self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+
+            if new_message["dc_voltage"] != self.dc_voltage:
+                self.dc_voltage = new_message["dc_voltage"]
+                self.mqtt_support.client.publish(
+                    self.dc_voltage_topic, self.dc_voltage, retain=True)
+
+            if new_message["dc_amperage"] != self.dc_amperage:
+                self.dc_amperage = new_message["dc_amperage"]
+                self.mqtt_support.client.publish(
+                    self.dc_amperage_topic, self.dc_amperage, retain=True)
+
+            return True
+
+        elif self._is_entry_match(self.rvc_match_inverter_temperature_status, new_message):
+            self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+
+            if new_message["fet_1_temperature"] != self.fet_1_temperature:
+                self.fet_1_temperature = new_message["fet_1_temperature"]
+                self.mqtt_support.client.publish(
+                    self.fet_1_temperature_topic, self.fet_1_temperature, retain=True)
+
+            if new_message["transformer_temperature"] != self.transformer_temperature:
+                self.transformer_temperature = new_message["transformer_temperature"]
+                self.mqtt_support.client.publish(
+                    self.transformer_temperature_topic, self.transformer_temperature, retain=True)
+
+            if new_message["fet_2_temperature"] != self.fet_2_temperature:
+                self.fet_2_temperature = new_message["fet_2_temperature"]
+                self.mqtt_support.client.publish(
+                    self.fet_2_temperature_topic, self.fet_2_temperature, retain=True)
+
+            return True
+
 
         #elif self._is_entry_match(self.rvc_match_command, new_message):
         #    # This is the command.  Just eat the message so it doesn't show up

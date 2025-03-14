@@ -4557,7 +4557,7 @@ Z0003:
         01: frequency over high limit
     - byte: 2
       bit: 4-5
-      name: fault how frequency
+      name: fault low frequency
       type: bit2
       values:
         00: no fault
