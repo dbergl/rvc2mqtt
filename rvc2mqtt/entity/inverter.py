@@ -221,7 +221,7 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
             _volt = new_message["rms_voltage"]
             _volt_key = f"{_line}-{_in_out}-rms_voltage"
-            _volt_topic = f"{prefix}/{self.rms_voltage_topic}"
+            _volt_topic = f"{_prefix}/{self.rms_voltage_topic}"
             _curr = new_message["rms_current"]
             _curr_key = f"{_line}-{_in_out}-rms_current"
             _curr_topic = f"{_prefix}/{self.rms_current_topic}"
