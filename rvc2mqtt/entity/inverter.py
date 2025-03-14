@@ -391,7 +391,7 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
             _f_hfreq           = new_message["fault_high_frequency"]
             _f_hfreq_key       = f"{_line}-{_in_out}-fault_high_frequency"
             _f_hfreq_topic     = f"{_prefix}/{self.fault_high_frequency_topic}"
-            _f_hfreq_def       = new_message.get("fault_surge_protection_definition", "unknown")
+            _f_hfreq_def       = new_message.get("fault_high_frequency_definition", "unknown")
             _f_hfreq_def_topic = f"{_prefix}/{self.fault_high_frequency_def_topic}"
             _f_lfreq           = new_message["fault_low_frequency"]
             _f_lfreq_key       = f"{_line}-{_in_out}-fault_low_frequency"
@@ -417,8 +417,8 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
                 self.mqtt_support.client.publish(
                     _f_volt_def_topic, _f_volt_def, retain=True)
 
-            if _f_surge != self.fault_surge_protection.get(_f_surge_key, "unknown"):
-                self.fault_surge_protection.update(_f_surge_key=_f_surge)
+            if _f_surge != self.fault_surge_prot.get(_f_surge_key, "unknown"):
+                self.fault_surge_prot.update(_f_surge_key=_f_surge)
                 self.mqtt_support.client.publish(
                     _f_surge_topic, _f_surge, retain=True)
                 self.mqtt_support.client.publish(
