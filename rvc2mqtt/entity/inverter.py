@@ -424,15 +424,15 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
                 self.mqtt_support.client.publish(
                     _f_surge_def_topic, _f_surge_def, retain=True)
 
-            if _f_hfreq != self.fault_high_frequency.get(_f_hfreq_key, "unknown"):
-                self.fault_high_frequency.update(_f_hfreq_key=_f_hfreq)
+            if _f_hfreq != self.high_frequency.get(_f_hfreq_key, "unknown"):
+                self.high_frequency.update(_f_hfreq_key=_f_hfreq)
                 self.mqtt_support.client.publish(
                     _f_hfreq_topic, _f_hfreq, retain=True)
                 self.mqtt_support.client.publish(
                     _f_hfreq_def_topic, _f_hfreq_def, retain=True)
 
-            if _f_lfreq != self.fault_low_frequency.get(_f_lfreq_key, "unknown"):
-                self.fault_low_frequency.update(_f_lfreq_key=_f_lfreq)
+            if _f_lfreq != self.low_frequency.get(_f_lfreq_key, "unknown"):
+                self.low_frequency.update(_f_lfreq_key=_f_lfreq)
                 self.mqtt_support.client.publish(
                     _f_lfreq_topic, _f_lfreq, retain=True)
                 self.mqtt_support.client.publish(
