@@ -38,25 +38,24 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
     INVERTER_AC_STATUS_4
     INVERTER_DC_STATUS
     INVERTER_TEMPERATURE_STATUS
+
     TODO: GENERIC_ALARM_STATUS
 
-    TODO: Maybe add configuration commands??
     """
 
     def __init__(self, data: dict, mqtt_support: MQTT_Support):
         self.rvc_instance = data['instance']
-        self.id = "solar-charge-controller-1FFD4-i" + str(self.rvc_instance)
+        self.id = "inverter-1FFD4-i" + str(self.rvc_instance)
         super().__init__(data, mqtt_support)
         self.Logger = logging.getLogger(__class__.__name__)
 
-        ## TODO Allow MQTT to control inverter and config?
-        #if 'command_topic' in data:
-        #    self.command_topic = str(data['command_topic'])
-        #else:
-        #    self.command_topic = mqtt_support.make_device_topic_string(
-        #        self.id, None, False)
+        if 'command_topic' in data:
+            self.command_topic = str(f"{data['command_topic']}/enable")
+        else:
+            self.command_topic = mqtt_support.make_device_topic_string(
+                self.id, None, False)
 
-        #self.mqtt_support.register(self.command_topic, self.process_mqtt_msg)
+        self.mqtt_support.register(self.command_topic, self.process_mqtt_msg)
 
         if 'status_topic' in data:
             self.topic_base = f"{str(data['status_topic'])}"
@@ -116,9 +115,9 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
             self.dc_amperage_topic             = str(f"{self.topic_base}/dc_amperage")
 
             # INVERTER_TEMPERATURE_STATUS
-            self.fet_1_temperature_topic        = str(f"{self.topic_base}/temps/fet1")
+            self.fet_1_temperature_topic       = str(f"{self.topic_base}/temps/fet1")
             self.transformer_temperature_topic = str(f"{self.topic_base}/temps/transformer")
-            self.fet_2_temperature_topic        = str(f"{self.topic_base}/temps/fet2")
+            self.fet_2_temperature_topic       = str(f"{self.topic_base}/temps/fet2")
 
             # GENERIC_ALARM_STATUS
             # TODO ???
@@ -133,7 +132,7 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
         self.rvc_match_inverter_dc_status          = { "name": "INVERTER_DC_STATUS", "instance": self.rvc_instance}
         self.rvc_match_inverter_temperature_status = { "name": "INVERTER_DC_STATUS", "instance": self.rvc_instance}
 
-        #self.rvc_match_command= { "name": "DC_DIMMER_COMMAND_2", "instance": self.rvc_instance }
+        self.rvc_match_command = { "name": "INVERTER_COMMAND", "instance": self.rvc_instance }
 
         #self.Logger.debug(f"Must match: {str(self.rvc_match_status)} or {str(self.rvc_match_command)}")
         self.Logger.debug(f"Must match: {str(self.rvc_match_inverter_status)}")
@@ -490,21 +489,49 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
             return True
 
 
-        #elif self._is_entry_match(self.rvc_match_command, new_message):
-        #    # This is the command.  Just eat the message so it doesn't show up
-        #    # as unhandled.
-        #    self.Logger.debug(f"Msg Match Command: {str(new_message)}")
-        #    return True
+        elif self._is_entry_match(self.rvc_match_command, new_message):
+            # This is the command.  Just eat the message so it doesn't show up
+            # as unhandled.
+            self.Logger.debug(f"Msg Match Command: {str(new_message)}")
+            return True
+
         return False
 
     def process_mqtt_msg(self, topic, payload, properties = None):
+        #TODO Add other commands other than enable/disable
+        '''
+        OFF:
+        {'arbitration_id': '0x19ffd39f', 'data': '0110FFFFFFFFFF11', 'priority': '6', 'dgn_h': '1FF', 'dgn_l': 'D3', 'dgn': '1FFD3', 'source_id': '9F', 'name': 'INVERTER_COMMAND', 'instance': 1, 'inverter_enable': '00', 'inverter_enable_definition': 'disable', 'load_sense_enable': '00', 'load_sense_enable_definition': 'disable', 'pass-through_enable': '01', 'pass-through_enable_definition': 'enable', 'inverter_enable_on_startup': '01', 'inverter_enable_on_startup_definition': 'enable', 'load_sense_enable_on_startup': '00', 'load_sense_enable_on_startup_definition': 'disable', 'pass-through_enable_on_startup': '01', 'pass-through_enable_on_startup_definition': 'enable'}
+        ON:
+        {'arbitration_id': '0x19ffd39f', 'data': '0111FFFFFFFFFF11', 'priority': '6', 'dgn_h': '1FF', 'dgn_l': 'D3', 'dgn': '1FFD3', 'source_id': '9F', 'name': 'INVERTER_COMMAND', 'instance': 1, 'inverter_enable': '01', 'inverter_enable_definition': 'enable', 'load_sense_enable': '00', 'load_sense_enable_definition': 'disable', 'pass-through_enable': '01', 'pass-through_enable_definition': 'enable', 'inverter_enable_on_startup': '01', 'inverter_enable_on_startup_definition': 'enable', 'load_sense_enable_on_startup': '00', 'load_sense_enable_on_startup_definition': 'disable', 'pass-through_enable_on_startup': '01', 'pass-through_enable_on_startup_definition': 'enable'}
+        '''
+
         self.Logger.info(
             f"MQTT Msg Received on topic {topic} with payload {payload}")
 
-        #if topic == self.command_topic:
-        #    else:
-        #        self.Logger.warning(
-        #            f"Invalid payload {payload} for topic {topic}")
+        if topic == self.command_topic:
+            if payload.lower() == "on":
+                if self.status == '0':
+                    self._rvc_on()
+            elif payload.lower() == "off":
+                if self.status != '0':
+                    self._rvc_off()
+            else:
+                self.Logger.warning(
+                    f"Invalid payload {payload} for topic {topic}")
+
+
+    def _rvc_on(self):
+        # 01 10 FF FF FF FF FF 11
+        msg_bytes = bytearray(8)
+        struct.pack_into("<BBBBBBBB", msg_bytes, 0, self.rvc_instance, 0x10, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x11)
+        self.send_queue.put({"dgn": "1FFD3", "data": msg_bytes})
+
+    def _rvc_off(self):
+        # 01 11 FF FF FF FF FF 11
+        msg_bytes = bytearray(8)
+        struct.pack_into("<BBBBBBBB", msg_bytes, 0, self.rvc_instance, 0x11, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x11)
+        self.send_queue.put({"dgn": "1FFD3", "data": msg_bytes})
 
     def initialize(self):
         """ Optional function
@@ -515,4 +542,3 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
         This can be a good place to request data
 
         """
-
