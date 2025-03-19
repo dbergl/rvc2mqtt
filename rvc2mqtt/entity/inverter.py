@@ -38,9 +38,9 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
     INVERTER_AC_STATUS_4
     INVERTER_DC_STATUS
     INVERTER_TEMPERATURE_STATUS
+
     TODO: GENERIC_ALARM_STATUS
 
-    TODO: Maybe add configuration commands??
     """
 
     def __init__(self, data: dict, mqtt_support: MQTT_Support):
@@ -50,7 +50,7 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
         self.Logger = logging.getLogger(__class__.__name__)
 
         if 'command_topic' in data:
-            self.command_topic = str(data['command_topic'])
+            self.command_topic = str(f"{data['command_topic']}/enable")
         else:
             self.command_topic = mqtt_support.make_device_topic_string(
                 self.id, None, False)
@@ -509,7 +509,6 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
         self.Logger.info(
             f"MQTT Msg Received on topic {topic} with payload {payload}")
 
-
         if topic == self.command_topic:
             if payload.lower() == "on":
                 if self.status == '0':
@@ -521,16 +520,17 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
                 self.Logger.warning(
                     f"Invalid payload {payload} for topic {topic}")
 
+
     def _rvc_on(self):
         # 01 10 FF FF FF FF FF 11
         msg_bytes = bytearray(8)
-        struct.pack_into("<BBBBBBH", msg_bytes, 0, self.rvc_instance, 0x01, 0x10, 0xFF , 0xFF, 0xFF, 0xFF, 0xFF, 0x11)
+        struct.pack_into("<BBBBBBBB", msg_bytes, 0, self.rvc_instance, 0x10, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x11)
         self.send_queue.put({"dgn": "1FFD3", "data": msg_bytes})
 
     def _rvc_off(self):
         # 01 11 FF FF FF FF FF 11
         msg_bytes = bytearray(8)
-        struct.pack_into("<BBBBBBH", msg_bytes, 0, self.rvc_instance, 0x01, 0x11, 0xFF , 0xFF, 0xFF, 0xFF, 0xFF, 0x11)
+        struct.pack_into("<BBBBBBBB", msg_bytes, 0, self.rvc_instance, 0x11, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x11)
         self.send_queue.put({"dgn": "1FFD3", "data": msg_bytes})
 
     def initialize(self):
