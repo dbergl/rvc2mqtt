@@ -82,7 +82,7 @@ class MQTT_Support(object):
         else:
             self.Logger.warning("Received mqtt message without a device registered '" + str(msg.payload) + "' on topic '" + msg.topic + "' with QoS " + str(msg.qos))
     
-    def on_disconnect(self, client, userdata, reason_code, properties):
+    def on_disconnect(self, client, userdata, flags, reason_code, properties):
         self.Logger.critical("MQTT disconnected")
         self._connected = False
 
