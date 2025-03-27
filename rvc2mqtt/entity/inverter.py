@@ -511,26 +511,26 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
 
         if topic == self.command_topic:
             if payload.lower() == "on":
-                if self.status == '0':
-                    self._rvc_on()
+                #if self.status == '0':
+                self._rvc_on()
             elif payload.lower() == "off":
-                if self.status != '0':
-                    self._rvc_off()
+                #if self.status != '0':
+                self._rvc_off()
             else:
                 self.Logger.warning(
                     f"Invalid payload {payload} for topic {topic}")
 
 
     def _rvc_on(self):
-        # 01 10 FF FF FF FF FF 11
-        msg_bytes = bytearray(8)
-        struct.pack_into("<BBBBBBBB", msg_bytes, 0, self.rvc_instance, 0x10, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x11)
-        self.send_queue.put({"dgn": "1FFD3", "data": msg_bytes})
-
-    def _rvc_off(self):
         # 01 11 FF FF FF FF FF 11
         msg_bytes = bytearray(8)
         struct.pack_into("<BBBBBBBB", msg_bytes, 0, self.rvc_instance, 0x11, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x11)
+        self.send_queue.put({"dgn": "1FFD3", "data": msg_bytes})
+
+    def _rvc_off(self):
+        # 01 10 FF FF FF FF FF 11
+        msg_bytes = bytearray(8)
+        struct.pack_into("<BBBBBBBB", msg_bytes, 0, self.rvc_instance, 0x10, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x11)
         self.send_queue.put({"dgn": "1FFD3", "data": msg_bytes})
 
     def initialize(self):
