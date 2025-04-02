@@ -68,6 +68,7 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
             # INVERTER_STATUS
             self.status_topic                  = str(f"{self.topic_base}/status")
             self.status_def_topic              = str(f"{self.topic_base}/status_definition")
+            self.onoff_topic                   = str(f"{self.topic_base}/onoff")
             self.batt_sensor_pres_topic        = str(f"{self.topic_base}/batt_sensor_present")
             self.batt_sensor_pres_def_topic    = str(f"{self.topic_base}/batt_sensor_present_definition")
 
@@ -142,6 +143,7 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
 
         # INVERTER_STATUS
         self.status = "unknown"
+        self.onoff  = 99
         self.batt_sensor_present = "unknown"
 
         # INVERTER_AC_STATUS_1
@@ -204,6 +206,9 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
                 self.status = new_message["status"]
                 self.mqtt_support.client.publish(
                     self.status_topic, self.status, retain=True)
+                if int(self.status) > 0:
+                    self.mqtt_support.client.publish(
+                        self.onoff_topic, self.onoff, retain=True)
                 self.mqtt_support.client.publish(
                     self.status_def_topic, new_message.get("status_definition", "unknown").title(), retain=True)
 
