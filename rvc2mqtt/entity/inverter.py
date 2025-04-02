@@ -143,7 +143,7 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
 
         # INVERTER_STATUS
         self.status = "unknown"
-        self.onoff  = 99
+        self.onoff  = "unknown"
         self.batt_sensor_present = "unknown"
 
         # INVERTER_AC_STATUS_1
@@ -206,11 +206,14 @@ class InverterCharger_INVERTER_STATUS(EntityPluginBaseClass):
                 self.status = new_message["status"]
                 self.mqtt_support.client.publish(
                     self.status_topic, self.status, retain=True)
-                if int(self.status) > 0:
-                    self.mqtt_support.client.publish(
-                        self.onoff_topic, self.onoff, retain=True)
                 self.mqtt_support.client.publish(
                     self.status_def_topic, new_message.get("status_definition", "unknown").title(), retain=True)
+                if int(self.status) == 0:
+                    self.onoff = "off"
+                elif int(self.status) > 0:
+                    self.onoff = "on"
+                self.mqtt_support.client.publish(
+                    self.onoff_topic, self.onoff, retain=True)
 
             if new_message["battery_temperature_sensor_present"] != self.batt_sensor_present:
                 self.batt_sensor_present = new_message["battery_temperature_sensor_present"]
