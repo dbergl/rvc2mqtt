@@ -482,7 +482,7 @@ API_VERSION: 0
         0: off
         1: combustion
         2: electric
-        3: gas electric
+        3: gas/electric (both)
         4: automatic
         5: test combustion
         6: test electric
@@ -565,7 +565,7 @@ API_VERSION: 0
         0: off
         1: combustion
         2: electric
-        3: gas electric
+        3: gas/electric (both)
         4: automatic
         5: test combustion
         6: test electric
@@ -1050,9 +1050,116 @@ API_VERSION: 0
 
 1FFE4:
   name: FURNACE_STATUS
+  parameters:
+    - byte: 0
+      name: instance
+      type: uint8
+      comment: Corresponds to "Zones" in user terminology.
+    - byte: 1
+      bit: 0-1
+      name: operating mode
+      type: uint2
+      values:
+        0: automatic
+        1: manual
+    - byte: 1
+      bit: 2-7
+      name: heat source
+      type: uint6
+      values:
+        0: combustion
+        1: AC power primary
+        2: AC power secondary
+        3: engine heat
+        4: hydronic heat - combustion
+        5: hydronic heat - electric
+        6: hydronic heat - gas/electric (both)
+    - byte: 2
+      name: circulation fan speed
+      type: uint8
+      unit: Pct
+    - byte: 3
+      name: heat output level
+      type: uint8
+      unit: Pct
+    - byte: 4
+      name: dead band
+      type: uint8
+      unit: Deg C
+    - byte: 5
+      name: second stage dead band
+      type: uint8
+      unit: Deg C
+    - byte: 6
+      bit: 0-1
+      name: zone overcurrent status
+      type: uint2
+      values:
+        0: no overcurrent detected
+        1: overcurrent detected
+    - byte: 6
+      bit: 2-3
+      name: zone undercurrent status
+      type: uint2
+      values:
+        0: no undercurrent detected
+        1: undercurrent detected
+    - byte: 6
+      bit: 4-5
+      name: zone temperature status
+      type: uint2
+      values:
+        0: temperature normal
+        1: temperature warning
+    - byte: 6
+      bit: 6-7
+      name: zone analog input status
+      type: uint2
+      values:
+        0: off (inactive)
+        1: on (active)
 
 1FFE3:
   name: FURNACE_COMMAND
+  parameters:
+    - byte: 0
+      name: instance
+      type: uint8
+    - byte: 1
+      bit: 0-1
+      name: operating mode
+      type: uint2
+      values:
+        0: automatic
+        1: manual
+    - byte: 1
+      bit: 2-7
+      name: heat source
+      type: uint6
+      values:
+        0: combustion
+        1: AC power primary
+        2: AC power secondary
+        3: engine heat
+        4: hydronic heat - combustion
+        5: hydronic heat - electric
+        6: hydronic heat - gas/electric (both)
+    - byte: 2
+      name: circulation fan speed
+      type: uint8
+      unit: Pct
+    - byte: 3
+      name: heat output level
+      type: uint8
+      unit: Pct
+    - byte: 4
+      name: dead band
+      type: uint8
+      unit: Deg C
+    - byte: 5
+      name: second stage dead band
+      type: uint8
+      unit: Deg C
 
 1FFE2:
   name: THERMOSTAT_STATUS_1
@@ -1115,6 +1222,13 @@ API_VERSION: 0
     - byte: 2
       name: number of schedule instances
       type: uint8
+    - byte: 3
+      bit: 0-1
+      name: reduced noise mode
+      type: bit2
+      values:
+        00: disabled
+        01: enabled
 
 1FEF9:
   name: THERMOSTAT_COMMAND_1
@@ -1133,12 +1247,70 @@ API_VERSION: 0
 
 1FEF7:
   name: THERMOSTAT_SCHEDULE_STATUS_1
+  parameters:
+    - byte: 0
+      name: instance
+      type: uint8
+      comment: Corresponds to "Zones" in user terminology.
+    - byte: 1
+      name: schedule mode instance
+      type: uint8
+      values:
+        0: sleep
+        1: wake
+        2: away
+        3: return
+        4-249: additional instances
+        250: storage
+    - byte: 2
+      name: start hour
+      comment: precision = 1 hour
+      type: uint8
+      values:
+        0: 12:00 am
+        1: 1:00 am
+        2: 2:00 am
+        3: 3:00 am
+        4: 4:00 am
+        5: 5:00 am
+        6: 6:00 am
+        7: 7:00 am
+        8: 8:00 am
+        9: 9:00 am
+        10: 10:00 am
+        11: 11:00 am
+        12: 12:00 pm
+        13: 1:00 pm
+        14: 2:00 pm
+        15: 3:00 pm
+        16: 4:00 pm
+        17: 5:00 pm
+        18: 6:00 pm
+        19: 7:00 pm
+        20: 8:00 pm
+        21: 9:00 pm
+        22: 10:00 pm
+        23: 11:00 pm
+    - byte: 3
+      name: start minute
+      comment: precision = 1 min.
+      type: uint8
+      unit: min
+    - byte: 4-5
+      name: setpoint temp - heat
+      type: uint16
+      unit: Deg C
+    - byte: 6-7
+      name: setpoint temp - cool
+      type: uint16
+      unit: Deg C
 
 1FEF6:
   name: THERMOSTAT_SCHEDULE_STATUS_2
 
 1FEF5:
   name: THERMOSTAT_SCHEDULE_COMMAND_1
+  alias: 1FEF7
 
 1FEF4:
   name: THERMOSTAT_SCHEDULE_COMMAND_2
@@ -3970,7 +4142,7 @@ API_VERSION: 0
       type: uint4
 
 1FE99:
-  name: WATERHEATER_STATUS2
+  name: WATERHEATER_STATUS_2
   parameters:
     - byte: 0
       name: instance
@@ -4004,7 +4176,7 @@ API_VERSION: 0
       name: hot water priority
       type: bit2
       values:
-        00: domestic water
+        00: domestic water priority
         01: heating priority
     - byte: 3
       bit: 0-1
@@ -4717,6 +4889,25 @@ Z0005:
 1EE00:
   comment: Broadcast in Ethos 20T
   name: UNKNOWN-1EE00
+
+1EF65:
+  comment: Elwell Timberline 1.5
+  parameters:
+    - byte: 0
+      name: message type
+      type: uint8
+      values:
+        81: clear errors command
+        83: extension command
+        84: extension status
+        85: timers
+        86: heater info
+        87: panel info
+        88: hcu info
+        89: timers setup command
+        8A: timers setup status
+    - byte: 1-7
+      name: message
 
 1FDF9:
   name: SOLAR_CONTROLLER_CONFIGURATION_COMMAND_4
