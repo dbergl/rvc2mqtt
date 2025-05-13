@@ -4891,21 +4891,22 @@ Z0005:
   name: UNKNOWN-1EE00
 
 1EF65:
+  name: TIMBERLINE_PROPRIETARY
   comment: Elwell Timberline 1.5
   parameters:
     - byte: 0
       name: message type
       type: uint8
       values:
-        81: clear errors command
-        83: extension command
-        84: extension status
-        85: timers
-        86: heater info
-        87: panel info
-        88: hcu info
-        89: timers setup command
-        8A: timers setup status
+        129: clear errors command
+        131: extension command
+        132: extension status
+        133: timers
+        134: heater info
+        135: panel info
+        136: hcu info
+        137: timers setup command
+        138: timers setup status
     - byte: 1-7
       name: message
 
