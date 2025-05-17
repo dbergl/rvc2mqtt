@@ -33,10 +33,12 @@ from paho.mqtt.packettypes import PacketTypes
 class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
     FACTORY_MATCH_ATTRIBUTES = {"type": "dc_system", "name": "APS-500"}
 
-    """ Provide basic DC system information as published by the APS-500 using DC_SOURCE_STATUS_1 - 5,
-        CHARGER_STATUS, CHARGER_STATUS_2, and CHARGER_EQUALIZATION_STATUS
+    """ Provide basic DC system information as published by the APS-500 
+        using DC_SOURCE_STATUS_1 - 5, CHARGER_STATUS, CHARGER_STATUS_2,
+        and CHARGER_EQUALIZATION_STATUS
     """
     apcfaults = {
+        "0":  "No Fault",
         "12": "Battery Temperature greatly exceeded configured upper limit.",
         "13": "Battery Voltage greatly exceeded upper limit, measured by VBat+",
         "14": "Battery Voltage too low to operate as measured on VBat+. Damaged or missing sensing wire or fuse? (or engine not started!)",
@@ -103,55 +105,59 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         self.name = data['instance_name']
 
         # class specific values that change
-        self._dc_voltage = 5  # should never be this low
-        self._dc_current = 50  # should not be this high
+        self._dc_voltage             = 5  # should never be this low
+        self._dc_current             = 50  # should not be this high
         #DC_SOURCE_STATUS_4
-        self._desired_charge_state = "unknown"
-        self._desired_dc_voltage = "unknown" # expected is 54.7 volts
-        self._desired_dc_current = "unknown" # expected is 90 A
+        self._desired_charge_state   = "unknown"
+        self._desired_dc_voltage     = "unknown" # expected is 54.7 volts
+        self._desired_dc_current     = "unknown" # expected is 90 A
         #DC_SOURCE_STATUS_5
-        self._hp_dc_voltage = "unknown"
+        self._hp_dc_voltage          = "unknown"
         #CHARGER_CONFIGURATION_STATUS
-        self._charging_algorithm = "unknown"
-        self._charging_mode = "unknown"
+        self._charging_algorithm     = "unknown"
+        self._charging_mode          = "unknown"
         self._battery_sensor_present = "unknown"
         #BATTERY_STATUS_11
-        self._charge_detected = "unknown"
-        self._reserve_status = "unknown"
+        self._charge_detected        = "unknown"
+        self._reserve_status         = "unknown"
         #CHARGER_STATUS
-        self._charge_voltage = "unknown"
-        self._charge_current = "unknown"
-        self._charge_current_pct = "unknown"
-        self._operating_state = "unknown"
+        self._charge_voltage         = "unknown"
+        self._charge_current         = "unknown"
+        self._charge_current_pct     = "unknown"
+        self._operating_state        = "unknown"
         self._power_up_default_state = "unknown"
-        self._auto_recharge_enable = "unknown"
-        self._force_charge = "unknown"
+        self._auto_recharge_enable   = "unknown"
+        self._force_charge           = "unknown"
 
         #CHARGER_STATUS_2
-        self._charging_voltage = "unknown"
-        self._charging_current = "unknown"
-        self._charger_temperature = "unknown"
+        self._charging_voltage       = "unknown"
+        self._charging_current       = "unknown"
+        self._charger_temperature    = "unknown"
 
         #DM_RV
-        self._fault_code = "unknown"
-        self._fault_description = "unknown"
-        self._lamp = "unknown"
+        self._fault_code             = "unknown"
+        self._fault_description      = "unknown"
+        self._lamp                   = "unknown"
 
-        self._terminal_message_call = {}
+        #TERMINAL
+        self._terminal_message_call  = {}
+        self._terminalmessage        = ""
 
         if 'command_topic' in data:
-            topic_base= str(data['command_topic'])
-            self.reset_command_topic = str(f"{topic_base}/reset")
-            self.reboot_command_topic = str(f"{topic_base}/reboot")
-            self.lowtempoverride_command_topic = str(f"{topic_base}/danger/lowtempoverride")
-            self.ignorefaults_command_topic = str(f"{topic_base}/danger/ignorefaults")
-            self.capwatts_command_topic = str(f"{topic_base}/danger/capwatts")
+            topic_base                            = str(data['command_topic'])
+            self.reset_command_topic              = str(f"{topic_base}/reset")
+            self.reboot_command_topic             = str(f"{topic_base}/reboot")
+            self.request_last_fault_command_topic = str(f"{topic_base}/request_last_fault")
+            self.lowtempoverride_command_topic    = str(f"{topic_base}/danger/lowtempoverride")
+            self.ignorefaults_command_topic       = str(f"{topic_base}/danger/ignorefaults")
+            self.capwatts_command_topic           = str(f"{topic_base}/danger/capwatts")
         else:
             self.command_topic = mqtt_support.make_device_topic_string(
                 self.id, None, False)
 
         self.mqtt_support.register(self.reset_command_topic, self.process_mqtt_msg)
         self.mqtt_support.register(self.reboot_command_topic, self.process_mqtt_msg)
+        self.mqtt_support.register(self.request_last_fault_command_topic, self.process_mqtt_msg)
         self.mqtt_support.register(self.ignorefaults_command_topic, self.process_mqtt_msg)
         self.mqtt_support.register(self.capwatts_command_topic, self.process_mqtt_msg)
 
@@ -171,40 +177,43 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             self.hp_dc_voltage_topic = str(f"{topic_base}/hp_dc_voltage")
 
             # CHARGER_STATUS
-            self.charge_voltage_topic = str(f"{topic_base}/charge_voltage")
-            self.charge_current_topic = str(f"{topic_base}/charge_current")
-            self.charge_current_pct_topic = str(f"{topic_base}/charge_current_pct")
-            self.operating_state_topic = str(f"{topic_base}/operating_state")
-            self.power_up_default_state_topic = str(f"{topic_base}/power_up_default_state")
-            self.auto_recharge_enable_topic = str(f"{topic_base}/auto_recharge_enable")
-            self.force_charge_topic = str(f"{topic_base}/force_charge")
+            self.charge_voltage_topic            = str(f"{topic_base}/charge_voltage")
+            self.charge_current_topic            = str(f"{topic_base}/charge_current")
+            self.charge_current_pct_topic        = str(f"{topic_base}/charge_current_pct")
+            self.operating_state_topic           = str(f"{topic_base}/operating_state")
+            self.power_up_default_state_topic    = str(f"{topic_base}/power_up_default_state")
+            self.auto_recharge_enable_topic      = str(f"{topic_base}/auto_recharge_enable")
+            self.force_charge_topic              = str(f"{topic_base}/force_charge")
 
             # CHARGER_STATUS_2
-            self.charging_voltage_topic = str(f"{topic_base}/charging_voltage")
-            self.charging_current_topic = str(f"{topic_base}/charging_current")
-            self.charger_temperature_topic = str(f"{topic_base}/charger_temp")
+            self.charging_voltage_topic          = str(f"{topic_base}/charging_voltage")
+            self.charging_current_topic          = str(f"{topic_base}/charging_current")
+            self.charger_temperature_topic       = str(f"{topic_base}/charger_temp")
 
             # CHARGER_CONFIGURATION_STATUS
-            self.charging_algorithm_topic = str(f"{topic_base}/charging_algorithm")
-            self.charging_mode_topic = str(f"{topic_base}/charging_mode")
-            self.battery_sensor_present_topic = str(f"{topic_base}/battery_sensor_present")
+            self.charging_algorithm_topic        = str(f"{topic_base}/charging_algorithm")
+            self.charging_mode_topic             = str(f"{topic_base}/charging_mode")
+            self.battery_sensor_present_topic    = str(f"{topic_base}/battery_sensor_present")
 
             # BATTERY_STATUS_11
-            self.charge_detected_topic = str(f"{topic_base}/charge_detected")
-            self.reserve_status_topic = str(f"{topic_base}/reserve_status")
+            self.charge_detected_topic           = str(f"{topic_base}/charge_detected")
+            self.reserve_status_topic            = str(f"{topic_base}/reserve_status")
 
             # DM_RV
-            self.dm_rv_fault_code_topic = str(f"{topic_base}/fault/code")
-            self.dm_rv_fault_description_topic = str(f"{topic_base}/fault/description")
-            self.dm_rv_lamp_topic = str(f"{topic_base}/fault/lamp")
+            self.dm_rv_fault_code_topic          = str(f"{topic_base}/fault/code")
+            self.dm_rv_fault_description_topic   = str(f"{topic_base}/fault/description")
+            self.dm_rv_lamp_topic                = str(f"{topic_base}/fault/lamp")
 
             # ???
-            self.max_charging_current_topic = str(f"{topic_base}/max_charging_current")
-            self.max_charging_current_pct_topic = str(f"{topic_base}/max_charging_current_pct")
+            self.max_charging_current_topic      = str(f"{topic_base}/max_charging_current")
+            self.max_charging_current_pct_topic  = str(f"{topic_base}/max_charging_current_pct")
 
-            self.override_status_topic = str(f"{topic_base}/danger/overridestatus")
-            self.ignorefaults_status_topic = str(f"{topic_base}/danger/ignorefaults")
-            self.capwatts_status_topic = str(f"{topic_base}/danger/capwatts")
+            self.override_status_topic           = str(f"{topic_base}/danger/overridestatus")
+            self.ignorefaults_status_topic       = str(f"{topic_base}/danger/ignorefaults")
+            self.capwatts_status_topic           = str(f"{topic_base}/danger/capwatts")
+            self.request_last_fault_status_topic = str(f"{topic_base}/fault/rlf_message")
+            self.terminal_status_topic           = str(f"{topic_base}/danger/terminal_message")
+
 
         else:
             self.status_dc_voltage_topic = mqtt_support.make_device_topic_string(self.id, "dc_voltage", True)
@@ -251,7 +260,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         if self._is_entry_match(self.rvc_match_source_status_5, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            #For some reason the APC does not send this in standard RV-C format
+            #For some reason the APS does not send this in standard RV-C format
             # and instead sends this as 2 bytes (bytes 2&3) in little-endian byte order
             hp_dc_voltage = struct.unpack_from('<xxHxxx', bytearray.fromhex(new_message["data"]))
 
@@ -359,7 +368,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                     f"{new_message['spn-lsb']:03b}"
                 ,2) - 0x7F000)
 
-            fault_description = self.apcfaults.get(message_fault_code, "Internal Error")
+            fault_description = self.apcfaults.get(str(message_fault_code), "Internal Error")
             lamp_status = "n/a"
 
             if int(new_message["red_lamp_status"]) > 0:
@@ -394,25 +403,37 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
    
             # Set CorrelationData and ResponseTopic
             messageproperties = Properties(PacketTypes.PUBLISH)
-            if self._terminal_message_call["properties"] is not None:
+            if hasattr(self._terminal_message_call["properties"],'CorrelationData'):
                 messageproperties.CorrelationData = self._terminal_message_call["properties"].CorrelationData
-            messageproperties.ResponseTopic = self._terminal_message_call["responsetopic"]
+            messageproperties.ResponseTopic = self._terminal_message_call.get("responsetopic")
 
             response_timestamp = time.time()
-            if response_timestamp > self._terminal_message_call["timestamp"] and response_timestamp - self._terminal_message_call["timestamp"] < 10.0:
-                if (bytearray.fromhex(new_message["data"]).decode()).rstrip() == "AOK;":
-                    self.mqtt_support.client.publish(topic=self._terminal_message_call["responsetopic"],
-                        payload=self._terminal_message_call["payload"], retain=True, properties=messageproperties)
-                    # Clear the messages since we are done with them
+            if response_timestamp > self._terminal_message_call.get("timestamp") and response_timestamp - self._terminal_message_call.get("timestamp") < 10.0:
+                self._terminalmessage =  self._terminalmessage + new_message["data"]
+                messages = bytearray.fromhex(self._terminalmessage).decode()
+                publish_msg = False
+
+                if "AOK;" in messages:
+                    self.Logger.debug(f"Terminal message: {bytearray.fromhex(self._terminalmessage).decode()}")
+                    publish_msg = True
+
+                elif "RST;" in messages:
+                    self.Logger.debug(f"Terminal message: {bytearray.fromhex(self._terminalmessage).decode()}")
+                    publish_msg = True
+
+                if publish_msg:
+                    # Pubish full TERMINAL response
+                    self.mqtt_support.client.publish(topic=self.terminal_status_topic,
+                        payload=messages, retain=False, properties=messageproperties)
+                    # Publish payload to responsetopic if it exists
+                    if self._terminal_message_call.get("responsetopic") is not None:
+                        self.mqtt_support.client.publish(topic=self._terminal_message_call.get("responsetopic"),
+                            payload=self._terminal_message_call.get("payload"), retain=True, properties=messageproperties)
 
                     self._terminal_message_call = {}
+                    self._terminalmessage = ""
 
-                    return True
-
-                else:
-                    # Maybe some sort of retry?
-                    print(f"Possible unrelated message? {bytearray.fromhex(new_message["data"]).decode().rstrip()}")
-                    return True
+                return True
 
             return True
 
@@ -427,8 +448,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             self.send_queue.put({"dgn": "17E80", "data": msg_bytes})
             time.sleep(.10)
 
-
-    def reset_aps(self):
+    def reset_aps(self, properties = None):
         """
         Sends GENERAL_RESET dgn = 17F00 to the APS-500
         Only sends reset message
@@ -438,10 +458,32 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         struct.pack_into("<BBBBBBBB", msg_bytes, 0, 0x05,
             0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
 
+        self._terminal_message_call["payload"] = ""
+        self._terminal_message_call["responsetopic"] = None
+        if properties is not None:
+            self._terminal_message_call["properties"] = properties
+        self._terminal_message_call["timestamp"] = time.time()
+
         self.send_queue.put({"dgn": "17F80", "data": msg_bytes})
 
+    def request_last_fault(self, properties = None):
+        """
+        Sends $RLF:@ to TERMINAL dgn = 17E80 to the APS-500
+        $RLF:@ = 24 52 4C 46 3A 40
+        """
+        self.Logger.debug("Sending Request Last Fault ASCII message")
 
-    def reboot_aps(self):
+        message = [bytearray(b'$RLF:@\xff\xff')]
+
+        self._terminal_message_call["payload"] = "requested"
+        self._terminal_message_call["responsetopic"] = self.request_last_fault_status_topic
+        self._terminal_message_call["properties"] = properties
+        self._terminal_message_call["timestamp"] = time.time()
+
+        self.send_terminal_message(message)
+
+
+    def reboot_aps(self, properties = None):
         """
         Sends $RBT: to TERMINAL dgn = 17E80 to the APS-500
         $RBT:@ = 24 52 42 54 3A 40
@@ -449,6 +491,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         self.Logger.debug("Sending reboot ASCII message")
 
         message = [bytearray(b'$RBT:@\xff\xff')]
+
+        self._terminal_message_call["payload"] = 0
+        self._terminal_message_call["responsetopic"] = None
+        if properties is not None:
+            self._terminal_message_call["properties"] = properties
+        self._terminal_message_call["timestamp"] = time.time()
 
         self.send_terminal_message(message)
 
@@ -481,7 +529,8 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         self._terminal_message_call["payload"] = 1 if cap else 0
         self._terminal_message_call["responsetopic"] = self.capwatts_status_topic
-        self._terminal_message_call["properties"] = properties
+        if properties is not None:
+            self._terminal_message_call["properties"] = properties
         self._terminal_message_call["timestamp"] = time.time()
 
         self.send_terminal_message(message)
@@ -510,7 +559,8 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         self._terminal_message_call["payload"] = 1 if override else 0
         self._terminal_message_call["responsetopic"] = self.ignorefaults_status_topic
-        self._terminal_message_call["properties"] = properties
+        if properties is not None:
+            self._terminal_message_call["properties"] = properties
         self._terminal_message_call["timestamp"] = time.time()
 
         self.send_terminal_message(message)
@@ -524,7 +574,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 try:
                     match payload:
                         case '1':
-                            self.reset_aps()
+                            self.reset_aps(properties) if properties is not None else self.reset_aps()
                         case _:
                             self.Logger.warning(
                             f"Invalid payload {payload} for topic {topic}")
@@ -535,7 +585,18 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 try:
                     match payload:
                         case '1':
-                            self.reboot_aps()
+                            self.reboot_aps(properties) 
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.request_last_fault_command_topic:
+                try:
+                    match payload:
+                        case '1':
+                            self.request_last_fault(properties) if properties is not None else self.request_last_fault()
                         case _:
                             self.Logger.warning(
                             f"Invalid payload {payload} for topic {topic}")
@@ -596,6 +657,10 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         self.mqtt_support.client.publish(
             self.capwatts_status_topic, "unknown", retain=True)
+
+        self.mqtt_support.client.publish(
+            self.request_last_fault_status_topic, "unknown", retain=True)
+
 
         # request dgn report - this should trigger this device to report
         # dgn = 1FFC6 which is actually  C6 FF 01 <instance> 00 00 00 00
