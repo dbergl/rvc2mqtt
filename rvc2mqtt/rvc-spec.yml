@@ -1297,11 +1297,11 @@ API_VERSION: 0
       type: uint8
       unit: min
     - byte: 4-5
-      name: setpoint temp - heat
+      name: setpoint temp heat
       type: uint16
       unit: Deg C
     - byte: 6-7
-      name: setpoint temp - cool
+      name: setpoint temp cool
       type: uint16
       unit: Deg C
 
@@ -4897,6 +4897,7 @@ Z0005:
     - byte: 0
       name: message type
       type: uint8
+      unit: hex
       values:
         129: clear errors command
         131: extension command
@@ -4909,6 +4910,7 @@ Z0005:
         138: timers setup status
     - byte: 1-7
       name: message
+      unit: hex
 
 1FDF9:
   name: SOLAR_CONTROLLER_CONFIGURATION_COMMAND_4
