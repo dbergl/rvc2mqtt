@@ -24,6 +24,7 @@ import struct
 import json
 from rvc2mqtt.mqtt import MQTT_Support
 from rvc2mqtt.entity import EntityPluginBaseClass
+from rvc2mqtt.rvc import RVC_Decoder
 
 
 class hvac_TIMBERLINE(EntityPluginBaseClass):
@@ -416,18 +417,18 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
         elif self._is_entry_match(self.rvc_timberline_proprietary, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            if new_message["message_type"] == "132": #0x84 Timberline 1.5 Extension status message
-                msge = struct.unpack('<BHHBBB',bytearray.fromhex(data))
-            elif new_message["message_type"] == "133": #0x85 Timberline 1.5 Timers
-                msge = struct.unpack('<BHBBBBB',bytearray.fromhex(data))
-            elif new_message["message_type"] == "134": #0x86 Timberline 1.5 Heater info
-                msge = struct.unpack('<BHBBBBB',bytearray.fromhex(data))
-            elif new_message["message_type"] == "135": #0x87 Timberline 1.5 Panel info
-                msge = struct.unpack('<BHBBBBB',bytearray.fromhex(data))
-            elif new_message["message_type"] == "136": #0x88 Timberline 1.5 HCU info
-                msge = struct.unpack('<BHBBBBB',bytearray.fromhex(data))
-            elif new_message["message_type"] == "138": #0x8A Timberline 1.5 Timers Setup status
-                msge = struct.unpack('<BHBBBBB',bytearray.fromhex(data))
+            if new_message["message_type"] == "84": #0x84 Timberline 1.5 Extension status message
+                msg = struct.unpack('<BHHBBB',bytearray.fromhex(data))
+            elif new_message["message_type"] == "85": #0x85 Timberline 1.5 Timers
+                msg = struct.unpack('<BHBBBBB',bytearray.fromhex(data))
+            elif new_message["message_type"] == "86": #0x86 Timberline 1.5 Heater info
+                msg = struct.unpack('<BHBBBBB',bytearray.fromhex(data))
+            elif new_message["message_type"] == "87": #0x87 Timberline 1.5 Panel info
+                msg = struct.unpack('<BHBBBBB',bytearray.fromhex(data))
+            elif new_message["message_type"] == "88": #0x88 Timberline 1.5 HCU info
+                msg = struct.unpack('<BHBBBBB',bytearray.fromhex(data))
+            elif new_message["message_type"] == "8A": #0x8A Timberline 1.5 Timers Setup status
+                msg = struct.unpack('<BHBBBBB',bytearray.fromhex(data))
 
             processed = True
 
