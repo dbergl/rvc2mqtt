@@ -4912,19 +4912,25 @@ Z0005:
 1EF6581:
   name: TIMBERLINE_PROPRIETARY_81
   comment: virtual dgn based on 1st byte of 1EF65
-  - byte: 0
+  parameters:
+    - byte: 0
       name: message type
       type: uint8
       unit: hex
+      values:
+        81: clear errors command
 
 1EF6583:
   name: TIMBERLINE_PROPRIETARY_83
   comment: virtual dgn based on 1st byte of 1EF65
-  - byte: 0
+  parameters:
+    - byte: 0
       name: message type
       type: uint8
       unit: hex
-  - byte: 1
+      values:
+        83: extension command
+    - byte: 1
       bit: 0-1
       name: hot water priority
       values:
@@ -4940,11 +4946,14 @@ Z0005:
 1EF6584:
   name: TIMBERLINE_PROPRIETARY_84
   comment: virtual dgn based on 1st byte of 1EF65
-  - byte: 0
+  parameters:
+    - byte: 0
       name: message type
       type: uint8
       unit: hex
-  - byte: 1
+      values:
+        84: extension status
+    - byte: 1
       bit: 0-1
       name: solenoid
       values:
@@ -4956,15 +4965,15 @@ Z0005:
       values:
         0: external sensor
         1: panel sensor
-  - byte: 2-3
+    - byte: 2-3
       name: tank temperature
       type: uint16
       unit: deg c
-  - byte: 4-5
+    - byte: 4-5
       name: heater temperature
       type: uint16
       unit: deg c
-  - byte: 6
+    - byte: 6
       name: fan manual percents
       type: uint8
       unit: pct
@@ -4972,50 +4981,68 @@ Z0005:
 1EF6585:
   name: TIMBERLINE_PROPRIETARY_85
   comment: virtual dgn based on 1st byte of 1EF65
-  - byte: 0
+  parameters:
+    - byte: 0
       name: message type
       type: uint8
       unit: hex
+      values:
+        85: timers
 
 1EF6586:
   name: TIMBERLINE_PROPRIETARY_86
   comment: virtual dgn based on 1st byte of 1EF65
-  - byte: 0
+  parameters:
+    - byte: 0
       name: message type
       type: uint8
       unit: hex
+      values:
+        86: heater info
 
 1EF6587:
   name: TIMBERLINE_PROPRIETARY_87
   comment: virtual dgn based on 1st byte of 1EF65
-  - byte: 0
+  parameters:
+    - byte: 0
       name: message type
       type: uint8
       unit: hex
+      values:
+        87: panel info
 
 1EF6588:
   name: TIMBERLINE_PROPRIETARY_88
   comment: virtual dgn based on 1st byte of 1EF65
-  - byte: 0
+  parameters:
+    - byte: 0
       name: message type
       type: uint8
       unit: hex
+      values:
+        88: hcu info
 
 1EF6589:
   name: TIMBERLINE_PROPRIETARY_89
   comment: virtual dgn based on 1st byte of 1EF65
-  - byte: 0
+  parameters:
+    - byte: 0
       name: message type
       type: uint8
       unit: hex
+      values:
+        89: timers setup command
 
 1EF658A:
   name: TIMBERLINE_PROPRIETARY_8A
   comment: virtual dgn based on 1st byte of 1EF65
-  - byte: 0
+  parameters:
+    - byte: 0
       name: message type
       type: uint8
       unit: hex
+      values:
+        8A: timers setup status
 
 1FDF9:
   name: SOLAR_CONTROLLER_CONFIGURATION_COMMAND_4
