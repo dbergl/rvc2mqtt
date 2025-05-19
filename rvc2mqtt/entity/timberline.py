@@ -186,7 +186,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             self.hcu_version_topic                  = str(f"{topic_base}/info/hcu/version")
             # 0x8A
             self.system_limitation_topic            = str(f"{topic_base}/info/system_limit")
-            self.water_limittation_topic            = str(f"{topic_base}/info/water_limit")
+            self.water_limitation_topic             = str(f"{topic_base}/info/water_limit")
 
 
         # RVC message must match the following to be this device
