@@ -179,7 +179,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             self.heater_minutes_topic               = str(f"{topic_base}/info/heater/minutes")
             self.heater_version_topic               = str(f"{topic_base}/info/heater/version")
             # 0x87
-            self.panel_minutes_topic                = str(f"{topic_base}/info/panel/minutes")
+            self.minutes_since_start_topic          = str(f"{topic_base}/info/panel/minutes")
             self.panel_version_topic                = str(f"{topic_base}/info/panel/version")
             # 0x88
             self.hcu_version_topic                  = str(f"{topic_base}/info/hcu/version")
@@ -248,7 +248,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
         self._heater_minutes = "unknown"
         self._heater_version = "unknown"
         # 0x87
-        self._panel_minutes = "unknown"
+        self._minutes_since_start = "unknown"
         self._panel_version = "unknown"
         # 0x88
         self._hcu_version = "unknown"
