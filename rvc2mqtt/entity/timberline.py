@@ -460,10 +460,10 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     self.mqtt_support.client.publish(
                         self.pump_override_timer_topic, new_message["pump_override_timer"], retain=True)
             elif new_message["message_type"] == "86": #0x86 Timberline 1.5 Heater info
-                _ver = '.'.join([new_message["heater_version_1st_byte"],
-                        new_message["heater_version_2nd_byte"],
-                        new_message["heater_version_3rd_byte"],
-                        new_message["heater_version_4th_byte"]])
+                _ver = '.'.join([str(new_message["heater_version_1st_byte"]),
+                        str(new_message["heater_version_2nd_byte"]),
+                        str(new_message["heater_version_3rd_byte"]),
+                        str(new_message["heater_version_4th_byte"])])
                 if new_message["heater_minutes"] != self._heater_minutes:
                     self._heater_minutes = new_message["heater_minutes"]
                     self.mqtt_support.client.publish(
@@ -473,10 +473,10 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     self.mqtt_support.client.publish(
                         self.heater_version_topic, _ver, retain=True)
             elif new_message["message_type"] == "87": #0x87 Timberline 1.5 Panel info
-                _ver = '.'.join([new_message["panel_version_1st_byte"],
-                        new_message["panel_version_2nd_byte"],
-                        new_message["panel_version_3rd_byte"],
-                        new_message["panel_version_4th_byte"]])
+                _ver = '.'.join(str([new_message["panel_version_1st_byte"]),
+                        str(new_message["panel_version_2nd_byte"]),
+                        str(new_message["panel_version_3rd_byte"]),
+                        str(new_message["panel_version_4th_byte"])])
                 if new_message["minutes_since_start"] != self._minutes_since_start:
                     self._minutes_since_start = new_message["minutes_since_start"]
                     self.mqtt_support.client.publish(
@@ -486,10 +486,10 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     self.mqtt_support.client.publish(
                         self.panel_version_topic, _ver, retain=True)
             elif new_message["message_type"] == "88": #0x88 Timberline 1.5 HCU info
-                _ver = '.'.join([new_message["hcu_version_1st_byte"],
-                        new_message["hcu_version_2nd_byte"],
-                        new_message["hcu_version_3rd_byte"],
-                        new_message["hcu_version_4th_byte"]])
+                _ver = '.'.join(str([new_message["hcu_version_1st_byte"]),
+                        str(new_message["hcu_version_2nd_byte"]),
+                        str(new_message["hcu_version_3rd_byte"]),
+                        str(new_message["hcu_version_4th_byte"])])
                 if _ver != self._hcu_version:
                     self._hcu_version = _ver
                     self.mqtt_support.client.publish(
