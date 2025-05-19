@@ -4909,80 +4909,8 @@ Z0005:
         88: hcu info
         89: timers setup command
         8A: timers setup status
-  83:
-    parameters:
-      - byte: 0
-        name: message type
-        type: uint8
-        unit: hex
-        values:
-          83: extension command
-      - byte: 1
-        bit: 0-1
-        name: hot water priority
-        values:
-          0: heating priority
-          1: domestic water priority
-      - byte: 1
-        bit: 2-3
-        name: used temperature sensor
-        values:
-          0: external sensor
-          1: panel sensor
-    84:
-      - byte: 0
-        name: message type
-        type: uint8
-        unit: hex
-        values:
-          84: extension status
-      - byte: 1
-        bit: 0-1
-        name: solenoid
-        values:
-          0: off 
-          1: on
-      - byte: 1
-        bit: 2-3
-        name: used temperature sensor
-        values:
-          0: external sensor
-          1: panel sensor
-      - byte: 2-3
-        name: tank temperature
-        type: uint16
-        unit: deg c
-      - byte: 4-5
-        name: heater temperature
-        type: uint16
-        unit: deg c
-      - byte: 6
-        name: fan manual percents
-        type: uint8
-        unit: pct
-
-
-1EF6  581:
-  name: TIMBERLINE_PROPRIETARY_81
-  comment: virtual dgn based on 1st byte of 1EF65
-  parameters:
-    - byte: 0
-      name: message type
-      type: uint8
-      unit: hex
-      values:
-        81: clear errors command
-
-1EF6583:
-  name: TIMBERLINE_PROPRIETARY_83
-  comment: virtual dgn based on 1st byte of 1EF65
-  parameters:
-    - byte: 0
-      name: message type
-      type: uint8
-      unit: hex
-      values:
-        83: extension command
+  "81":
+  "83":
     - byte: 1
       bit: 0-1
       name: hot water priority
@@ -4995,17 +4923,7 @@ Z0005:
       values:
         0: external sensor
         1: panel sensor
-
-1EF6584:
-  name: TIMBERLINE_PROPRIETARY_84
-  comment: virtual dgn based on 1st byte of 1EF65
-  parameters:
-    - byte: 0
-      name: message type
-      type: uint8
-      unit: hex
-      values:
-        84: extension status
+  "84":
     - byte: 1
       bit: 0-1
       name: solenoid
@@ -5030,72 +4948,79 @@ Z0005:
       name: fan manual percents
       type: uint8
       unit: pct
-
-1EF6585:
-  name: TIMBERLINE_PROPRIETARY_85
-  comment: virtual dgn based on 1st byte of 1EF65
-  parameters:
-    - byte: 0
-      name: message type
+  "85":
+    - byte: 1-3
+      name: system timer
+      type: uint24
+    - byte: 4-5
+      name: domestic water timer
+      type: uint16
+    - byte: 6-7
+      name: pump override timer
+      type: uint16
+  "86":
+    - byte: 1-3
+      name: heater minutes
+      type: uint24
+    - byte: 4
+      name: heater version 1st byte
       type: uint8
-      unit: hex
-      values:
-        85: timers
-
-1EF6586:
-  name: TIMBERLINE_PROPRIETARY_86
-  comment: virtual dgn based on 1st byte of 1EF65
-  parameters:
-    - byte: 0
-      name: message type
+    - byte: 5
+      name: heater version 2nd byte
       type: uint8
-      unit: hex
-      values:
-        86: heater info
-
-1EF6587:
-  name: TIMBERLINE_PROPRIETARY_87
-  comment: virtual dgn based on 1st byte of 1EF65
-  parameters:
-    - byte: 0
-      name: message type
+    - byte: 6
+      name: heater version 3rd byte
       type: uint8
-      unit: hex
-      values:
-        87: panel info
-
-1EF6588:
-  name: TIMBERLINE_PROPRIETARY_88
-  comment: virtual dgn based on 1st byte of 1EF65
-  parameters:
-    - byte: 0
-      name: message type
+    - byte: 7
+      name: heater version 4th byte
       type: uint8
-      unit: hex
-      values:
-        88: hcu info
-
-1EF6589:
-  name: TIMBERLINE_PROPRIETARY_89
-  comment: virtual dgn based on 1st byte of 1EF65
-  parameters:
-    - byte: 0
-      name: message type
+  "87":
+    - byte: 1-3
+      name: minutes since start
+      type: uint24
+    - byte: 4
+      name: panel version 1st byte
       type: uint8
-      unit: hex
-      values:
-        89: timers setup command
-
-1EF658A:
-  name: TIMBERLINE_PROPRIETARY_8A
-  comment: virtual dgn based on 1st byte of 1EF65
-  parameters:
-    - byte: 0
-      name: message type
+    - byte: 5
+      name: panel version 2nd byte
       type: uint8
-      unit: hex
-      values:
-        8A: timers setup status
+    - byte: 6
+      name: panel version 3rd byte
+      type: uint8
+    - byte: 7
+      name: panel version 4th byte
+      type: uint8
+  "88":
+    - byte: 4
+      name: hcu version 1st byte
+      type: uint8
+    - byte: 5
+      name: hcu version 2nd byte
+      type: uint8
+    - byte: 6
+      name: hcu version 3rd byte
+      type: uint8
+    - byte: 7
+      name: hcu version 4th byte
+      type: uint8
+  "89":
+    - byte: 1-2
+      comment: Below 60 => 60, Over 7200 => 7200 (unlimited time)
+      name: system limitation
+      type: uint16
+    - byte: 3
+      comment: 30..60 minutes Below 30=>30, Over 60=>60
+      name: water limitation
+      type: uint8
+  "8A":
+    - byte: 1-2
+      comment: Below 60 => 60, Over 7200 => 7200 (unlimited time)
+      name: system limitation
+      type: uint16
+    - byte: 3
+      comment: 30..60 minutes Below 30=>30, Over 60=>60
+      name: water limitation
+      type: uint8
 
 1FDF9:
   name: SOLAR_CONTROLLER_CONFIGURATION_COMMAND_4
