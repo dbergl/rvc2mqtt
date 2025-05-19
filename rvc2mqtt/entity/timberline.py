@@ -182,7 +182,6 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             self.panel_minutes_topic                = str(f"{topic_base}/info/panel/minutes")
             self.panel_version_topic                = str(f"{topic_base}/info/panel/version")
             # 0x88
-            self.hcu_minutes_topic                  = str(f"{topic_base}/info/hcu/minutes")
             self.hcu_version_topic                  = str(f"{topic_base}/info/hcu/version")
             # 0x8A
             self.system_limitation_topic            = str(f"{topic_base}/info/system_limit")
@@ -252,7 +251,6 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
         self._panel_minutes = "unknown"
         self._panel_version = "unknown"
         # 0x88
-        self._hcu_minutes = "unknown"
         self._hcu_version = "unknown"
         # 0x8A
         self._system_limitation = "unknown"
@@ -462,64 +460,40 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     self.mqtt_support.client.publish(
                         self.pump_override_timer_topic, new_message["pump_override_timer"], retain=True)
             elif new_message["message_type"] == "86": #0x86 Timberline 1.5 Heater info
+                _ver = '.'.join([new_message["heater_version_1st_byte"],
+                        new_message["heater_version_2nd_byte"],
+                        new_message["heater_version_3rd_byte"],
+                        new_message["heater_version_4th_byte"]])
                 if new_message["heater_minutes"] != self._heater_minutes:
                     self._heater_minutes = new_message["heater_minutes"]
                     self.mqtt_support.client.publish(
                         self.heater_minutes_topic, new_message["heater_minutes"], retain=True)
-                if new_message["heater_version_1st_byte"] != self._heater_version_1st_byte:
-                    self._heater_version_1st_byte = new_message["heater_version_1st_byte"]
+                if _ver != self._heater_version:
+                    self._heater_version = _ver
                     self.mqtt_support.client.publish(
-                        self.heater_version_1st_byte_topic, new_message["heater_version_1st_byte"], retain=True)
-                if new_message["heater_version_2nd_byte"] != self._heater_version_2nd_byte:
-                    self._heater_version_2nd_byte = new_message["heater_version_2nd_byte"]
-                    self.mqtt_support.client.publish(
-                        self.heater_version_2nd_byte_topic, new_message["heater_version_2nd_byte"], retain=True)
-                if new_message["heater_version_3rd_byte"] != self._heater_version_3rd_byte:
-                    self._heater_version_3rd_byte = new_message["heater_version_3rd_byte"]
-                    self.mqtt_support.client.publish(
-                        self.heater_version_3rd_byte_topic, new_message["heater_version_3rd_byte"], retain=True)
-                if new_message["heater_version_4th_byte"] != self._heater_version_4th_byte:
-                    self._heater_version_4th_byte = new_message["heater_version_4th_byte"]
-                    self.mqtt_support.client.publish(
-                        self.heater_version_4th_byte_topic, new_message["heater_version_4th_byte"], retain=True)
+                        self.heater_version_topic, _ver, retain=True)
             elif new_message["message_type"] == "87": #0x87 Timberline 1.5 Panel info
+                _ver = '.'.join([new_message["panel_version_1st_byte"],
+                        new_message["panel_version_2nd_byte"],
+                        new_message["panel_version_3rd_byte"],
+                        new_message["panel_version_4th_byte"]])
                 if new_message["minutes_since_start"] != self._minutes_since_start:
                     self._minutes_since_start = new_message["minutes_since_start"]
                     self.mqtt_support.client.publish(
                         self.minutes_since_start_topic, new_message["minutes_since_start"], retain=True)
-                if new_message["panel_version_1st_byte"] != self._panel_version_1st_byte:
-                    self._panel_version_1st_byte = new_message["panel_version_1st_byte"]
+                if _ver != self._panel_version:
+                    self._panel_version = _ver
                     self.mqtt_support.client.publish(
-                        self.panel_version_1st_byte_topic, new_message["panel_version_1st_byte"], retain=True)
-                if new_message["panel_version_2nd_byte"] != self._panel_version_2nd_byte:
-                    self._panel_version_2nd_byte = new_message["panel_version_2nd_byte"]
-                    self.mqtt_support.client.publish(
-                        self.panel_version_2nd_byte_topic, new_message["panel_version_2nd_byte"], retain=True)
-                if new_message["panel_version_3rd_byte"] != self._panel_version_3rd_byte:
-                    self._panel_version_3rd_byte = new_message["panel_version_3rd_byte"]
-                    self.mqtt_support.client.publish(
-                        self.panel_version_3rd_byte_topic, new_message["panel_version_3rd_byte"], retain=True)
-                if new_message["panel_version_4th_byte"] != self._panel_version_4th_byte:
-                    self._panel_version_4th_byte = new_message["panel_version_4th_byte"]
-                    self.mqtt_support.client.publish(
-                        self.panel_version_4th_byte_topic, new_message["panel_version_4th_byte"], retain=True)
+                        self.panel_version_topic, _ver, retain=True)
             elif new_message["message_type"] == "88": #0x88 Timberline 1.5 HCU info
-                if new_message["hcu_version_1st_byte"] != self._hcu_version_1st_byte:
-                    self._hcu_version_1st_byte = new_message["hcu_version_1st_byte"]
+                _ver = '.'.join([new_message["hcu_version_1st_byte"],
+                        new_message["hcu_version_2nd_byte"],
+                        new_message["hcu_version_3rd_byte"],
+                        new_message["hcu_version_4th_byte"]])
+                if _ver != self._hcu_version:
+                    self._hcu_version = _ver
                     self.mqtt_support.client.publish(
-                        self.hcu_version_1st_byte_topic, new_message["hcu_version_1st_byte"], retain=True)
-                if new_message["hcu_version_2nd_byte"] != self._hcu_version_2nd_byte:
-                    self._hcu_version_2nd_byte = new_message["hcu_version_2nd_byte"]
-                    self.mqtt_support.client.publish(
-                        self.hcu_version_2nd_byte_topic, new_message["hcu_version_2nd_byte"], retain=True)
-                if new_message["hcu_version_3rd_byte"] != self._hcu_version_3rd_byte:
-                    self._hcu_version_3rd_byte = new_message["hcu_version_3rd_byte"]
-                    self.mqtt_support.client.publish(
-                        self.hcu_version_3rd_byte_topic, new_message["hcu_version_3rd_byte"], retain=True)
-                if new_message["hcu_version_4th_byte"] != self._hcu_version_4th_byte:
-                    self._hcu_version_4th_byte = new_message["hcu_version_4th_byte"]
-                    self.mqtt_support.client.publish(
-                        self.hcu_version_4th_byte_topic, new_message["hcu_version_4th_byte"], retain=True)
+                        self.hcu_version_topic, _ver, retain=True)
             elif new_message["message_type"] == "89": #0x81 Timberline 1.5 Extension command
                 # This is the command. Eat message so it doesn't show up as unhandled.
                 self.Logger.debug(f"Msg Match Command: {str(new_message)}")
