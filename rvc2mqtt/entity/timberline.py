@@ -144,22 +144,22 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             # THERMOSTAT_STATUS_1
             self.thermostat_operating_mode_topic    = str(f"{topic_base}/mode")
             self.thermostat_operating_mode_def_topic= str(f"{topic_base}/mode_definition")
-            self.thermostat_schedule_mode_topic     = str(f"{topic_base}/schedule_mode")
-            self.thermostat_schedule_mode_def_topic = str(f"{topic_base}/schedule_mode_definition")
+            self.thermostat_schedule_mode_topic     = str(f"{topic_base}/schedule/schedule_mode")
+            self.thermostat_schedule_mode_def_topic = str(f"{topic_base}/schedule/schedule_mode_definition")
             self.set_point_temp_topic               = str(f"{topic_base}/set_point_temperature")
             self.set_point_tempf_topic              = str(f"{topic_base}/set_point_temperaturef")
             # THERMOSTAT_STATUS_2
             self.current_schedule_instance_topic    = str(f"{topic_base}/current_schedule_instance")
             self.current_schedule_instance_def_topic= str(f"{topic_base}/current_schedule_instance_definition")
             # THERMOSTAT_SCHEDULE_STATUS_1
-            self.sleep_start_hour_topic             = str(f"{topic_base}/sleep/start_hour")
-            self.sleep_start_minute_topic           = str(f"{topic_base}/sleep/start_minute")
-            self.sleep_schedule_temp_topic          = str(f"{topic_base}/sleep/schedule_temperature")
-            self.sleep_schedule_tempf_topic         = str(f"{topic_base}/sleep/schedule_temperaturef")
-            self.wake_start_hour_topic              = str(f"{topic_base}/wake/start_hour")
-            self.wake_start_minute_topic            = str(f"{topic_base}/wake/start_minute")
-            self.wake_schedule_temp_topic           = str(f"{topic_base}/wake/schedule_temperature")
-            self.wake_schedule_tempf_topic          = str(f"{topic_base}/wake/schedule_temperaturef")
+            self.sleep_start_hour_topic             = str(f"{topic_base}/schedule/sleep/start_hour")
+            self.sleep_start_minute_topic           = str(f"{topic_base}/schedule/sleep/start_minute")
+            self.sleep_schedule_temp_topic          = str(f"{topic_base}/schedule/sleep/schedule_temperature")
+            self.sleep_schedule_tempf_topic         = str(f"{topic_base}/schedule/sleep/schedule_temperaturef")
+            self.wake_start_hour_topic              = str(f"{topic_base}/schedule/wake/start_hour")
+            self.wake_start_minute_topic            = str(f"{topic_base}/schedule/wake/start_minute")
+            self.wake_schedule_temp_topic           = str(f"{topic_base}/schedule/wake/schedule_temperature")
+            self.wake_schedule_tempf_topic          = str(f"{topic_base}/schedule/wake/schedule_temperaturef")
             # TIMBERLINE_PROPRIETARY
             # 0x84
             self.solenoid_topic                     = str(f"{topic_base}/solenoid")
