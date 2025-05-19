@@ -92,7 +92,7 @@ class RVC_Decoder(object):
             # after 1st byte value
             if "usefirstbyte" in decoder and decoder["usefirstbyte"] == 1:
                 #self.Logger.error(f"{result['data'][:2]}")
-                params.extend(decoder[str(param["data"][:2]]))
+                params.extend(decoder[str(param["data"][:2])])
         except:
             pass
 
