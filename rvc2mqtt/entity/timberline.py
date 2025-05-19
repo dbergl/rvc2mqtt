@@ -165,7 +165,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             self.solenoid_topic                     = str(f"{topic_base}/solenoid")
             self.temperature_sensor_topic           = str(f"{topic_base}/temperature_sensor")
             self.tank_temperature_topic             = str(f"{topic_base}/tank_temperature")
+            self.tank_temperaturef_topic             = str(f"{topic_base}/tank_temperaturef")
             self.heater_temperature_topic           = str(f"{topic_base}/heater_temperature")
+            self.heater_temperaturef_topic           = str(f"{topic_base}/heater_temperaturef")
             self.fan_manual_speed_topic             = str(f"{topic_base}/fan_manual_speed")
             # 0x85
             self.system_timer_topic                 = str(f"{topic_base}/timers/system")
@@ -344,7 +346,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
         elif self._is_entry_match(self.rvc_thermostat_status_1, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            if new_message["operating_mode"] != self._operating_mode:
+            if new_message["operating_mode"] != self._thermostat_operating_mode:
                 self._thermostat_operating_mode = new_message["operating_mode"]
                 self.mqtt_support.client.publish(
                     self.thermostat_operating_mode_topic, new_message["operating_mode"], retain=True)
@@ -448,17 +450,35 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     self._tank_temperature = new_message["tank_temperature"]
                     self.mqtt_support.client.publish(
                         self.tank_temperature_topic, new_message["tank_temperature"], retain=True)
+                    self.mqtt_support.client.publish(
+                        self.tank_temperaturef_topic,
+                            round(float(self._convert_c_to_f(new_message["tank_temperature"]))), retain=True)
                 if new_message["heater_temperature"] != self._heater_temperature:
                     self._heater_temperature = new_message["heater_temperature"]
                     self.mqtt_support.client.publish(
                         self.heater_temperature_topic, new_message["heater_temperature"], retain=True)
+                    self.mqtt_support.client.publish(
+                        self.heater_temperaturef_topic,
+                            round(float(self._convert_c_to_f(new_message["heater_temperature"]))), retain=True)
                 if new_message["fan_manual_speed"] != self._fan_manual_speed:
                     self._fan_manual_speed = new_message["fan_manual_speed"]
                     self.mqtt_support.client.publish(
                         self.fan_manual_speed_topic, new_message["fan_manual_speed"], retain=True)
                 processed = True
             elif new_message["message_type"] == "85": #0x85 Timberline 1.5 Timers
-                self.Logger.warning(f"")
+                if new_message["system_timer"] != self._system_timer:
+                    self._system_timer = new_message["system_timer"]
+                    self.mqtt_support.client.publish(
+                        self.system_timer_topic, new_message["system_timer"], retain=True)
+                if new_message["domestic_water_timer"] != self._domestic_water_timer:
+                    self._domestic_water_timer = new_message["domestic_water_timer"]
+                    self.mqtt_support.client.publish(
+                        self.domestic_water_timer_topic, new_message["domestic_water_timer"], retain=True)
+                if new_message["pump_override_timer"] != self._pump_override_timer:
+                    self._pump_override_timer = new_message["pump_override_timer"]
+                    self.mqtt_support.client.publish(
+                        self.pump_override_timer_topic, new_message["pump_override_timer"], retain=True)
+                processed = True
             elif new_message["message_type"] == "86": #0x86 Timberline 1.5 Heater info
                 self.Logger.warning(f"")
             elif new_message["message_type"] == "87": #0x87 Timberline 1.5 Panel info
