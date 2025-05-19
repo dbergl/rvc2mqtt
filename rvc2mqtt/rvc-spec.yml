@@ -4900,15 +4900,15 @@ Z0005:
       type: uint8
       unit: hex
       values:
-        81: clear errors command
-        83: extension command
-        84: extension status
-        85: timers
-        86: heater info
-        87: panel info
-        88: hcu info
-        89: timers setup command
-        8A: timers setup status
+        "81": clear errors command
+        "83": extension command
+        "84": extension status
+        "85": timers
+        "86": heater info
+        "87": panel info
+        "88": hcu info
+        "89": timers setup command
+        "8A": timers setup status
   "81":
   "83":
     - byte: 1
