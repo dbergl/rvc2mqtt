@@ -78,7 +78,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             self.command_fan_mode = str(f"{command_base}/fan_mode")
             self.mqtt_support.register(self.command_fan_mode, self.process_mqtt_msg)
             self.command_fan_speed = str(f"{command_base}/fan_speed")
-            self.mqtt_support.register(self.command_fan_speed, self.process_mqtt_msg
+            self.mqtt_support.register(self.command_fan_speed, self.process_mqtt_msg)
             #THERMOSTAT_COMMAND_1
             self.command_operating_mode = str(f"{command_base}/mode")
             self.mqtt_support.register(self.command_operating_mode, self.process_mqtt_msg)
