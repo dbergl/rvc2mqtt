@@ -309,7 +309,6 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 self.mqtt_support.client.publish(
                     self.failure_to_ignite_status_def_topic, new_message["failure_to_ignite_status_definition"].title(), retain=True)
             processed = True
-
         elif self._is_entry_match(self.rvc_waterheater_status_2, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
             if new_message["hot_water_priority"] != self._hot_water_priority:
@@ -319,7 +318,6 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 self.mqtt_support.client.publish(
                     self.hot_water_priority_def_topic, new_message["hot_water_priority_definition"].title(), retain=True)
             processed = True
-
         elif self._is_entry_match(self.rvc_circulation_pump_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
             if new_message["output_status"] != self._output_status:
@@ -329,7 +327,6 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 self.mqtt_support.client.publish(
                     self.output_status_def_topic, new_message["output_status_definition"].title(), retain=True)
             processed = True
-
         elif self._is_entry_match(self.rvc_furnace_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
             if new_message["operating_mode"] != self._operating_mode:
@@ -343,7 +340,6 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 self.mqtt_support.client.publish(
                     self.circulation_fan_speed_topic, new_message["circulation_fan_speed"], retain=True)
             processed = True
-
         elif self._is_entry_match(self.rvc_thermostat_status_1, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
             if new_message["operating_mode"] != self._thermostat_operating_mode:
@@ -363,9 +359,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 self.mqtt_support.client.publish(
                     self.set_point_temp_topic, new_message["setpoint_temp_heat"], retain=True)
                 self.mqtt_support.client.publish(
-                    self.set_point_tempf_topic, round(float(self._convert_c_to_f(new_message["setpoint_temp_heat"]))), retain=True)
+                    self.set_point_tempf_topic, round(float(
+                        self._convert_c_to_f(new_message["setpoint_temp_heat"]))), retain=True)
             processed = True
-
         elif self._is_entry_match(self.rvc_thermostat_status_2, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
             if new_message["current_schedule_instance"] != self._current_schedule_instance:
@@ -373,9 +369,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 self.mqtt_support.client.publish(
                     self.current_schedule_instance_topic, new_message["current_schedule_instance"], retain=True)
                 self.mqtt_support.client.publish(
-                    self.current_schedule_instance_def_topic, self.current_schedule_instance_definition.get(str(new_message["current_schedule_instance"]),"unknown").title(), retain=True)
+                    self.current_schedule_instance_def_topic, self.current_schedule_instance_definition.get(
+                        str(new_message["current_schedule_instance"]),"unknown").title(), retain=True)
             processed = True
-
         elif self._is_entry_match(self.rvc_thermostat_schedule_status_1, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
             if new_message["schedule_mode_instance"] == "0":
@@ -391,9 +387,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     self._sleep_schedule_temp = new_message["setpoint_temp_heat"]
                     self.mqtt_support.client.publish(
                         self.sleep_schedule_temp_topic, new_message["setpoint_temp_heat"], retain=True)
-                self.mqtt_support.client.publish(
-                    self.sleep_schedule_tempf_topic, round(float(
-                        self._convert_c_to_f(new_message["setpoint_temp_heat"]))), retain=True)
+                    self.mqtt_support.client.publish(
+                        self.sleep_schedule_tempf_topic, round(float(
+                            self._convert_c_to_f(new_message["setpoint_temp_heat"]))), retain=True)
             elif new_message["schedule_mode_instance"] == "1": 
                 if new_message["start_hour"] != self._wake_start_hour:
                     self._wake_start_hour = new_message["start_hour"]
@@ -407,32 +403,19 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     self._wake_schedule_temp = new_message["setpoint_temp_heat"]
                     self.mqtt_support.client.publish(
                         self.wake_schedule_temp_topic, new_message["setpoint_temp_heat"], retain=True)
-                self.mqtt_support.client.publish(
-                    self.wake_schedule_tempf_topic, round(float(
-                        self._convert_c_to_f(new_message["setpoint_temp_heat"]))), retain=True)
+                    self.mqtt_support.client.publish(
+                        self.wake_schedule_tempf_topic, round(float(
+                            self._convert_c_to_f(new_message["setpoint_temp_heat"]))), retain=True)
             processed = True
-
-        elif self._is_entry_match(self.rvc_waterheater_command, new_message):
-            # This is the command. Eat message so it doesn't show up as unhandled.
-            self.Logger.debug(f"Msg Match Command: {str(new_message)}")
-            if new_message["operating_mode"] != self._operating_mode:
-                self._thermostat_operating_mode = new_message["operating_mode"]
-                self.mqtt_support.client.publish(
-                    self.thermostat_operating_mode_topic, new_message["operating_mode"], retain=True)
-                self.mqtt_support.client.publish(
-                    self.thermostat_operating_mode_def_topic, new_message["operating_mode_definition"].title(), retain=True)
-            processed = True
-
         elif self._is_entry_match(self.rvc_timberline_proprietary, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            self.Logger.error(f"Msg Match Status: {str(new_message)}")
             if new_message["message_type"] == "81": #0x81 Timberline 1.5 Extension Error codes clear command
                 # This is the command. Eat message so it doesn't show up as unhandled.
                 self.Logger.debug(f"Msg Match Command: {str(new_message)}")
-            elif new_message["message_type"] == "83": #0x81 Timberline 1.5 Extension command
+            if new_message["message_type"] == "83": #0x81 Timberline 1.5 Extension command
                 # This is the command. Eat message so it doesn't show up as unhandled.
                 self.Logger.debug(f"Msg Match Command: {str(new_message)}")
-            elif new_message["message_type"] == "84": #0x84 Timberline 1.5 Extension status message
+            if new_message["message_type"] == "84": #0x84 Timberline 1.5 Extension status message
                 if new_message["solenoid"] != self._solenoid:
                     self._solenoid = new_message["solenoid"]
                     self.mqtt_support.client.publish(
@@ -463,7 +446,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     self._fan_manual_speed = new_message["fan_manual_speed"]
                     self.mqtt_support.client.publish(
                         self.fan_manual_speed_topic, new_message["fan_manual_speed"], retain=True)
-            elif new_message["message_type"] == "85": #0x85 Timberline 1.5 Timers
+            if new_message["message_type"] == "85": #0x85 Timberline 1.5 Timers
                 if new_message["system_timer"] != self._system_timer:
                     self._system_timer = new_message["system_timer"]
                     self.mqtt_support.client.publish(
@@ -476,20 +459,22 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     self._pump_override_timer = new_message["pump_override_timer"]
                     self.mqtt_support.client.publish(
                         self.pump_override_timer_topic, new_message["pump_override_timer"], retain=True)
-            elif new_message["message_type"] == "86": #0x86 Timberline 1.5 Heater info
+            if new_message["message_type"] == "86": #0x86 Timberline 1.5 Heater info
                 self.Logger.warning(f"")
-            elif new_message["message_type"] == "87": #0x87 Timberline 1.5 Panel info
+            if new_message["message_type"] == "87": #0x87 Timberline 1.5 Panel info
                 self.Logger.warning(f"")
-            elif new_message["message_type"] == "88": #0x88 Timberline 1.5 HCU info
+            if new_message["message_type"] == "88": #0x88 Timberline 1.5 HCU info
                 self.Logger.warning(f"")
-            elif new_message["message_type"] == "89": #0x81 Timberline 1.5 Extension command
+            if new_message["message_type"] == "89": #0x81 Timberline 1.5 Extension command
                 # This is the command. Eat message so it doesn't show up as unhandled.
                 self.Logger.debug(f"Msg Match Command: {str(new_message)}")
-            elif new_message["message_type"] == "8A": #0x8A Timberline 1.5 Timers Setup status
+            if new_message["message_type"] == "8A": #0x8A Timberline 1.5 Timers Setup status
                 self.Logger.warning(f"")
-
             processed = True
-
+        elif self._is_entry_match(self.rvc_waterheater_command, new_message):
+            # This is the command. Eat message so it doesn't show up as unhandled.
+            self.Logger.debug(f"Msg Match Command: {str(new_message)}")
+            processed = True
         elif self._is_entry_match(self.rvc_circulation_pump_command, new_message):
             # This is the command. Eat message so it doesn't show up as unhandled.
             self.Logger.debug(f"Msg Match Command: {str(new_message)}")
