@@ -458,19 +458,19 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                         self.fan_manual_speed_topic, new_message["fan_manual_speed"], retain=True)
                 processed = True
             elif new_message["message_type"] == "85": #0x85 Timberline 1.5 Timers
-                self.Logger.warning(f"{}")
+                self.Logger.warning(f"")
             elif new_message["message_type"] == "86": #0x86 Timberline 1.5 Heater info
-                self.Logger.warning(f"{}")
+                self.Logger.warning(f"")
             elif new_message["message_type"] == "87": #0x87 Timberline 1.5 Panel info
-                self.Logger.warning(f"{}")
+                self.Logger.warning(f"")
             elif new_message["message_type"] == "88": #0x88 Timberline 1.5 HCU info
-                self.Logger.warning(f"{}")
+                self.Logger.warning(f"")
             elif new_message["message_type"] == "89": #0x81 Timberline 1.5 Extension command
                 # This is the command. Eat message so it doesn't show up as unhandled.
                 self.Logger.debug(f"Msg Match Command: {str(new_message)}")
                 processed = True
             elif new_message["message_type"] == "8A": #0x8A Timberline 1.5 Timers Setup status
-                self.Logger.warning(f"{}")
+                self.Logger.warning(f"")
 
             processed = True
 
