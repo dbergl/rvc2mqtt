@@ -97,7 +97,7 @@ class RVC_Decoder(object):
             # If parameter usefirstbyte == true load alternate parameters named
             # after 1st byte value
             if "usefirstbyte" in decoder:
-                if decoder["usefirstbyte"] == "true":
+                if decoder["usefirstbyte"] == 1:
                     self.Logger.error(f"Use alternative parameters")
                     self.Logger.error(f"{result["name"]}")
         except:
