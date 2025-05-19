@@ -374,7 +374,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             processed = True
         elif self._is_entry_match(self.rvc_thermostat_schedule_status_1, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            if new_message["schedule_mode_instance"] == "0":
+            if new_message["schedule_mode_instance"] == 0:
                 if new_message["start_hour"] != self._sleep_start_hour:
                     self._sleep_start_hour = new_message["start_hour"]
                     self.mqtt_support.client.publish(
@@ -390,7 +390,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     self.mqtt_support.client.publish(
                         self.sleep_schedule_tempf_topic, round(float(
                             self._convert_c_to_f(new_message["setpoint_temp_heat"]))), retain=True)
-            elif new_message["schedule_mode_instance"] == "1": 
+            elif new_message["schedule_mode_instance"] == 1: 
                 if new_message["start_hour"] != self._wake_start_hour:
                     self._wake_start_hour = new_message["start_hour"]
                     self.mqtt_support.client.publish(
