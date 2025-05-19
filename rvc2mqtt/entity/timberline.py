@@ -451,15 +451,13 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     self.mqtt_support.client.publish(
                         self.tank_temperature_topic, new_message["tank_temperature"], retain=True)
                     self.mqtt_support.client.publish(
-                        self.tank_temperaturef_topic,
-                            round(float(self._convert_c_to_f(new_message["tank_temperature"]))), retain=True)
+                        self.tank_temperaturef_topic,round(float(self._convert_c_to_f(new_message["tank_temperature"]))), retain=True)
                 if new_message["heater_temperature"] != self._heater_temperature:
                     self._heater_temperature = new_message["heater_temperature"]
                     self.mqtt_support.client.publish(
                         self.heater_temperature_topic, new_message["heater_temperature"], retain=True)
                     self.mqtt_support.client.publish(
-                        self.heater_temperaturef_topic,
-                            round(float(self._convert_c_to_f(new_message["heater_temperature"]))), retain=True)
+                        self.heater_temperaturef_topic,round(float(self._convert_c_to_f(new_message["heater_temperature"]))), retain=True)
                 if new_message["fan_manual_speed"] != self._fan_manual_speed:
                     self._fan_manual_speed = new_message["fan_manual_speed"]
                     self.mqtt_support.client.publish(
