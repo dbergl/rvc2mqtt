@@ -473,7 +473,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     self.mqtt_support.client.publish(
                         self.heater_version_topic, _ver, retain=True)
             elif new_message["message_type"] == "87": #0x87 Timberline 1.5 Panel info
-                _ver = '.'.join(str([new_message["panel_version_1st_byte"]),
+                _ver = '.'.join([str(new_message["panel_version_1st_byte"]),
                         str(new_message["panel_version_2nd_byte"]),
                         str(new_message["panel_version_3rd_byte"]),
                         str(new_message["panel_version_4th_byte"])])
@@ -486,7 +486,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     self.mqtt_support.client.publish(
                         self.panel_version_topic, _ver, retain=True)
             elif new_message["message_type"] == "88": #0x88 Timberline 1.5 HCU info
-                _ver = '.'.join(str([new_message["hcu_version_1st_byte"]),
+                _ver = '.'.join([str(new_message["hcu_version_1st_byte"]),
                         str(new_message["hcu_version_2nd_byte"]),
                         str(new_message["hcu_version_3rd_byte"]),
                         str(new_message["hcu_version_4th_byte"])])
