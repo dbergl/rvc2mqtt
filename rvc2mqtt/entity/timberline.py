@@ -61,7 +61,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
     def __init__(self, data: dict, mqtt_support: MQTT_Support):
         self.rvc_instance = data['instance']
-        self.source_id = data['source_id']
+        self.source_id = str(data['source_id'])
         self.id = "timberline-controller-1EF65-i" + str(self.rvc_instance)
         super().__init__(data, mqtt_support)
         self.Logger = logging.getLogger(__class__.__name__)
@@ -163,11 +163,13 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             # TIMBERLINE_PROPRIETARY
             # 0x84
             self.solenoid_topic                     = str(f"{topic_base}/solenoid")
+            self.solenoid__def_topic                = str(f"{topic_base}/solenoidi_definition")
             self.temperature_sensor_topic           = str(f"{topic_base}/temperature_sensor")
+            self.temperature_sensor_def_topic       = str(f"{topic_base}/temperature_sensor_definition")
             self.tank_temperature_topic             = str(f"{topic_base}/tank_temperature")
-            self.tank_temperaturef_topic             = str(f"{topic_base}/tank_temperaturef")
+            self.tank_temperaturef_topic            = str(f"{topic_base}/tank_temperaturef")
             self.heater_temperature_topic           = str(f"{topic_base}/heater_temperature")
-            self.heater_temperaturef_topic           = str(f"{topic_base}/heater_temperaturef")
+            self.heater_temperaturef_topic          = str(f"{topic_base}/heater_temperaturef")
             self.fan_manual_speed_topic             = str(f"{topic_base}/fan_manual_speed")
             # 0x85
             self.system_timer_topic                 = str(f"{topic_base}/timers/system")
