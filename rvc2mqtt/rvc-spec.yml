@@ -4929,8 +4929,40 @@ Z0005:
         values:
           0: external sensor
           1: panel sensor
+    84:
+      - byte: 0
+        name: message type
+        type: uint8
+        unit: hex
+        values:
+          84: extension status
+      - byte: 1
+        bit: 0-1
+        name: solenoid
+        values:
+          0: off 
+          1: on
+      - byte: 1
+        bit: 2-3
+        name: used temperature sensor
+        values:
+          0: external sensor
+          1: panel sensor
+      - byte: 2-3
+        name: tank temperature
+        type: uint16
+        unit: deg c
+      - byte: 4-5
+        name: heater temperature
+        type: uint16
+        unit: deg c
+      - byte: 6
+        name: fan manual percents
+        type: uint8
+        unit: pct
 
-1EF6581:
+
+1EF6  581:
   name: TIMBERLINE_PROPRIETARY_81
   comment: virtual dgn based on 1st byte of 1EF65
   parameters:
