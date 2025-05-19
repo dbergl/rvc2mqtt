@@ -4893,6 +4893,7 @@ Z0005:
 1EF65:
   name: TIMBERLINE_PROPRIETARY
   comment: Elwell Timberline 1.5
+  usefirstbyte: true
   parameters:
     - byte: 0
       name: message type
@@ -4908,6 +4909,26 @@ Z0005:
         88: hcu info
         89: timers setup command
         8A: timers setup status
+  83:
+    parameters:
+      - byte: 0
+        name: message type
+        type: uint8
+        unit: hex
+        values:
+          83: extension command
+      - byte: 1
+        bit: 0-1
+        name: hot water priority
+        values:
+          0: heating priority
+          1: domestic water priority
+      - byte: 1
+        bit: 2-3
+        name: used temperature sensor
+        values:
+          0: external sensor
+          1: panel sensor
 
 1EF6581:
   name: TIMBERLINE_PROPRIETARY_81

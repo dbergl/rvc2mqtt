@@ -51,6 +51,12 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
     TIMBERLINE_PROPRIETARY aka 1EF65
     """
 
+    # Using RVC_Decoder for virtual/fake DGNs for proprietary
+    # timberline message on 1EF65 so we can have them in the spec
+    # Fake DGNs are 1EF65<1st byte of message> i.e. 1EF6581
+
+    rvc = RVC_Decoder()
+
     current_schedule_instance_definition = {"0":"sleep","1":"wake"}
 
     def __init__(self, data: dict, mqtt_support: MQTT_Support):
@@ -72,7 +78,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             self.command_fan_mode = str(f"{command_base}/fan_mode")
             self.mqtt_support.register(self.command_fan_mode, self.process_mqtt_msg)
             self.command_fan_speed = str(f"{command_base}/fan_speed")
-            self.mqtt_support.register(self.command_fan_speed, self.process_mqtt_msg)
+            self.mqtt_support.register(self.command_fan_speed, self.process_mqtt_msg
             #THERMOSTAT_COMMAND_1
             self.command_operating_mode = str(f"{command_base}/mode")
             self.mqtt_support.register(self.command_operating_mode, self.process_mqtt_msg)
