@@ -185,8 +185,8 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             self.hcu_minutes_topic                  = str(f"{topic_base}/info/hcu/minutes")
             self.hcu_version_topic                  = str(f"{topic_base}/info/hcu/version")
             # 0x8A
-            self.system_limit_topic                 = str(f"{topic_base}/info/system_limit")
-            self.water_limit_topic                  = str(f"{topic_base}/info/water_limit")
+            self.system_limitation_topic            = str(f"{topic_base}/info/system_limit")
+            self.water_limittation_topic            = str(f"{topic_base}/info/water_limit")
 
 
         # RVC message must match the following to be this device
@@ -255,8 +255,8 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
         self._hcu_minutes = "unknown"
         self._hcu_version = "unknown"
         # 0x8A
-        self._system_limit = "unknown"
-        self._water_limit = "unknown"
+        self._system_limitation = "unknown"
+        self._water_limitation = "unknown"
 
     def _convert_c_to_f(self, temp_c: float):
         """ Convert Celsius to Fahrenheit"""
