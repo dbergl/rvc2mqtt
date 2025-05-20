@@ -69,8 +69,8 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             self.command_source = str(f"{command_base}/heatsource")
             self.mqtt_support.register(self.command_source, self.process_mqtt_msg)
             #CIRCULATION_PUMP_COMMAND
-            self.command_pumptest = str(f"{command_base}/pumptest")
-            self.mqtt_support.register(self.command_pumptest, self.process_mqtt_msg)
+            self.command_pump_test = str(f"{command_base}/pump_test")
+            self.mqtt_support.register(self.command_pump_test, self.process_mqtt_msg)
             #FURNACE_COMMAND
             self.command_fan_mode = str(f"{command_base}/fan_mode")
             self.mqtt_support.register(self.command_fan_mode, self.process_mqtt_msg)
