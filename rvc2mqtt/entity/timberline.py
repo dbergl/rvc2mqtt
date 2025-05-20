@@ -339,7 +339,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             case 'setpoint_temperature':
                 temp = payload if payload >= 10.0 else 10.0
                 temp = payload if payload <= 32.0 else 32.0
-                temp = _convert_temp_c_to_rvc_uint16(float(payload))
+                temp = self._convert_temp_c_to_rvc_uint16(float(payload))
 
         firstbyte = (schedule << 6 | fan << 4 | mode)
 
@@ -697,7 +697,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             case self.command_setpointtempf:
                 try:
                     if payload.isdigit():
-                            self._send_thermostat_command('setpoint_temperature', _convert_f_to_c(float(payload)))
+                            self._send_thermostat_command('setpoint_temperature', self._convert_f_to_c(float(payload)))
                     else:
                         self.Logger.warning(
                         f'Invalid payload {payload} for topic {topic}')
