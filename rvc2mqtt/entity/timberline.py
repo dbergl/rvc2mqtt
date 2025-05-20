@@ -298,17 +298,17 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             to dgn 1FFE3.
             Timberline only responds to bytes 0,1, and 2
             0: instance              : must be 1
-            1: output_mode           : 0b00, 0b01
-            2: Circulation fan speed : 0 - 100
+            1: operating mode        : 0b00, 0b01
+            2: circulation fan speed : 0 - 100
         """
         output_mode = 0xFF
         fan_speed   = 0xFF
 
         match name:
-            case 'output_mode':
+            case 'operating_mode':
                 output_mode = payload
-            case 'fan_speed':
-                fan_speed = payload
+            case 'circulation_fan_speed':
+                fan_speed   = payload
 
         self.Logger.debug("Sending FURNACE_COMMAND message")
         msg_bytes = bytearray(8)
@@ -629,7 +629,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             case self.command_fan_speed:
                 try:
                     if payload.isdigit() and 0 <= int(payload) <= 100:
-                            self._send_furnace_command('fan_speed', int(payload))
+                            self._send_furnace_command('circulation_fan_speed', int(payload))
                     else:
                         self.Logger.warning(
                         f'Invalid payload {payload} for topic {topic}')
