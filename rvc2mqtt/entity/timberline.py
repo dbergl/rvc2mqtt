@@ -283,7 +283,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
         """ send CIRCULATION_PUMP_COMMAND message over RV-C 
             to dgn 1FE96.
             Timberline only responds to bytes 0 and 1
-            0: instance        : must be 1
+            0: instance    : must be 1
             1: output_mode : 0b0000, 0b0101
         """
         self.Logger.debug("Sending CIRCULATION_PUMP_COMMAND message")
@@ -292,6 +292,30 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             payload, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
 
         self.send_queue.put({"dgn": "1FE96", "data": msg_bytes})
+
+    def _send_furnace_command(self, name: str, payload: int):
+        """ send FURNACE_COMMAND message over RV-C 
+            to dgn 1FFE3.
+            Timberline only responds to bytes 0,1, and 2
+            0: instance              : must be 1
+            1: output_mode           : 0b00, 0b01
+            2: Circulation fan speed : 0 - 100
+        """
+        output_mode = 0xFF
+        fan_speed   = 0xFF
+
+        match name:
+            case 'output_mode':
+                output_mode = payload
+            case 'fan_speed':
+                fan_speed = payload
+
+        self.Logger.debug("Sending FURNACE_COMMAND message")
+        msg_bytes = bytearray(8)
+        struct.pack_into("<BBBBBBBB", msg_bytes, 0, self.rvc_instance,
+            output_mode, fan_speed, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
+
+        self.send_queue.put({"dgn": "1FFE3", "data": msg_bytes})
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
@@ -591,9 +615,11 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
             case self.command_fan_mode:
                 try:
-                    match payload:
-                        case '1':
-                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                    match payload.lower():
+                        case '0' | '00' | 'auto' | 'automatic':
+                            self._send_furnace_command('operating_mode',0b00)
+                        case '1' | '01' | 'manual':
+                            self._send_furnace_command('operating_mode',0b01)
                         case _:
                             self.Logger.warning(
                             f'Invalid payload {payload} for topic {topic}')
@@ -602,12 +628,11 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
             case self.command_fan_speed:
                 try:
-                    match payload:
-                        case '1':
-                            self.reset_aps(properties) if properties is not None else self.reset_aps()
-                        case _:
-                            self.Logger.warning(
-                            f'Invalid payload {payload} for topic {topic}')
+                    if payload.isdigit() and 0 <= int(payload) <= 100:
+                            self._send_furnace_command('operating_mode', int(payload))
+                    else:
+                        self.Logger.warning(
+                        f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
