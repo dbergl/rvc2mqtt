@@ -79,6 +79,8 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             #THERMOSTAT_COMMAND_1
             self.command_operating_mode = str(f"{command_base}/mode")
             self.mqtt_support.register(self.command_operating_mode, self.process_mqtt_msg)
+            self.command_schedule_mode = str(f"{command_base}/schedule/schedule_mode")
+            self.mqtt_support.register(self.command_schedule_mode, self.process_mqtt_msg)
             self.command_setpointtemp = str(f"{command_base}/set_point_temperature")
             self.mqtt_support.register(self.command_setpointtemp, self.process_mqtt_msg)
             self.command_setpointtempf = str(f"{command_base}/set_point_temperaturef")
@@ -675,12 +677,25 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             case self.command_operating_mode:
                 try:
                     match payload.lower():
-                        case '0' | 'off':
+                        case '0' | '00' |'off':
                             self._send_thermostat_command('operating_mode', 0b0000)
-                        case '2' | 'heat':
+                        case '2' | '02' | 'heat':
                             self._send_thermostat_command('operating_mode', 0b0010)
-                        case '3' | 'auto':
+                        case '3' | '03' | 'auto':
                             self._send_thermostat_command('operating_mode', 0b0011)
+                        case _:
+                            self.Logger.warning(
+                            f'Invalid payload {payload} for topic {topic}')
+                except Exception as e:
+                    self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
+
+            case self.command_schedule_mode:
+                try:
+                    match payload.lower():
+                        case '0' | '00' | 'off':
+                            self._send_thermostat_command('schedule_mode', 0b00)
+                        case '1' | '01' | 'on':
+                            self._send_thermostat_command('schedule_mode', 0b01)
                         case _:
                             self.Logger.warning(
                             f'Invalid payload {payload} for topic {topic}')
