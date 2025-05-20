@@ -749,14 +749,6 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 except Exception as e:
                     self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
 
-            case _:
-
-
-        #if topic == self.command_topic:
-        #    else:
-        #        self.Logger.warning(
-        #            f"Invalid payload {payload} for topic {topic}")
-
     def initialize(self):
         """ Optional function
         Will get called once when the object is loaded.
