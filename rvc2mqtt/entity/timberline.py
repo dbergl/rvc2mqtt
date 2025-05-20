@@ -345,7 +345,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
         self.Logger.debug("Sending FURNACE_COMMAND message")
         msg_bytes = bytearray(8)
-        struct.pack_into("<BBBBBBBB", msg_bytes, 0, self.rvc_instance,
+        struct.pack_into("<BBBHBBB", msg_bytes, 0, self.rvc_instance,
             firstbyte, 0xFF, temp, 0xFF, 0xFF, 0xFF)
 
         self.send_queue.put({"dgn": "1FEF9", "data": msg_bytes})
