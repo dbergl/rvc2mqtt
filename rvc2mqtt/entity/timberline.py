@@ -279,6 +279,20 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
         self.send_queue.put({"dgn": "1FFF6", "data": msg_bytes})
 
+    def _send_circulation_pump_command(self, payload: int):
+        """ send CIRCULATION_PUMP_COMMAND message over RV-C 
+            to dgn 1FE96.
+            Timberline only responds to bytes 0 and 1
+            0: instance        : must be 1
+            1: output_mode : 0b0000, 0b0101
+        """
+        self.Logger.debug("Sending CIRCULATION_PUMP_COMMAND message")
+        msg_bytes = bytearray(8)
+        struct.pack_into("<BBBBBBBB", msg_bytes, 0, self.rvc_instance,
+            payload, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
+
+        self.send_queue.put({"dgn": "1FE96", "data": msg_bytes})
+
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
         is of interest to this object.
@@ -543,35 +557,37 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
     def process_mqtt_msg(self, topic, payload, properties = None):
         self.Logger.info(
-            f"MQTT Msg Received on topic {topic} with payload {payload}")
+            f'MQTT Msg Received on topic {topic} with payload {payload}')
         match topic:
             case self.command_source:
                 try:
                     match payload.lower():
-                        case "0" | "00" | "off":
+                        case '0' | '00' | 'off':
                             self._send_waterheater_command(0)
-                        case "1" | "01" | "combustion":
+                        case '1' | '01' | 'combustion':
                             self._send_waterheater_command(1)
-                        case "2" | "02" | "electric":
+                        case '2' | '02' | 'electric':
                             self._send_waterheater_command(2)
-                        case "3" | "03" | "both":
+                        case '3' | '03' | 'both':
                             self._send_waterheater_command(3)
                         case _:
                             self.Logger.warning(
-                            f"Invalid payload {payload} for topic {topic}")
+                            f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
-                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+                    self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_pump_test:
                 try:
-                    match payload:
-                        case '1':
-                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                    match payload.lower():
+                        case '0' | 'off':
+                            self._send_circulation_pump_command(0b0000)
+                        case '1' | 'test' | 'on':
+                            self._send_circulation_pump_command(0b0101)
                         case _:
                             self.Logger.warning(
-                            f"Invalid payload {payload} for topic {topic}")
+                            f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
-                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+                    self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_fan_mode:
                 try:
@@ -580,9 +596,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                             self.reset_aps(properties) if properties is not None else self.reset_aps()
                         case _:
                             self.Logger.warning(
-                            f"Invalid payload {payload} for topic {topic}")
+                            f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
-                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+                    self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_fan_speed:
                 try:
@@ -591,9 +607,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                             self.reset_aps(properties) if properties is not None else self.reset_aps()
                         case _:
                             self.Logger.warning(
-                            f"Invalid payload {payload} for topic {topic}")
+                            f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
-                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+                    self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_operating_mode:
                 try:
@@ -602,9 +618,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                             self.reset_aps(properties) if properties is not None else self.reset_aps()
                         case _:
                             self.Logger.warning(
-                            f"Invalid payload {payload} for topic {topic}")
+                            f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
-                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+                    self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_setpointtemp:
                 try:
@@ -613,9 +629,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                             self.reset_aps(properties) if properties is not None else self.reset_aps()
                         case _:
                             self.Logger.warning(
-                            f"Invalid payload {payload} for topic {topic}")
+                            f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
-                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+                    self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_setpointtempf:
                 try:
@@ -624,9 +640,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                             self.reset_aps(properties) if properties is not None else self.reset_aps()
                         case _:
                             self.Logger.warning(
-                            f"Invalid payload {payload} for topic {topic}")
+                            f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
-                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+                    self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_sleep_start_time:
                 try:
@@ -635,9 +651,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                             self.reset_aps(properties) if properties is not None else self.reset_aps()
                         case _:
                             self.Logger.warning(
-                            f"Invalid payload {payload} for topic {topic}")
+                            f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
-                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+                    self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_sleep_schedule_temp:
                 try:
@@ -646,9 +662,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                             self.reset_aps(properties) if properties is not None else self.reset_aps()
                         case _:
                             self.Logger.warning(
-                            f"Invalid payload {payload} for topic {topic}")
+                            f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
-                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+                    self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_sleep_schedule_tempf:
                 try:
@@ -657,9 +673,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                             self.reset_aps(properties) if properties is not None else self.reset_aps()
                         case _:
                             self.Logger.warning(
-                            f"Invalid payload {payload} for topic {topic}")
+                            f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
-                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+                    self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_wake_start_time:
                 try:
@@ -668,9 +684,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                             self.reset_aps(properties) if properties is not None else self.reset_aps()
                         case _:
                             self.Logger.warning(
-                            f"Invalid payload {payload} for topic {topic}")
+                            f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
-                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+                    self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_wake_schedule_temp:
                 try:
@@ -679,9 +695,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                             self.reset_aps(properties) if properties is not None else self.reset_aps()
                         case _:
                             self.Logger.warning(
-                            f"Invalid payload {payload} for topic {topic}")
+                            f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
-                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+                    self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_wake_schedule_tempf:
                 try:
@@ -690,9 +706,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                             self.reset_aps(properties) if properties is not None else self.reset_aps()
                         case _:
                             self.Logger.warning(
-                            f"Invalid payload {payload} for topic {topic}")
+                            f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
-                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+                    self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_clear_errors:
                 try:
@@ -701,9 +717,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                             self.reset_aps(properties) if properties is not None else self.reset_aps()
                         case _:
                             self.Logger.warning(
-                            f"Invalid payload {payload} for topic {topic}")
+                            f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
-                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+                    self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_hot_water_priority:
                 try:
@@ -712,9 +728,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                             self.reset_aps(properties) if properties is not None else self.reset_aps()
                         case _:
                             self.Logger.warning(
-                            f"Invalid payload {payload} for topic {topic}")
+                            f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
-                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+                    self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_temperature_sensor:
                 try:
@@ -723,9 +739,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                             self.reset_aps(properties) if properties is not None else self.reset_aps()
                         case _:
                             self.Logger.warning(
-                            f"Invalid payload {payload} for topic {topic}")
+                            f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
-                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+                    self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_timers_system_limit:
                 try:
@@ -734,9 +750,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                             self.reset_aps(properties) if properties is not None else self.reset_aps()
                         case _:
                             self.Logger.warning(
-                            f"Invalid payload {payload} for topic {topic}")
+                            f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
-                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+                    self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_timers_water_limit:
                 try:
@@ -745,9 +761,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                             self.reset_aps(properties) if properties is not None else self.reset_aps()
                         case _:
                             self.Logger.warning(
-                            f"Invalid payload {payload} for topic {topic}")
+                            f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
-                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+                    self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
     def initialize(self):
         """ Optional function
