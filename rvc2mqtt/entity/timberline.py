@@ -24,7 +24,6 @@ import struct
 import json
 from rvc2mqtt.mqtt import MQTT_Support
 from rvc2mqtt.entity import EntityPluginBaseClass
-from rvc2mqtt.rvc import RVC_Decoder
 
 
 class hvac_TIMBERLINE(EntityPluginBaseClass):
@@ -54,8 +53,6 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
     # Using RVC_Decoder for virtual/fake DGNs for proprietary
     # timberline message on 1EF65 so we can have them in the spec
     # Fake DGNs are 1EF65<1st byte of message> i.e. 1EF6581
-
-    rvc = RVC_Decoder()
 
     current_schedule_instance_definition = {"0":"sleep","1":"wake"}
 
@@ -268,7 +265,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
         """ convert a temperature stored in C to a UINT16 value for RVC"""
         return round((temp_c + 273 ) * 32)
 
-    def _send_waterheater_command(self, payload: string):
+    def _send_waterheater_command(self, payload: int):
         """ send WATERHEATER_COMMAND message over RV-C 
             to dgn 1FFF6.
             Timberline only responds to bytes 0 and 1
@@ -277,8 +274,8 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
         """
         self.Logger.debug("Sending WATERHEATER_COMMAND message")
         msg_bytes = bytearray(8)
-        struct.pack_into("<BBBBBBBB", msg_bytes, 0, 0x01,
-            hex(payload), 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
+        struct.pack_into("<BBBBBBBB", msg_bytes, 0, self.rvc_instance,
+            payload, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
 
         self.send_queue.put({"dgn": "1FFF6", "data": msg_bytes})
 
@@ -550,15 +547,15 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
         match topic:
             case self.command_source:
                 try:
-                    match payload:
-                        case "0" | "00" | "off".lower():
-                            self._set_source(0)
-                        case "1" | "01" | "combustion".lower():
-                            self._set_source(1)
-                        case "2" | "02" | "electric".lower():
-                            self._set_source(2)
-                        case "3" | "03" | "both".lower():
-                            self._set_source(3)
+                    match payload.lower():
+                        case "0" | "00" | "off":
+                            self._send_waterheater_command(0)
+                        case "1" | "01" | "combustion":
+                            self._send_waterheater_command(1)
+                        case "2" | "02" | "electric":
+                            self._send_waterheater_command(2)
+                        case "3" | "03" | "both":
+                            self._send_waterheater_command(3)
                         case _:
                             self.Logger.warning(
                             f"Invalid payload {payload} for topic {topic}")
