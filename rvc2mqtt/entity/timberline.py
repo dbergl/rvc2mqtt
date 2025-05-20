@@ -629,7 +629,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             case self.command_fan_speed:
                 try:
                     if payload.isdigit() and 0 <= int(payload) <= 100:
-                            self._send_furnace_command('operating_mode', int(payload))
+                            self._send_furnace_command('fan_speed', int(payload))
                     else:
                         self.Logger.warning(
                         f'Invalid payload {payload} for topic {topic}')
