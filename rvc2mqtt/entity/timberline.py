@@ -337,8 +337,8 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             case 'schedule_mode':
                 schedule = int(payload)
             case 'setpoint_temperature':
-                temp = float(payload) if float(payload) >= 10.0 else temp = 10.0
-                temp = float(payload) if float(payload) <= 32.0 else temp = 32.0
+                temp = payload if payload >= 10.0 else 10.0
+                temp = payload if payload <= 32.0 else 32.0
                 temp = _convert_temp_c_to_rvc_uint16(float(payload))
 
         firstbyte = (schedule << 6 | fan << 4 | mode)
