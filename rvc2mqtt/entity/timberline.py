@@ -308,7 +308,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             case 'operating_mode':
                 output_mode = payload
             case 'circulation_fan_speed':
-                fan_speed   = payload
+                fan_speed   = payload * 2
 
         self.Logger.debug("Sending FURNACE_COMMAND message")
         msg_bytes = bytearray(8)
@@ -316,6 +316,39 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             output_mode, fan_speed, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
 
         self.send_queue.put({"dgn": "1FFE3", "data": msg_bytes})
+
+    def _send_thermostat_command(self, name: str, payload):
+        """ send THERMOSTAT_COMMAND_1 message over RV-C 
+            to dgn 1FEF9.
+            Timberline only responds to bytes 0,1, and 3-4
+            0  : instance            : must be 1
+            1  : operating mode      : 0b0000, 0b0010, 0b0011
+            1  : schedule mode       : 0b00, 0b01
+            3-4: set_point_temp_heat : uint16
+        """
+        schedule = 0b11
+        fan      = 0b11
+        mode     = 0b1111
+        temp     = 0XFFFF
+
+        match name:
+            case 'operating_mode':
+                mode     = int(payload)
+            case 'schedule_mode':
+                schedule = int(payload)
+            case 'setpoint_temperature':
+                temp = float(payload) if float(payload) >= 10.0 else temp = 10.0
+                temp = float(payload) if float(payload) <= 32.0 else temp = 32.0
+                temp = _convert_temp_c_to_rvc_uint16(float(payload))
+
+        firstbyte = (schedule << 6 | fan << 4 | mode)
+
+        self.Logger.debug("Sending FURNACE_COMMAND message")
+        msg_bytes = bytearray(8)
+        struct.pack_into("<BBBBBBBB", msg_bytes, 0, self.rvc_instance,
+            firstbyte, 0xFF, temp, 0xFF, 0xFF, 0xFF)
+
+        self.send_queue.put({"dgn": "1FEF9", "data": msg_bytes})
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
@@ -638,9 +671,13 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
             case self.command_operating_mode:
                 try:
-                    match payload:
-                        case '1':
-                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                    match payload.lower():
+                        case '0' | 'off':
+                            self._send_thermostat_command('operating_mode', 0b0000)
+                        case '2' | 'heat':
+                            self._send_thermostat_command('operating_mode', 0b0010)
+                        case '3' | 'auto':
+                            self._send_thermostat_command('operating_mode', 0b0011)
                         case _:
                             self.Logger.warning(
                             f'Invalid payload {payload} for topic {topic}')
@@ -649,23 +686,21 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
             case self.command_setpointtemp:
                 try:
-                    match payload:
-                        case '1':
-                            self.reset_aps(properties) if properties is not None else self.reset_aps()
-                        case _:
-                            self.Logger.warning(
-                            f'Invalid payload {payload} for topic {topic}')
+                    if payload.isdigit():
+                        self._send_thermostat_command('setpoint_temperature', float(payload))
+                    else:
+                        self.Logger.warning(
+                        f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_setpointtempf:
                 try:
-                    match payload:
-                        case '1':
-                            self.reset_aps(properties) if properties is not None else self.reset_aps()
-                        case _:
-                            self.Logger.warning(
-                            f'Invalid payload {payload} for topic {topic}')
+                    if payload.isdigit():
+                            self._send_thermostat_command('setpoint_temperature', _convert_f_to_c(float(payload)))
+                    else:
+                        self.Logger.warning(
+                        f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
