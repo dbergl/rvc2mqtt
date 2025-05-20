@@ -268,6 +268,20 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
         """ convert a temperature stored in C to a UINT16 value for RVC"""
         return round((temp_c + 273 ) * 32)
 
+    def _send_waterheater_command(self, payload: string):
+        """ send WATERHEATER_COMMAND message over RV-C 
+            to dgn 1FFF6.
+            Timberline only responds to bytes 0 and 1
+            0: instance        : must be 1
+            1: operating_modes : 0,1,2,3
+        """
+        self.Logger.debug("Sending WATERHEATER_COMMAND message")
+        msg_bytes = bytearray(8)
+        struct.pack_into("<BBBBBBBB", msg_bytes, 0, 0x01,
+            hex(payload), 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
+
+        self.send_queue.put({"dgn": "1FFF6", "data": msg_bytes})
+
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
         is of interest to this object.
@@ -533,6 +547,213 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
     def process_mqtt_msg(self, topic, payload, properties = None):
         self.Logger.info(
             f"MQTT Msg Received on topic {topic} with payload {payload}")
+        match topic:
+            case self.command_source:
+                try:
+                    match payload:
+                        case "0" | "00" | "off".lower():
+                            self._set_source(0)
+                        case "1" | "01" | "combustion".lower():
+                            self._set_source(1)
+                        case "2" | "02" | "electric".lower():
+                            self._set_source(2)
+                        case "3" | "03" | "both".lower():
+                            self._set_source(3)
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.command_pump_test:
+                try:
+                    match payload:
+                        case '1':
+                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.command_fan_mode:
+                try:
+                    match payload:
+                        case '1':
+                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.command_fan_speed:
+                try:
+                    match payload:
+                        case '1':
+                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.command_operating_mode:
+                try:
+                    match payload:
+                        case '1':
+                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.command_setpointtemp:
+                try:
+                    match payload:
+                        case '1':
+                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.command_setpointtempf:
+                try:
+                    match payload:
+                        case '1':
+                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.command_sleep_start_time:
+                try:
+                    match payload:
+                        case '1':
+                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.command_sleep_schedule_temp:
+                try:
+                    match payload:
+                        case '1':
+                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.command_sleep_schedule_tempf:
+                try:
+                    match payload:
+                        case '1':
+                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.command_wake_start_time:
+                try:
+                    match payload:
+                        case '1':
+                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.command_wake_schedule_temp:
+                try:
+                    match payload:
+                        case '1':
+                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.command_wake_schedule_tempf:
+                try:
+                    match payload:
+                        case '1':
+                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.command_clear_errors:
+                try:
+                    match payload:
+                        case '1':
+                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.command_hot_water_priority:
+                try:
+                    match payload:
+                        case '1':
+                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.command_temperature_sensor:
+                try:
+                    match payload:
+                        case '1':
+                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.command_timers_system_limit:
+                try:
+                    match payload:
+                        case '1':
+                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case self.command_timers_water_limit:
+                try:
+                    match payload:
+                        case '1':
+                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                        case _:
+                            self.Logger.warning(
+                            f"Invalid payload {payload} for topic {topic}")
+                except Exception as e:
+                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+
+            case _:
+
 
         #if topic == self.command_topic:
         #    else:
