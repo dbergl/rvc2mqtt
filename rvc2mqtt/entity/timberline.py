@@ -153,11 +153,11 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             self.current_schedule_instance_def_topic= str(f"{topic_base}/current_schedule_instance_definition")
             # THERMOSTAT_SCHEDULE_STATUS_1
             self.sleep_start_time_topic             = str(f"{topic_base}/schedule/sleep/start_time")
-            self.sleep_schedule_temp_topic          = str(f"{topic_base}/schedule/sleep/schedule_temperature")
-            self.sleep_schedule_tempf_topic         = str(f"{topic_base}/schedule/sleep/schedule_temperaturef")
+            self.sleep_schedule_temp_topic          = str(f"{topic_base}/schedule/sleep/set_point_temperature")
+            self.sleep_schedule_tempf_topic         = str(f"{topic_base}/schedule/sleep/set_point_temperaturef")
             self.wake_start_time_topic              = str(f"{topic_base}/schedule/wake/start_time")
-            self.wake_schedule_temp_topic           = str(f"{topic_base}/schedule/wake/schedule_temperature")
-            self.wake_schedule_tempf_topic          = str(f"{topic_base}/schedule/wake/schedule_temperaturef")
+            self.wake_schedule_temp_topic           = str(f"{topic_base}/schedule/wake/set_point_temperature")
+            self.wake_schedule_tempf_topic          = str(f"{topic_base}/schedule/wake/set_point_temperaturef")
             # TIMBERLINE_PROPRIETARY
             # 0x84
             self.solenoid_topic                     = str(f"{topic_base}/solenoid")
