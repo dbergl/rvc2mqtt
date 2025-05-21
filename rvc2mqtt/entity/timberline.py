@@ -770,12 +770,12 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                         start_time = datetime.strptime(payload, '%H:%M')
                     elif len(payload) == 8:
                         start_time = datetime.strptime(payload, '%H:%M:%S')
-
-                    self._send_thermostat_schedule_command(
-                        'start_time', ScheduleInstance.SLEEP, start_time)
                     else:
                         self.Logger.warning(
                         f'Invalid payload {payload} for topic {topic}')
+
+                    self._send_thermostat_schedule_command(
+                        'start_time', ScheduleInstance.SLEEP, start_time)
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
@@ -807,12 +807,12 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                         start_time = datetime.strptime(payload, '%H:%M')
                     elif len(payload) == 8:
                         start_time = datetime.strptime(payload, '%H:%M:%S')
-
-                    self._send_thermostat_schedule_command(
-                        'start_time', ScheduleInstance.WAKE, start_time)
                     else:
                         self.Logger.warning(
                         f'Invalid payload {payload} for topic {topic}')
+
+                    self._send_thermostat_schedule_command(
+                        'start_time', ScheduleInstance.WAKE, start_time)
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
