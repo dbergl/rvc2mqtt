@@ -22,11 +22,11 @@ import logging
 import struct
 import json
 from datetime import datetime
-from enum import Enum
+from enum import IntEnum
 from rvc2mqtt.mqtt import MQTT_Support
 from rvc2mqtt.entity import EntityPluginBaseClass
 
-class ScheduleInstance(Enum):
+class ScheduleInstance(IntEnum):
     SLEEP = 0,
     WAKE = 1
 
