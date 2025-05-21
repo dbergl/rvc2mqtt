@@ -371,7 +371,6 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
         try:
             match name:
                 case 'start_time':
-                    time = datetime.datetime.strptime(payload, '%H:%M')
                     start_hour = payload.hour
                     start_minute = payload.minute 
                 case 'setpoint_temperature':
