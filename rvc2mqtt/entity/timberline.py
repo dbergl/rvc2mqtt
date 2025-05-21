@@ -17,14 +17,18 @@ limitations under the License.
 
 """
 
-
 import queue
 import logging
 import struct
 import json
 from datetime import datetime
+from enum import Enum
 from rvc2mqtt.mqtt import MQTT_Support
 from rvc2mqtt.entity import EntityPluginBaseClass
+
+class ScheduleInstance(Enum):
+    SLEEP = 0,
+    WAKE = 1
 
 
 class hvac_TIMBERLINE(EntityPluginBaseClass):
@@ -87,18 +91,14 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             self.command_setpointtempf = str(f"{command_base}/set_point_temperaturef")
             self.mqtt_support.register(self.command_setpointtempf, self.process_mqtt_msg)
             #THERMOSTAT_SCHEDULE_COMMAND_1
-            self.command_sleep_start_hour = str(f"{command_base}/sleep/start_time")
-            self.mqtt_support.register(self.command_sleep_start_hour, self.process_mqtt_msg)
-            self.command_sleep_start_minute = str(f"{command_base}/sleep/start_minute")
-            self.mqtt_support.register(self.command_sleep_start_minute, self.process_mqtt_msg)
+            self.command_sleep_start_time = str(f"{command_base}/sleep/start_time")
+            self.mqtt_support.register(self.command_sleep_start_time, self.process_mqtt_msg)
             self.command_sleep_schedule_temp = str(f"{command_base}/sleep/schedule_temperature")
             self.mqtt_support.register(self.command_sleep_schedule_temp, self.process_mqtt_msg)
             self.command_sleep_schedule_tempf = str(f"{command_base}/sleep/schedule_temperaturef")
             self.mqtt_support.register(self.command_sleep_schedule_tempf, self.process_mqtt_msg)
-            self.command_wake_start_hour = str(f"{command_base}/wake/start_hour")
-            self.mqtt_support.register(self.command_wake_start_hour, self.process_mqtt_msg)
-            self.command_wake_start_minute = str(f"{command_base}/wake/start_minute")
-            self.mqtt_support.register(self.command_wake_start_minute, self.process_mqtt_msg)
+            self.command_wake_start_time = str(f"{command_base}/wake/start_time")
+            self.mqtt_support.register(self.command_wake_start_time, self.process_mqtt_msg)
             self.command_wake_schedule_temp = str(f"{command_base}/wake/schedule_temperature")
             self.mqtt_support.register(self.command_wake_schedule_temp, self.process_mqtt_msg)
             self.command_wake_schedule_tempf = str(f"{command_base}/wake/schedule_temperaturef")
@@ -354,29 +354,33 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
         self.send_queue.put({"dgn": "1FEF9", "data": msg_bytes})
 
-    def _send_thermostat_schedule_command(self, name: str, payload):
+    def _send_thermostat_schedule_command(self, name: str, schedule_instance:int, payload):
         """ send THERMOSTAT_SCHEDULE_COMMAND_1 message over RV-C 
             to dgn 1FEF5.
             Timberline only responds to bytes 0-5
             0  : instance               : must be 1
-            1  : schedule mode instance : 0, 1
+            1  : schedule mode instance : 0=night/sleep, 1=day/wake
             2  : start hour             : 0-23
             3  : start minute           : 0-59
             4-5: setpint temp heat      : uint16 10c-32c
         """
-        schedule_instance = 0xFF
         start_hour        = 0xFF
         start_minute      = 0xFF
         temp              = 0xFFFF
 
         try:
             match name:
-                case 'schedule_instance':
-                    output_mode = payload
                 case 'start_time':
                     time = datetime.datetime.strptime(payload, '%H:%M')
-                    start_hour = time.hour
-                    start_minute = time.minute 
+                    start_hour = payload.hour
+                    start_minute = payload.minute 
+                case 'setpoint_temperature':
+                    if float(payload) < 10.0:
+                        payload = 10.0
+                    elif float(payload) > 32.0:
+                        payload = 32.0
+
+                    temp = self._convert_temp_c_to_rvc_uint16(float(payload))
 
             self.Logger.debug("Sending THERMOSTAT_SCHEDULE_COMMAND_1 message")
             msg_bytes = bytearray(8)
@@ -752,7 +756,8 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             case self.command_setpointtempf:
                 try:
                     if payload.isdigit():
-                            self._send_thermostat_command('setpoint_temperature', self._convert_f_to_c(float(payload)))
+                            self._send_thermostat_command(
+                            'setpoint_temperature', self._convert_f_to_c(float(payload)))
                     else:
                         self.Logger.warning(
                         f'Invalid payload {payload} for topic {topic}')
@@ -761,67 +766,75 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
             case self.command_sleep_start_time:
                 try:
-                    match payload:
-                        case '1':
-                            self.reset_aps(properties) if properties is not None else self.reset_aps()
-                        case _:
-                            self.Logger.warning(
-                            f'Invalid payload {payload} for topic {topic}')
+                    if len(payload) == 5:
+                        start_time = datetime.strptime(payload, '%H:%M')
+                    elif len(payload) == 8:
+                        start_time = datetime.strptime(payload, '%H:%M:%S')
+
+                    self._send_thermostat_schedule_command(
+                        'start_time', ScheduleInstance.SLEEP, start_time)
+                    else:
+                        self.Logger.warning(
+                        f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_sleep_schedule_temp:
                 try:
-                    match payload:
-                        case '1':
-                            self.reset_aps(properties) if properties is not None else self.reset_aps()
-                        case _:
-                            self.Logger.warning(
-                            f'Invalid payload {payload} for topic {topic}')
+                    if payload.isdigit():
+                            self._send_thermostat_command(
+                            'setpoint_temperature', ScheduleInstance.SLEEP, float(payload))
+                    else:
+                        self.Logger.warning(
+                        f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_sleep_schedule_tempf:
                 try:
-                    match payload:
-                        case '1':
-                            self.reset_aps(properties) if properties is not None else self.reset_aps()
-                        case _:
-                            self.Logger.warning(
-                            f'Invalid payload {payload} for topic {topic}')
+                    if payload.isdigit():
+                            self._send_thermostat_schedule_command(
+                            'setpoint_temperature', ScheduleInstance.SLEEP, self._convert_f_to_c(float(payload)))
+                    else:
+                        self.Logger.warning(
+                        f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_wake_start_time:
                 try:
-                    match payload:
-                        case '1':
-                            self.reset_aps(properties) if properties is not None else self.reset_aps()
-                        case _:
-                            self.Logger.warning(
-                            f'Invalid payload {payload} for topic {topic}')
+                    if len(payload) == 5:
+                        start_time = datetime.strptime(payload, '%H:%M')
+                    elif len(payload) == 8:
+                        start_time = datetime.strptime(payload, '%H:%M:%S')
+
+                    self._send_thermostat_schedule_command(
+                        'start_time', ScheduleInstance.WAKE, start_time)
+                    else:
+                        self.Logger.warning(
+                        f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_wake_schedule_temp:
                 try:
-                    match payload:
-                        case '1':
-                            self.reset_aps(properties) if properties is not None else self.reset_aps()
-                        case _:
-                            self.Logger.warning(
-                            f'Invalid payload {payload} for topic {topic}')
+                    if payload.isdigit():
+                            self._send_thermostat_command(
+                            'setpoint_temperature', ScheduleInstance.WAKE, float(payload))
+                    else:
+                        self.Logger.warning(
+                        f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_wake_schedule_tempf:
                 try:
-                    match payload:
-                        case '1':
-                            self.reset_aps(properties) if properties is not None else self.reset_aps()
-                        case _:
-                            self.Logger.warning(
-                            f'Invalid payload {payload} for topic {topic}')
+                    if payload.isdigit():
+                            self._send_thermostat_schedule_command(
+                            'setpoint_temperature', ScheduleInstance.WAKE, self._convert_f_to_c(float(payload)))
+                    else:
+                        self.Logger.warning(
+                        f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
