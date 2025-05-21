@@ -91,17 +91,17 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             self.command_setpointtempf = str(f"{command_base}/set_point_temperaturef")
             self.mqtt_support.register(self.command_setpointtempf, self.process_mqtt_msg)
             #THERMOSTAT_SCHEDULE_COMMAND_1
-            self.command_sleep_start_time = str(f"{command_base}/sleep/start_time")
+            self.command_sleep_start_time     = str(f"{command_base}/schedule/sleep/start_time")
             self.mqtt_support.register(self.command_sleep_start_time, self.process_mqtt_msg)
-            self.command_sleep_schedule_temp = str(f"{command_base}/sleep/schedule_temperature")
+            self.command_sleep_schedule_temp  = str(f"{command_base}/schedule/sleep/set_point_temperature")
             self.mqtt_support.register(self.command_sleep_schedule_temp, self.process_mqtt_msg)
-            self.command_sleep_schedule_tempf = str(f"{command_base}/sleep/schedule_temperaturef")
+            self.command_sleep_schedule_tempf = str(f"{command_base}/schedule/sleep/set_point_temperaturef")
             self.mqtt_support.register(self.command_sleep_schedule_tempf, self.process_mqtt_msg)
-            self.command_wake_start_time = str(f"{command_base}/wake/start_time")
+            self.command_wake_start_time      = str(f"{command_base}/schedule/wake/start_time")
             self.mqtt_support.register(self.command_wake_start_time, self.process_mqtt_msg)
-            self.command_wake_schedule_temp = str(f"{command_base}/wake/schedule_temperature")
+            self.command_wake_schedule_temp   = str(f"{command_base}/schedule/wake/set_point_temperature")
             self.mqtt_support.register(self.command_wake_schedule_temp, self.process_mqtt_msg)
-            self.command_wake_schedule_tempf = str(f"{command_base}/wake/schedule_temperaturef")
+            self.command_wake_schedule_tempf  = str(f"{command_base}/schedule/wake/set_point_temperaturef")
             self.mqtt_support.register(self.command_wake_schedule_tempf, self.process_mqtt_msg)
             #TIMBERLINE_PROPRIETARY
             #0x81
@@ -773,7 +773,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     else:
                         self.Logger.warning(
                         f'Invalid payload {payload} for topic {topic}')
-
+                    self.Logger.error(f'command_sleep_start_time: {payload}, {start_time}')
                     self._send_thermostat_schedule_command(
                         'start_time', ScheduleInstance.SLEEP, start_time)
                 except Exception as e:
