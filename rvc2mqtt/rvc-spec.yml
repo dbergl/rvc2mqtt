@@ -4837,13 +4837,50 @@ Z0005:
       name: tank level
       type: uint16
 
-0EBFF:
-  comment: Broadcast in Ethos 20DL
-  name: UNKNOWN-0EBFF
 
 0ECFF:
-  comment: Broadcast in Ethos 20DL
-  name: UNKNOWN-0ECFF
+  name: INITIAL_PACKET
+  comment: Initial message of a multipacket message
+  parameters:
+    - byte: 0
+      name: reserved_byte0
+      comment: always 20
+      type: uint8
+    - byte: 1-2
+      name: message length
+      comment: 0 - 1785
+      type: uint16
+    - byte: 3
+      name: packet count
+      type: uint8
+    - byte: 4
+      name: reserved_byte4
+      comment: always 255
+      type: uint8
+    - byte: 5
+      name: dgn lsb
+      type: uint8
+    - byte: 6
+      name: dgn isb
+      type: uint8
+    - byte: 7
+      name: dgn msb
+      type: uint8
+
+0EBFF:
+  name: DATA_PACKET
+  comment: message packets as part of multipacket message after INITIAL_PACKET
+  parameters:
+    - byte: 0
+      name: packet number
+      type: uint8
+    - byte: 1-7
+      name: data
+      comment: encapsulated dgn data
+
+0FEEB:
+  name: PRODUCT_IDENTIFICATION
+  comment: usually broadcast as part of 0ECFF and 0EBFF
 
 0EEFF:
   comment: Broadcast by APS-500 in Ethol 20DL
