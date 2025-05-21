@@ -22,6 +22,7 @@ import queue
 import logging
 import struct
 import json
+from datetime import datetime
 from rvc2mqtt.mqtt import MQTT_Support
 from rvc2mqtt.entity import EntityPluginBaseClass
 
@@ -86,7 +87,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             self.command_setpointtempf = str(f"{command_base}/set_point_temperaturef")
             self.mqtt_support.register(self.command_setpointtempf, self.process_mqtt_msg)
             #THERMOSTAT_SCHEDULE_COMMAND_1
-            self.command_sleep_start_hour = str(f"{command_base}/sleep/start_hour")
+            self.command_sleep_start_hour = str(f"{command_base}/sleep/start_time")
             self.mqtt_support.register(self.command_sleep_start_hour, self.process_mqtt_msg)
             self.command_sleep_start_minute = str(f"{command_base}/sleep/start_minute")
             self.mqtt_support.register(self.command_sleep_start_minute, self.process_mqtt_msg)
@@ -151,12 +152,10 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             self.current_schedule_instance_topic    = str(f"{topic_base}/current_schedule_instance")
             self.current_schedule_instance_def_topic= str(f"{topic_base}/current_schedule_instance_definition")
             # THERMOSTAT_SCHEDULE_STATUS_1
-            self.sleep_start_hour_topic             = str(f"{topic_base}/schedule/sleep/start_hour")
-            self.sleep_start_minute_topic           = str(f"{topic_base}/schedule/sleep/start_minute")
+            self.sleep_start_time_topic             = str(f"{topic_base}/schedule/sleep/start_time")
             self.sleep_schedule_temp_topic          = str(f"{topic_base}/schedule/sleep/schedule_temperature")
             self.sleep_schedule_tempf_topic         = str(f"{topic_base}/schedule/sleep/schedule_temperaturef")
-            self.wake_start_hour_topic              = str(f"{topic_base}/schedule/wake/start_hour")
-            self.wake_start_minute_topic            = str(f"{topic_base}/schedule/wake/start_minute")
+            self.wake_start_time_topic              = str(f"{topic_base}/schedule/wake/start_time")
             self.wake_schedule_temp_topic           = str(f"{topic_base}/schedule/wake/schedule_temperature")
             self.wake_schedule_tempf_topic          = str(f"{topic_base}/schedule/wake/schedule_temperaturef")
             # TIMBERLINE_PROPRIETARY
@@ -355,6 +354,39 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
         self.send_queue.put({"dgn": "1FEF9", "data": msg_bytes})
 
+    def _send_thermostat_schedule_command(self, name: str, payload):
+        """ send THERMOSTAT_SCHEDULE_COMMAND_1 message over RV-C 
+            to dgn 1FEF5.
+            Timberline only responds to bytes 0-5
+            0  : instance               : must be 1
+            1  : schedule mode instance : 0, 1
+            2  : start hour             : 0-23
+            3  : start minute           : 0-59
+            4-5: setpint temp heat      : uint16 10c-32c
+        """
+        schedule_instance = 0xFF
+        start_hour        = 0xFF
+        start_minute      = 0xFF
+        temp              = 0xFFFF
+
+        try:
+            match name:
+                case 'schedule_instance':
+                    output_mode = payload
+                case 'start_time':
+                    time = datetime.datetime.strptime(payload, '%H:%M')
+                    start_hour = time.hour
+                    start_minute = time.minute 
+
+            self.Logger.debug("Sending THERMOSTAT_SCHEDULE_COMMAND_1 message")
+            msg_bytes = bytearray(8)
+            struct.pack_into("<BBBBHH", msg_bytes, 0, self.rvc_instance,
+                schedule_instance, start_hour, start_minute, temp, 0xFFFF)
+
+            self.send_queue.put({"dgn": "1FEF5", "data": msg_bytes})
+        except Exception as e:
+            self.Logger.error(f'Exception trying to send THERMOSTAT_SCHEDULE_COMMAND_1 + {str(e)}')
+
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
         is of interest to this object.
@@ -461,15 +493,18 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             processed = True
         elif self._is_entry_match(self.rvc_thermostat_schedule_status_1, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+            time_changed = False
             if new_message["schedule_mode_instance"] == 0:
                 if new_message["start_hour"] != self._sleep_start_hour:
                     self._sleep_start_hour = new_message["start_hour"]
-                    self.mqtt_support.client.publish(
-                        self.sleep_start_hour_topic, new_message["start_hour"], retain=True)
+                    time_changed = True
                 if new_message["start_minute"] != self._sleep_start_minute:
                     self._sleep_start_minute = new_message["start_minute"]
+                    time_changed = True
+                if time_changed:
+                    start_time=f"{self._sleep_start_hour}:{self._sleep_start_minute}"
                     self.mqtt_support.client.publish(
-                        self.sleep_start_minute_topic, new_message["start_minute"], retain=True)
+                        self.sleep_start_time_topic, start_time, retain=True)
                 if new_message["setpoint_temp_heat"] != self._sleep_schedule_temp:
                     self._sleep_schedule_temp = new_message["setpoint_temp_heat"]
                     self.mqtt_support.client.publish(
@@ -480,12 +515,14 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             elif new_message["schedule_mode_instance"] == 1: 
                 if new_message["start_hour"] != self._wake_start_hour:
                     self._wake_start_hour = new_message["start_hour"]
-                    self.mqtt_support.client.publish(
-                        self.wake_start_hour_topic, new_message["start_hour"], retain=True)
+                    time_changed = True
                 if new_message["start_minute"] != self._wake_start_minute:
                     self._wake_start_minute = new_message["start_minute"]
+                    time_changed = True
+                if time_changed:
+                    start_time=f"{self._wake_start_hour}:{self._wake_start_minute}"
                     self.mqtt_support.client.publish(
-                        self.wake_start_minute_topic, new_message["start_minute"], retain=True)
+                        self.wake_start_time_topic, start_time, retain=True)
                 if new_message["setpoint_temp_heat"] != self._wake_schedule_temp:
                     self._wake_schedule_temp = new_message["setpoint_temp_heat"]
                     self.mqtt_support.client.publish(
