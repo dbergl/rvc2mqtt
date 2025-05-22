@@ -100,6 +100,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         self.rvc_match_terminal = {'name': 'TERMINAL', 'source_id': str(data['source_id'])}
 
+        # According to Wakespeed these are J1939 messages. We will just do
+        # noting with them, so the don't show as decoder pending
+        self.rvc_match_0ef80 = {'name': 'UNKNOWN-0EF80'} # ignore id since it is 70 on this one message from the APS
+        self.rvc_match_0ef70 = {'name': 'UNKNOWN-0EF70', 'source_id': str(data['source_id'])}
+        self.rvc_match_0fed5 = {'name': 'UNKNOWN-0FED5', 'source_id': str(data['source_id'])}
+
         self.Logger.debug(f"Must match: {str(self.rvc_match_source_status_1)}")
 
         self.name = data['instance_name']
@@ -434,7 +440,16 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                     self._terminalmessage = ""
 
                 return True
+            return True
 
+        if self._is_entry_match(self.rvc_match_0ef80, new_message):
+            # likely J1939 message so do nothing
+            return True
+        if self._is_entry_match(self.rvc_match_0ef70, new_message):
+            # likely J1939 message so do nothing
+            return True
+        if self._is_entry_match(self.rvc_match_0fed5, new_message):
+            # likely J1939 message so do nothing
             return True
 
         return False

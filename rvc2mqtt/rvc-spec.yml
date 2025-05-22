@@ -4805,21 +4805,21 @@ Z0005:
   name: BATTERY_STATUS_11
   alias: 1FE8B
 
-0FED5:
-  comment: Broadcast in Ethos 20DL
-  name: UNKNOWN-0FED5
-
 15FCE:
   comment: Broadcast in Ethos 20DL
   name: UNKNOWN-15FCE
 
 0EF70:
-  comment: Broadcast in Ethos 20DL
+  comment: APS-500. likely J1939 message according to wakespeed
   name: UNKNOWN-0EF70
 
 0EF80:
-  comment: Broadcast in Ethos 20DL
+  comment: APS-500. likely J1939 message according to wakespeed
   name: UNKNOWN-0EF80
+
+0FED5:
+  comment: APS-500. likely J1939 message according to wakespeed
+  name: UNKNOWN-0FED5
 
 0BFC1:
   name: G12_TANK_LEVEL_SENSOR
@@ -4836,7 +4836,6 @@ Z0005:
     - byte: 1-2
       name: tank level
       type: uint16
-
 
 0ECFF:
   name: INITIAL_PACKET

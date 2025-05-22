@@ -368,27 +368,69 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
         start_minute      = 0xFF
         temp              = 0xFFFF
 
+        match name:
+            case 'start_time':
+                start_hour = payload.hour
+                start_minute = payload.minute 
+            case 'setpoint_temperature':
+                if float(payload) < 10.0:
+                    payload = 10.0
+                elif float(payload) > 32.0:
+                    payload = 32.0
+
+                temp = self._convert_temp_c_to_rvc_uint16(float(payload))
+
+        self.Logger.debug("Sending THERMOSTAT_SCHEDULE_COMMAND_1 message")
+        msg_bytes = bytearray(8)
+        struct.pack_into("<BBBBHH", msg_bytes, 0, self.rvc_instance,
+            schedule_instance, start_hour, start_minute, temp, 0xFFFF)
+
+        self.send_queue.put({"dgn": "1FEF5", "data": msg_bytes})
+
+    def _send_clear_errors_command(self):
+        """ send TIMBERLAND_PROPRIETARY message over RV-C 
+            to dgn 1EF65.
+            0  : message type           : 0x81
+        """
+        message_type = 0x81
+
         try:
-            match name:
-                case 'start_time':
-                    start_hour = payload.hour
-                    start_minute = payload.minute 
-                case 'setpoint_temperature':
-                    if float(payload) < 10.0:
-                        payload = 10.0
-                    elif float(payload) > 32.0:
-                        payload = 32.0
-
-                    temp = self._convert_temp_c_to_rvc_uint16(float(payload))
-
-            self.Logger.debug("Sending THERMOSTAT_SCHEDULE_COMMAND_1 message")
+            self.Logger.debug("Sending TIMBERLAND_PROPRIETARY message")
             msg_bytes = bytearray(8)
-            struct.pack_into("<BBBBHH", msg_bytes, 0, self.rvc_instance,
-                schedule_instance, start_hour, start_minute, temp, 0xFFFF)
+            struct.pack_into("<BBBBBBBB", msg_bytes, 0, message_type,
+                0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
 
-            self.send_queue.put({"dgn": "1FEF5", "data": msg_bytes})
+            self.send_queue.put({"dgn": "1EF65", "data": msg_bytes})
+
         except Exception as e:
-            self.Logger.error(f'Exception trying to send THERMOSTAT_SCHEDULE_COMMAND_1 + {str(e)}')
+            self.Logger.error(f'Exception trying to send TIMBERLAND_PROPRIETARY + {str(e)}')
+
+    def _send_extension_command(self, name: str, payload):
+        """ send TIMBERLAND_PROPRIETARY message over RV-C 
+            to dgn 1EF65.
+            0     : message type       : 0x83
+            1 0-1 : hot water priority : 0b00,0b01
+            1 2-3 : used temp sensor   : 0b00,0b01
+        """
+        message_type = 0x83
+        priority = 0b11
+        temp_sensor = 0b11
+        unused = 0b1111
+
+        match name:
+            case 'hot_water_priority':
+                priority = int(payload)
+            case 'temp_sensor':
+                temp_sensor = int(payload)
+
+        command = (unused << 4 | temp_sensor << 2 | priority)
+
+            self.Logger.debug("Sending TIMBERLAND_PROPRIETARY message")
+            msg_bytes = bytearray(8)
+            struct.pack_into("<BBBBBBBB", msg_bytes, 0, message_type,
+                command, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
+
+            self.send_queue.put({"dgn": "1EF65", "data": msg_bytes})
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
@@ -838,9 +880,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
             case self.command_clear_errors:
                 try:
-                    match payload:
-                        case '1':
-                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                    match payload.lower():
+                        case '1' | 'true':
+                            self._send_clear_errors_command()
                         case _:
                             self.Logger.warning(
                             f'Invalid payload {payload} for topic {topic}')
@@ -850,8 +892,13 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             case self.command_hot_water_priority:
                 try:
                     match payload:
-                        case '1':
-                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                        # In this custom DGN the values expected for heating vs hot water priority
+                        # are the opposite of WATERHEATER_STATUS_2.
+                        # Match WATERHEATER_STATUS_2 to keep it consistent
+                        case '0' | 'water':
+                            self._send_extension_command('hot_water_priority', 0b01)
+                        case '1' | 'heat':
+                            self._send_extension_command('hot_water_priority', 0b00)
                         case _:
                             self.Logger.warning(
                             f'Invalid payload {payload} for topic {topic}')
@@ -861,8 +908,10 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             case self.command_temperature_sensor:
                 try:
                     match payload:
-                        case '1':
-                            self.reset_aps(properties) if properties is not None else self.reset_aps()
+                        case '0' | 'external' :
+                            self._send_extension_command('temp_sensor', 0b00)
+                        case '1' | 'panel' :
+                            self._send_extension_command('temp_sensor', 0b01)
                         case _:
                             self.Logger.warning(
                             f'Invalid payload {payload} for topic {topic}')
