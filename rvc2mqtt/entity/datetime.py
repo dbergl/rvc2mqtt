@@ -113,7 +113,7 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
                 self.state = state
                 self.mqtt_support.client.publish(
                     self.status_topic, self.state, retain=True)
-                return True
+            return True
 
         elif self._is_entry_match(self.rvc_match_command, new_message):
             # This is the command.  Just eat the message so it doesn't show up

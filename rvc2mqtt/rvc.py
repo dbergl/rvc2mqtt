@@ -88,6 +88,14 @@ class RVC_Decoder(object):
             pass
 
         try:
+            # If parameter usefirstbyte == true load alternate parameters named
+            # after 1st byte value
+            if "usefirstbyte" in decoder and decoder["usefirstbyte"] == 1:
+                params.extend(decoder[str(result["data"][:2])])
+        except:
+            pass
+
+        try:
             # extend and override params from this entry
             params.extend(decoder["parameters"])
         except:
