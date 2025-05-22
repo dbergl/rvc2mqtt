@@ -425,12 +425,12 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
         command = (unused << 4 | temp_sensor << 2 | priority)
 
-            self.Logger.debug("Sending TIMBERLAND_PROPRIETARY message")
-            msg_bytes = bytearray(8)
-            struct.pack_into("<BBBBBBBB", msg_bytes, 0, message_type,
-                command, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
+        self.Logger.debug("Sending TIMBERLAND_PROPRIETARY message")
+        msg_bytes = bytearray(8)
+        struct.pack_into("<BBBBBBBB", msg_bytes, 0, message_type,
+            command, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
 
-            self.send_queue.put({"dgn": "1EF65", "data": msg_bytes})
+        self.send_queue.put({"dgn": "1EF65", "data": msg_bytes})
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
