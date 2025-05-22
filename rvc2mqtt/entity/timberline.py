@@ -395,7 +395,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
         message_type = 0x81
 
         try:
-            self.Logger.debug("Sending TIMBERLAND_PROPRIETARY message")
+            self.Logger.debug("Sending TIMBERLAND_PROPRIETARY message 0x81")
             msg_bytes = bytearray(8)
             struct.pack_into("<BBBBBBBB", msg_bytes, 0, message_type,
                 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
@@ -425,10 +425,44 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
         command = (unused << 4 | temp_sensor << 2 | priority)
 
-        self.Logger.debug("Sending TIMBERLAND_PROPRIETARY message")
+        self.Logger.debug("Sending TIMBERLAND_PROPRIETARY message 0x83")
         msg_bytes = bytearray(8)
         struct.pack_into("<BBBBBBBB", msg_bytes, 0, message_type,
             command, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
+
+        self.send_queue.put({"dgn": "1EF65", "data": msg_bytes})
+
+    def _send_timers_command(self, name: str, payload):
+        """ send TIMBERLAND_PROPRIETARY message over RV-C 
+            to dgn 1EF65.
+            0   : message type : 0x89
+            1-2 : system_limit : uint16: 60-7200
+            3   : water_limit  : uint8: 30-60
+        """
+        message_type = 0x89
+        system_limit = 0xFFFF
+        water_limit = 0xFF
+
+        match name:
+            case 'system_limit':
+                if int(payload) < 60:
+                    system_limit = 60
+                elif: int(payload) > 7200:
+                    system_limit = 7200
+                else:
+                    system_limit = int(payload)
+            case 'water_limit':
+                if int(payload) < 30:
+                    water_limit = 30
+                elif int(payload) > 60:
+                    water_limit = 60
+                else:
+                    water_limit = int(payload)
+
+        self.Logger.debug("Sending TIMBERLAND_PROPRIETARY message 0x89")
+        msg_bytes = bytearray(8)
+        struct.pack_into("<HBBBBBB", msg_bytes, 0, message_type,
+            system_limit, water_limit, 0xFF, 0xFF, 0xFF, 0xFF)
 
         self.send_queue.put({"dgn": "1EF65", "data": msg_bytes})
 
@@ -920,23 +954,21 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
             case self.command_timers_system_limit:
                 try:
-                    match payload:
-                        case '1':
-                            self.reset_aps(properties) if properties is not None else self.reset_aps()
-                        case _:
-                            self.Logger.warning(
-                            f'Invalid payload {payload} for topic {topic}')
+                    if payload.isdigit():
+                        self._send_timers_command('system_limit', payload)
+                    else:
+                        self.Logger.warning(
+                        f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_timers_water_limit:
                 try:
-                    match payload:
-                        case '1':
-                            self.reset_aps(properties) if properties is not None else self.reset_aps()
-                        case _:
-                            self.Logger.warning(
-                            f'Invalid payload {payload} for topic {topic}')
+                    if payload.isdigit():
+                        self._send_timers_command('water_limit', payload)
+                    else:
+                        self.Logger.warning(
+                        f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
