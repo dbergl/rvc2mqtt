@@ -447,7 +447,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             case 'system_limit':
                 if int(payload) < 60:
                     system_limit = 60
-                elif: int(payload) > 7200:
+                elif int(payload) > 7200:
                     system_limit = 7200
                 else:
                     system_limit = int(payload)
