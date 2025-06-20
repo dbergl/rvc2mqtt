@@ -28,7 +28,7 @@ class Test_Datetime(unittest.TestCase):
     def test_basic(self):
         mock = MagicMock()
         mock.mqtt_support.make_device_topic_string.return_value = 'topic_string'
-        
+
         l = Datetime({'instance': 1, 'instance_name': "test date_time"}, mock)
         self.assertTrue(type(l), Datetime)
 

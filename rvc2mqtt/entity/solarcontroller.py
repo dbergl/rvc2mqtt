@@ -156,17 +156,16 @@ class SolarController_SOLAR_CONTROLLER_STATUS(EntityPluginBaseClass):
             if new_message["operating_state"] != self.operating_state:
                 self.operating_state = new_message["operating_state"]
                 self.mqtt_support.client.publish(
-                    self.operating_state_topic, new_message["operating_state_definition"].title(), retain=True)
-
+                    self.operating_state_topic, new_message.get("operating_state_definition", "unknown").title(), retain=True)
             if new_message["power-up_state"] != self.power_up_state:
                 self.power_up_state = new_message["power-up_state"]
                 self.mqtt_support.client.publish(
-                    self.power_up_state_topic, new_message["power-up_state_definition"].title(), retain=True)
+                    self.power_up_state_topic, new_message.get("power-up_state_definition", "unknown").title(), retain=True)
 
             if new_message["force_charge"] != self.force_charge:
                 self.force_charge = new_message["force_charge"]
                 self.mqtt_support.client.publish(
-                    self.force_charge_topic, new_message["force_charge_definition"].title(), retain=True)
+                    self.force_charge_topic, new_message.get("force_charge_definition", "unknown").title(), retain=True)
 
             return True
 

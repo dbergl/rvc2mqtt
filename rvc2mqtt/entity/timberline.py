@@ -483,7 +483,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 self.mqtt_support.client.publish(
                     self.source_topic, new_message["operating_modes"], retain=True)
                 self.mqtt_support.client.publish(
-                    self.source_def_topic, new_message["operating_modes_definition"].title(), retain=True)
+                    self.source_def_topic, new_message.get("operating_modes_definition", "unknown").title(), retain=True)
             if new_message["water_temperature"] != self._water_temperature:
                 self._water_temperature = new_message["water_temperature"]
                 self.mqtt_support.client.publish(
@@ -493,19 +493,19 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 self.mqtt_support.client.publish(
                     self.burner_status_topic, new_message["burner_status"], retain=True)
                 self.mqtt_support.client.publish(
-                    self.burner_status_def_topic, new_message["burner_status_definition"].title(), retain=True)
+                    self.burner_status_def_topic, new_message.get("burner_status_definition", "unknown").title(), retain=True)
             if new_message["ac_element_status"] != self._ac_element_status:
                 self._ac_element_status = new_message["ac_element_status"]
                 self.mqtt_support.client.publish(
                     self.ac_element_status_topic, new_message["ac_element_status"], retain=True)
                 self.mqtt_support.client.publish(
-                    self.ac_element_status_def_topic, new_message["ac_element_status_definition"].title(), retain=True)
+                    self.ac_element_status_def_topic, new_message.get("ac_element_status_definition", "unknown").title(), retain=True)
             if new_message["failure_to_ignite_status"] != self._failure_to_ignite_status:
                 self._failure_to_ignite_status = new_message["failure_to_ignite_status"]
                 self.mqtt_support.client.publish(
                     self.failure_to_ignite_status_topic, new_message["failure_to_ignite_status"], retain=True)
                 self.mqtt_support.client.publish(
-                    self.failure_to_ignite_status_def_topic, new_message["failure_to_ignite_status_definition"].title(), retain=True)
+                    self.failure_to_ignite_status_def_topic, new_message.get("failure_to_ignite_status_definition", "unknown").title(), retain=True)
             processed = True
         elif self._is_entry_match(self.rvc_waterheater_status_2, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
@@ -514,7 +514,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 self.mqtt_support.client.publish(
                     self.hot_water_priority_topic, new_message["hot_water_priority"], retain=True)
                 self.mqtt_support.client.publish(
-                    self.hot_water_priority_def_topic, new_message["hot_water_priority_definition"].title(), retain=True)
+                    self.hot_water_priority_def_topic, new_message.get("hot_water_priority_definition", "unknown").title(), retain=True)
             processed = True
         elif self._is_entry_match(self.rvc_circulation_pump_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
@@ -523,7 +523,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 self.mqtt_support.client.publish(
                     self.output_status_topic, new_message["output_status"], retain=True)
                 self.mqtt_support.client.publish(
-                    self.output_status_def_topic, new_message["output_status_definition"].title(), retain=True)
+                    self.output_status_def_topic, new_message.get("output_status_definition", "unknown").title(), retain=True)
             processed = True
         elif self._is_entry_match(self.rvc_furnace_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
@@ -532,7 +532,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 self.mqtt_support.client.publish(
                     self.operating_mode_topic, new_message["operating_mode"], retain=True)
                 self.mqtt_support.client.publish(
-                    self.operating_mode_def_topic, new_message["operating_mode_definition"].title(), retain=True)
+                    self.operating_mode_def_topic, new_message.get("operating_mode_definition", "unknown").title(), retain=True)
             if new_message["circulation_fan_speed"] != self._circulation_fan_speed:
                 self._circulation_fan_speed = new_message["circulation_fan_speed"]
                 self.mqtt_support.client.publish(
@@ -545,13 +545,13 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 self.mqtt_support.client.publish(
                     self.thermostat_operating_mode_topic, new_message["operating_mode"], retain=True)
                 self.mqtt_support.client.publish(
-                    self.thermostat_operating_mode_def_topic, new_message["operating_mode_definition"].title(), retain=True)
+                    self.thermostat_operating_mode_def_topic, new_message.get("operating_mode_definition", "unknown").title(), retain=True)
             if new_message["schedule_mode"] != self._thermostat_schedule_mode:
                 self._thermostat_schedule_mode = new_message["schedule_mode"]
                 self.mqtt_support.client.publish(
                     self.thermostat_schedule_mode_topic, new_message["schedule_mode"], retain=True)
                 self.mqtt_support.client.publish(
-                    self.thermostat_schedule_mode_def_topic, new_message["schedule_mode_definition"].title(), retain=True)
+                    self.thermostat_schedule_mode_def_topic, new_message.get("schedule_mode_definition", "unknown").title(), retain=True)
             if new_message["setpoint_temp_heat"] != self._set_point_temp:
                 self._set_point_temp = new_message["setpoint_temp_heat"]
                 self.mqtt_support.client.publish(
@@ -624,13 +624,13 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     self.mqtt_support.client.publish(
                         self.solenoid_topic, new_message["solenoid"], retain=True)
                     self.mqtt_support.client.publish(
-                        self.solenoid_def_topic, new_message["solenoid_definition"].title(), retain=True)
+                        self.solenoid_def_topic, new_message.get("solenoid_definition", "unknown").title(), retain=True)
                 if new_message["used_temperature_sensor"] != self._temperature_sensor:
                     self._temperature_sensor = new_message["used_temperature_sensor"]
                     self.mqtt_support.client.publish(
                         self.temperature_sensor_topic, new_message["used_temperature_sensor"], retain=True)
                     self.mqtt_support.client.publish(
-                        self.temperature_sensor_def_topic, new_message["used_temperature_sensor_definition"].title(), retain=True)
+                        self.temperature_sensor_def_topic, new_message.get("used_temperature_sensor_definition", "unknown").title(), retain=True)
                 if new_message["tank_temperature"] != self._tank_temperature:
                     self._tank_temperature = new_message["tank_temperature"]
                     self.mqtt_support.client.publish(

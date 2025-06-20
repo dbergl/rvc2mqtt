@@ -131,3 +131,6 @@ pytest_report.html
 test.junit.xml
 cov.xml
 junit/test-results.xml
+
+# pytest
+test/junit/

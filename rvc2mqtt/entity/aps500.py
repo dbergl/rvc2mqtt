@@ -252,7 +252,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             if new_message["desired_charge_state"] != self._desired_charge_state:
                 self._desired_charge_state = new_message["desired_charge_state"]
                 self.mqtt_support.client.publish(
-                    self.desired_charge_state_topic, new_message["desired_charge_state_definition"].title(), retain=True)
+                    self.desired_charge_state_topic, new_message.get("desired_charge_state_definition", "unknown").title(), retain=True)
             if new_message["desired_dc_voltage"] != self._desired_dc_voltage:
                 self._desired_dc_voltage = new_message["desired_dc_voltage"]
                 self.mqtt_support.client.publish(
@@ -295,19 +295,19 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             if self._operating_state != new_message["operating_state"]:
                 self._operating_state = new_message["operating_state"]
                 self.mqtt_support.client.publish(
-                    self.operating_state_topic, new_message["operating_state_definition"].title(), retain=True)
+                    self.operating_state_topic, new_message.get("operating_state_definition", "unknown").title(), retain=True)
             if self._power_up_default_state != new_message["default_state_on_power-up"]:
                 self._power_up_default_state = new_message["default_state_on_power-up"]
                 self.mqtt_support.client.publish(
-                    self.power_up_default_state_topic, new_message["default_state_on_power-up_definition"].title(), retain=True)
+                    self.power_up_default_state_topic, new_message.get("default_state_on_power-up_definition", "unknown").title(), retain=True)
             if self._auto_recharge_enable != new_message["auto_recharge_enable"]:
                 self._auto_recharge_enable = new_message["auto_recharge_enable"]
                 self.mqtt_support.client.publish(
-                    self.auto_recharge_enable_topic, new_message["auto_recharge_enable_definition"].title(), retain=True)
+                    self.auto_recharge_enable_topic, new_message.get("auto_recharge_enable_definition", "unknown").title(), retain=True)
             if self._force_charge != new_message["force_charge"]:
                 self._force_charge = new_message["force_charge"]
                 self.mqtt_support.client.publish(
-                    self.force_charge_topic, new_message["force_charge_definition"].title(), retain=True)
+                    self.force_charge_topic, new_message.get("force_charge_definition", "unknown").title(), retain=True)
 
             return True
 
@@ -336,17 +336,17 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             if self._charging_algorithm != new_message["charging_algorithm"]:
                 self._charging_algorithm = new_message["charging_algorithm"]
                 self.mqtt_support.client.publish(
-                    self.charging_algorithm_topic, new_message["charging_algorithm_definition"].title(), retain=True)
+                    self.charging_algorithm_topic, new_message.get("charging_algorithm_definition", "unknown").title(), retain=True)
 
             if self._charging_mode != new_message["charger_mode"]:
                 self._charging_mode = new_message["charger_mode"]
                 self.mqtt_support.client.publish(
-                    self.charging_mode_topic, new_message["charger_mode_definition"].title(), retain=True)
+                    self.charging_mode_topic, new_message.get("charger_mode_definition", "unknown").title(), retain=True)
 
             if self._battery_sensor_present != new_message["battery_sensor_present"]:
                 self._battery_sensor_present = new_message["battery_sensor_present"]
                 self.mqtt_support.client.publish(
-                    self.battery_sensor_present_topic, new_message["battery_sensor_present_definition"].title(), retain=True)
+                    self.battery_sensor_present_topic, new_message.get("battery_sensor_present_definition", "unknown").title(), retain=True)
 
             return True
 
@@ -356,12 +356,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             if self._charge_detected != new_message["charge_detected"]:
                 self._charge_detected = new_message["charge_detected"]
                 self.mqtt_support.client.publish(
-                self.charge_detected_topic, new_message["charge_detected_definition"].title(), retain=True)
+                self.charge_detected_topic, new_message.get("charge_detected_definition", "unknown").title(), retain=True)
 
             if self._reserve_status != new_message["reserve_status"]:
                 self._reserve_status = new_message["reserve_status"]
                 self.mqtt_support.client.publish(
-                self.reserve_status_topic, new_message["reserve_status_definition"].title(), retain=True)
+                self.reserve_status_topic, new_message.get("reserve_status_definition", "unknown").title(), retain=True)
 
             return True
 

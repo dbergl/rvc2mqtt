@@ -16,21 +16,26 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
+class SolarController_SOLAR_CONTROLLER_STATUS(EntityPluginBaseClass):
+    FACTORY_MATCH_ATTRIBUTES = {"name": "SOLAR_CONTROLLER_STATUS", "type": "solar"}
 """
 
 import unittest
 from unittest.mock import MagicMock
 import context  # add rvc2mqtt package to the python path using local reference
-from rvc2mqtt.entity.aps500 import DcSystemSensor_DC_SOURCE_STATUS_1 as Aps500
+from rvc2mqtt.entity.solarcontroller import SolarController_SOLAR_CONTROLLER_STATUS as SolarController
 
-class Test_Aps500(unittest.TestCase):
+class Test_SolarController(unittest.TestCase):
 
     def test_basic(self):
         mock = MagicMock()
         mock.mqtt_support.make_device_topic_string.return_value = 'topic_string'
 
-        l = Aps500({'instance': 1, 'instance_name': "test aps", 'source_id': '80', 'command_topic': 'aps500/set/', 'status_topic': 'aps500/status/'}, mock)
-        self.assertTrue(type(l), Aps500)
+        l = SolarController({'instance': 1, 'instance_name': "test solar controller house battery", 'type': 'solar', 'status_topic': 'rvc/state/solar', 'command_topic': 'rvc/set/solar'}, mock)
+        self.assertTrue(type(l), SolarController)
+        l = SolarController({'instance': 2, 'instance_name': "test solar controller chassis battery", 'type': 'solar', 'status_topic': 'rvc/state/solar'}, mock)
+        self.assertTrue(type(l), SolarController)
+
 
 if __name__ == '__main__':
     unittest.main()
