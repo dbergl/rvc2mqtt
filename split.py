@@ -1,5 +1,5 @@
 
-def split_string_to_byte_chunks(data: str) -> list[bytes]:
+def split_string_to_byte_chunks(data: str) -> list[bytearray]:
 
     try:
         # Append CRLF and encode to ASCII
@@ -17,7 +17,7 @@ def split_string_to_byte_chunks(data: str) -> list[bytes]:
         if len(chunk) < 8:
             # Pad with 0xFF if less than 8 bytes
             chunk += b'\xFF' * (8 - len(chunk))
-        chunks.append(chunk)
+        chunks.append(bytearray(chunk))
 
     return chunks
 
@@ -25,7 +25,8 @@ try:
     data = "Hello world!"
     chunks = split_string_to_byte_chunks(data)
     for i, chunk in enumerate(chunks):
-        print(f"Chunk {i}: {chunk}")
+        chunkbytes=bytearray(chunk)
+        print(f"{type(chunk)} {i}: {chunk}")
     print(f"\r\n")
 except ValueError as e:
     print(f"Error: {e}")
@@ -35,6 +36,7 @@ try:
     data = "Café"
     chunks = split_string_to_byte_chunks(data)
     for i, chunk in enumerate(chunks):
+        print(f"{type(chunk)} {i}: {chunk}")
         print(f"Chunk {i}: {chunk}")
     print(f"\r\n")
 except ValueError as e:
@@ -45,6 +47,7 @@ try:
     data = "$SCA: 0,100,0.31,0.23,0.00,0,0,1000,10000,0,0,30,8,6"
     chunks = split_string_to_byte_chunks(data)
     for i, chunk in enumerate(chunks):
+        print(f"{type(chunk)} {i}: {chunk}")
         print(f"Chunk {i}: {chunk}, {chunk.hex()}")
     print(f"\r\n")
 except ValueError as e:
@@ -55,6 +58,7 @@ try:
     data = "$SCA: 0,100,0.31,0.23,0.00,0,0,0,10000,0,0,30,8,6"
     chunks = split_string_to_byte_chunks(data)
     for i, chunk in enumerate(chunks):
+        print(f"{type(chunk)} {i}: {chunk}")
         print(f"Chunk {i}: {chunk}")
 except ValueError as e:
     print(f"Error: {e}")
