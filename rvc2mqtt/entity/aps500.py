@@ -451,10 +451,37 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         return False
 
-
-    def send_terminal_message(self, message: list):
+    def format_terminal_message(data: str) -> list[bytearray]:
         """
-        Expects a list of bytearray
+        Splits a string into 8 byte byte arrays.
+        Appends CR/LF which is expected by APS-500
+        Pads bytes with 0xFF if < 8 bytes
+        to match RV-C spec for TERMINAL messages
+        """
+    
+        try:
+            # Append CRLF and encode to ASCII
+            data += '\x0d\x0a'
+            byte_data = data.encode('ascii')
+        except UnicodeEncodeError as e:
+            raise ValueError("Input string contains non-ASCII characters.") from e
+    
+        # Initialize the result list
+        chunks = []
+    
+        # Process in chunks of 8 bytes
+        for i in range(0, len(byte_data), 8):
+            chunk = byte_data[i:i+8]
+            if len(chunk) < 8:
+                # Pad with 0xFF if less than 8 bytes
+                chunk += b'\xFF' * (8 - len(chunk))
+            chunks.append(bytearray(chunk))
+    
+        return chunks
+
+    def send_terminal_message(self, message: list[bytearray]):
+        """
+        Sends message(s) to the APS-500 using the TERMINAL DGN
         """
         for msg_bytes in message:
             self.send_queue.put({"dgn": "17E80", "data": msg_bytes})
@@ -480,12 +507,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
     def request_last_fault(self, properties = None):
         """
-        Sends $RLF:@ to TERMINAL dgn = 17E80 to the APS-500
-        $RLF:@ = 24 52 4C 46 3A 40
+        Sends $RLF: to TERMINAL dgn = 17E80 to the APS-500
+        $RLF: = 24 52 4C 46 3A
         """
         self.Logger.debug("Sending Request Last Fault ASCII message")
 
-        message = [bytearray(b'$RLF:@\xff\xff')]
+        message = format_terminal_message('$RLF:')
 
         self._terminal_message_call["payload"] = "requested"
         self._terminal_message_call["responsetopic"] = self.request_last_fault_status_topic
@@ -498,11 +525,11 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
     def reboot_aps(self, properties = None):
         """
         Sends $RBT: to TERMINAL dgn = 17E80 to the APS-500
-        $RBT:@ = 24 52 42 54 3A 40
+        $RBT: = 24 52 42 54 3A
         """
         self.Logger.debug("Sending reboot ASCII message")
 
-        message = [bytearray(b'$RBT:@\xff\xff')]
+        message = format_terminal_message('$RBT:')
 
         self._terminal_message_call["payload"] = 0
         self._terminal_message_call["responsetopic"] = None
@@ -513,61 +540,39 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         self.send_terminal_message(message)
 
 
-    def cap_max_watts(self, cap: bool, properties = None):
+    def cap_max_watts(self, cap: int, properties = None):
         """
         Sends:
-            cap == True:  $SCA: 0,100,0.31,0.23,0.00,0,0,1000,10000,0,0,30,8,6\x0d\x0a
-            cap == False: $SCA: 0,100,0.31,0.23,0.00,0,0,0,10000,0,0,30,8,6\x0d\x0a
+          $SCA: 0,100,0.31,0.23,0.00,0,0,{cap},10000,0,0,30,8,6
+          Used to cap the charging to {cap} watts
+          0 = no cap and jayco config default
         """
         message = []
-        message.append(bytearray(b'$SCA: 0,'))
-        message.append(bytearray(b'100,0.31'))
-        message.append(bytearray(b',0.23,0.'))
+        sca     = f'$SCA: 0,100,0.31,0.23,0.00,0,0,{cap},10000,0,0,30,8,6'
 
-        if cap:
-            self.Logger.debug("Sending $SCA Override ASCII message")
+        message = format_terminal_message(sca)
 
-            message.append(bytearray(b'00,0,0,6'))
-            message.append(bytearray(b'45,10000'))
-            message.append(bytearray(b',0,0,30,'))
-            message.append(bytearray(b'8,6\x0d\x0a\xff\xff\xff'))
-        else:
-            self.Logger.debug("Sending Default Jayco $SCA ASCII message")
-
-            message.append(bytearray(b'00,0,0,0'))
-            message.append(bytearray(b',10000,0'))
-            message.append(bytearray(b',0,30,8,'))
-            message.append(bytearray(b'6\x0d\x0a\xff\xff\xff\xff\xff'))
-
-        self._terminal_message_call["payload"] = 1 if cap else 0
+        self._terminal_message_call["payload"] = 1 if cap != 0 else 0
         self._terminal_message_call["responsetopic"] = self.capwatts_status_topic
         if properties is not None:
             self._terminal_message_call["properties"] = properties
         self._terminal_message_call["timestamp"] = time.time()
 
+        self.Logger.debug(f"Sending: {sca}")
         self.send_terminal_message(message)
 
 
-    def ignore_bms_faults(self, override: bool, properties = None):
+    def ignore_bms_faults(self, override: float, properties = None):
         """
         Sends:
-            True : $CCN: 0,1,120, 2,1,1,0,201,0,0,13.6,0\x0d\x0a  <-- Sets to constant voltage charging on fault instead of disabled
-            False: $CCN: 0,1,120, 2,1,1,0,201,0,0,0.0,0\x0d\x0a  <-- Sets to constant voltage charging on fault instead of disabled
+            True : $CCN: 0,1,120, 2,1,1,0,201,0,0,13.2,0 <-- Sets to constant voltage charging on fault instead of disabled
+            False: $CCN: 0,1,120, 2,1,1,0,201,0,0,0.0,0  <-- Sets to constant voltage charging on fault instead of disabled
         """
         self.Logger.debug("Sending $CCN Override ASCII message")
 
         message = []
-        message.append(bytearray(b'$CCN: 0,'))
-        message.append(bytearray(b'1,120, 2'))
-        message.append(bytearray(b',1,1,0,2'))
 
-        if override:
-            message.append(bytearray(b'01,0,0,1'))
-            message.append(bytearray(b'3.60,0\x0d\x0a'))
-
-        else:
-            message.append(bytearray(b'01,0,0,0'))
-            message.append(bytearray(b'.0,0\x0d\x0a\xff\xff'))
+            message.append())
 
         self._terminal_message_call["payload"] = 1 if override else 0
         self._terminal_message_call["responsetopic"] = self.ignorefaults_status_topic
