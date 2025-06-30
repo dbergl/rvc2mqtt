@@ -33,7 +33,7 @@ from paho.mqtt.packettypes import PacketTypes
 class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
     FACTORY_MATCH_ATTRIBUTES = {"type": "dc_system", "name": "APS-500"}
 
-    """ Provide basic DC system information as published by the APS-500 
+    """ Provide basic DC system information as published by the APS-500
         using DC_SOURCE_STATUS_1 - 5, CHARGER_STATUS, CHARGER_STATUS_2,
         and CHARGER_EQUALIZATION_STATUS
     """
@@ -403,7 +403,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         if self._is_entry_match(self.rvc_match_terminal, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-   
+
             # Set CorrelationData and ResponseTopic
             messageproperties = Properties(PacketTypes.PUBLISH)
             if hasattr(self._terminal_message_call["properties"],'CorrelationData'):
@@ -458,17 +458,17 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         Pads bytes with 0xFF if < 8 bytes
         to match RV-C spec for TERMINAL messages
         """
-    
+
         try:
             # Append CRLF and encode to ASCII
             data += '\x0d\x0a'
             byte_data = data.encode('ascii')
         except UnicodeEncodeError as e:
             raise ValueError("Input string contains non-ASCII characters.") from e
-    
+
         # Initialize the result list
         chunks = []
-    
+
         # Process in chunks of 8 bytes
         for i in range(0, len(byte_data), 8):
             chunk = byte_data[i:i+8]
@@ -476,7 +476,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 # Pad with 0xFF if less than 8 bytes
                 chunk += b'\xFF' * (8 - len(chunk))
             chunks.append(bytearray(chunk))
-    
+
         return chunks
 
     def send_terminal_message(self, message: list[bytearray]):
@@ -602,7 +602,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 try:
                     match payload:
                         case '1':
-                            self.reboot_aps(properties) 
+                            self.reboot_aps(properties)
                         case _:
                             self.Logger.warning(
                             f"Invalid payload {payload} for topic {topic}")
