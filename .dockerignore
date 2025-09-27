@@ -4,8 +4,6 @@
 .gitignore
 Dockerfile
 LICENSE
-README.md
-readme.md
 .coveragerc
 docs/
 venv/
