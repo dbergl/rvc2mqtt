@@ -757,9 +757,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             case self.command_pump_test:
                 try:
                     match payload.lower():
-                        case '0' | 'off':
+                        case '0' | '0000' | 'off':
                             self._send_circulation_pump_command(0b0000)
-                        case '1' | 'test' | 'on':
+                        case '1' | '0001' | 'test' | 'on':
                             self._send_circulation_pump_command(0b0101)
                         case _:
                             self.Logger.warning(
@@ -793,11 +793,11 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             case self.command_operating_mode:
                 try:
                     match payload.lower():
-                        case '0' | '00' |'off':
+                        case '0' | '00' | '0000' | 'off':
                             self._send_thermostat_command('operating_mode', 0b0000)
-                        case '2' | '02' | 'heat':
+                        case '2' | '02' | '0002' | 'heat':
                             self._send_thermostat_command('operating_mode', 0b0010)
-                        case '3' | '03' | 'auto':
+                        case '3' | '03' | '0003' | 'auto':
                             self._send_thermostat_command('operating_mode', 0b0011)
                         case _:
                             self.Logger.warning(
@@ -915,7 +915,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             case self.command_clear_errors:
                 try:
                     match payload.lower():
-                        case '1' | 'true':
+                        case '1' | 'true' | 'clear':
                             self._send_clear_errors_command()
                         case _:
                             self.Logger.warning(
@@ -929,9 +929,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                         # In this custom DGN the values expected for heating vs hot water priority
                         # are the opposite of WATERHEATER_STATUS_2.
                         # Match WATERHEATER_STATUS_2 to keep it consistent
-                        case '0' | 'water':
+                        case '0' | '00' | 'water':
                             self._send_extension_command('hot_water_priority', 0b01)
-                        case '1' | 'heat':
+                        case '1' | '01' | 'heat':
                             self._send_extension_command('hot_water_priority', 0b00)
                         case _:
                             self.Logger.warning(
@@ -942,9 +942,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             case self.command_temperature_sensor:
                 try:
                     match payload:
-                        case '0' | 'external' :
+                        case '0' | '00' | 'external' :
                             self._send_extension_command('temp_sensor', 0b00)
-                        case '1' | 'panel' :
+                        case '1' | '01' | 'panel' :
                             self._send_extension_command('temp_sensor', 0b01)
                         case _:
                             self.Logger.warning(
