@@ -124,7 +124,8 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             # WATERHEATER_STATUS
             self.source_topic                       = str(f"{topic_base}/heatsource")
             self.source_def_topic                   = str(f"{topic_base}/heatsource_definition")
-            self.waterheater_temp_topic             = str(f"{topic_base}/water_temperature")
+            self.waterheater_temp_topic             = str(f"{topic_base}/heat_exchanger_temperature")
+            self.waterheater_tempf_topic            = str(f"{topic_base}/heat_exchanger_temperaturef")
             self.burner_status_topic                = str(f"{topic_base}/burner_status")
             self.burner_status_def_topic            = str(f"{topic_base}/burner_status_definition")
             self.ac_element_status_topic            = str(f"{topic_base}/ac_element_status")
@@ -488,6 +489,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 self._water_temperature = new_message["water_temperature"]
                 self.mqtt_support.client.publish(
                     self.waterheater_temp_topic, new_message["water_temperature"], retain=True)
+                self.mqtt_support.client.publish(
+                    self.waterheater_tempf_topic, round(float(
+                        self._convert_c_to_f(new_message["water_temperature"]))), retain=True)
             if new_message["burner_status"] != self._burner_status:
                 self._burner_status = new_message["burner_status"]
                 self.mqtt_support.client.publish(
