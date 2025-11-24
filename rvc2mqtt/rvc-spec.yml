@@ -5340,3 +5340,7 @@ Z0005:
         0: do not notify user
         1: user notification required
 
+0FC08:
+  comment: Broadcast by APS-500 v2.6.1
+  name: UNKNOWN-0FC08
+
