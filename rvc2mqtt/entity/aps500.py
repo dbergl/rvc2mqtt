@@ -579,7 +579,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 try:
                     match payload:
                         case s if s.startswith('$'):
-                            self.Logger.debug("Sending Request Last Fault ASCII message")
+                            self.Logger.debug("Sending ASCII message")
 
                             message = format_terminal_message(payload)
 
