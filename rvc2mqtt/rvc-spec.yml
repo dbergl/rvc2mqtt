@@ -4821,6 +4821,23 @@ Z0005:
   comment: APS-500. likely J1939 message according to wakespeed
   name: UNKNOWN-0FED5
 
+0FC08:
+  comment: Broadcast by APS-500 v2.6.1
+  name: UNKNOWN-0FC08
+
+0F004:
+  # Example messages
+  #FFFFFFB02CFFFFFF
+  #FFFFFFE82BFFFFFF
+  #FFFFFF901FFFFFFF
+  comment: Broadcast by APS-500 v2.6.1
+  name: UNKNOWN-0F004
+  parameters:
+    - byte: 4-5
+      name: output current ?
+      type: uint16
+      unit: a
+
 0BFC1:
   name: G12_TANK_LEVEL_SENSOR
   comment: Broadcast by G12 in Ethos 20DL
@@ -4882,7 +4899,7 @@ Z0005:
   comment: usually broadcast as part of 0ECFF and 0EBFF
 
 0EEFF:
-  comment: Broadcast by APS-500 in Ethol 20DL
+  comment: Broadcast by APS-500 in Ethos 20DL
   name: UNKNOWN-0EEFF
 
 0FF01:
@@ -4903,8 +4920,32 @@ Z0005:
   name: UNKNOWN-1FACF
 
 16F84:
-  comment: Broadcast in Ethos 20DL
+  comment: G12 Outputs
   name: UNKNOWN-16F84
+  parameters:
+    - byte: 0
+      name: unknown
+      type: uint8
+    - byte: 1
+      name: output pin
+      type: uint8
+    - byte: 2
+      name: unknown
+      type: uint8
+    - byte: 3
+      name: unknown
+      type: uint8
+    - byte: 4-5
+      name: output current
+      type: uint16
+      unit: a
+    - byte: 6
+      name: unknown
+      type: uint8
+    - byte: 7
+      name: unknown
+      type: uint8
+
 
 1FBDA:
   comment: Broadcast in Ethos 20DL

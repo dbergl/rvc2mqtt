@@ -266,14 +266,11 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         if self._is_entry_match(self.rvc_match_source_status_5, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            #For some reason the APS does not send this in standard RV-C format
-            # and instead sends this as 2 bytes (bytes 2&3) in little-endian byte order
-            hp_dc_voltage = struct.unpack_from('<xxHxxx', bytearray.fromhex(new_message["data"]))
 
-            if self._hp_dc_voltage != hp_dc_voltage:
-                self._hp_dc_voltage = hp_dc_voltage
+            if self._hp_dc_voltage != new_message["hp_dc_voltage"]:
+                self._hp_dc_voltage = new_message["hp_dc_voltage"]
                 self.mqtt_support.client.publish(
-                    self.hp_dc_voltage_topic, f"{float(self._hp_dc_voltage[0]) * 0.001:.3f}",
+                    self.hp_dc_voltage_topic, f"{self._hp_dc_voltage:.3f}",
                     retain=True)
             return True
 

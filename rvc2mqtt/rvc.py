@@ -286,6 +286,8 @@ class RVC_Decoder(object):
                 new_value = input_num
             elif mytype == "uint16" and input_num != (1 << 16) - 1:
                 new_value = round(input_num * 0.05, 2)
+            elif mytype == "uint32" and input_num != (1 << 32) - 1:
+                new_value = round(input_num * 0.001, 3)
 
         elif mu == "a":
             new_value = "n/a"
