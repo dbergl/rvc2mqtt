@@ -4559,7 +4559,7 @@ API_VERSION: 0
       name: charge detected
       type: bit2
       values:
-        00: no change detected
+        00: no charge detected
         01: charge detected
       comment: state of Charge source. Usually valid only when Power off.
     - byte: 2

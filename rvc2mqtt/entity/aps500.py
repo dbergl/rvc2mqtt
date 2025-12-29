@@ -398,14 +398,15 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         if self._is_entry_match(self.rvc_match_terminal, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
 
-            # Set CorrelationData and ResponseTopic
             messageproperties = Properties(PacketTypes.PUBLISH)
-            if hasattr(self._terminal_message_call["properties"],'CorrelationData'):
-                messageproperties.CorrelationData = self._terminal_message_call["properties"].CorrelationData
-            messageproperties.ResponseTopic = self._terminal_message_call.get("responsetopic")
+            # Set CorrelationData
+            #if self._terminal_message_call.get("properties"):
+            #    if hasattr(self._terminal_message_call["properties"],'CorrelationData'):
+            #        messageproperties.CorrelationData = self._terminal_message_call["properties"].CorrelationData
 
             response_timestamp = time.time()
-            if response_timestamp > self._terminal_message_call.get("timestamp") and response_timestamp - self._terminal_message_call.get("timestamp") < 10.0:
+            self.Logger.warning(f"response_timestamp: {response_timestamp}, terminal_call: {self._terminal_message_call.get("timestamp")}")
+            if response_timestamp > self._terminal_message_call.get("timestamp",time.time()) and response_timestamp - self._terminal_message_call.get("timestamp") < 10.0:
                 self._terminalmessage =  self._terminalmessage + new_message["data"]
                 messages = bytearray.fromhex(self._terminalmessage).decode()
                 publish_msg = False
@@ -419,13 +420,14 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                     publish_msg = True
 
                 if publish_msg:
-                    # Pubish full TERMINAL response
-                    self.mqtt_support.client.publish(topic=self.terminal_status_topic,
-                        payload=messages, retain=False, properties=messageproperties)
-                    # Publish payload to responsetopic if it exists
+                    # Publish TERMINAL response to responsetopic if it exists
                     if self._terminal_message_call.get("responsetopic") is not None:
                         self.mqtt_support.client.publish(topic=self._terminal_message_call.get("responsetopic"),
-                            payload=self._terminal_message_call.get("payload"), retain=True, properties=messageproperties)
+                            payload=messages, retain=False, properties=messageproperties)
+                    else:
+                        # Pubish TERMINAL response to terminal_status_topic
+                        self.mqtt_support.client.publish(topic=self.terminal_status_topic,
+                            payload=messages, retain=False, properties=messageproperties)
 
                     self._terminal_message_call = {}
                     self._terminalmessage = ""
@@ -446,7 +448,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         return False
 
 
-    def format_terminal_message(data: str) -> list[bytearray]:
+    def format_terminal_message(self, data: str) -> list[bytearray]:
         """
         Splits a string into 8 byte byte arrays.
         Appends CR/LF which is expected by APS-500
@@ -479,6 +481,9 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         """
         Sends message(s) to the APS-500 using the TERMINAL DGN
         """
+
+        self._terminal_message_call["timestamp"] = time.time()
+
         for msg_bytes in message:
             self.send_queue.put({"dgn": "17E80", "data": msg_bytes})
             time.sleep(.10)
@@ -510,12 +515,11 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         """
         self.Logger.debug("Sending Request Last Fault ASCII message")
 
-        message = format_terminal_message('$RLF:')
+        message = self.format_terminal_message('$RLF:')
 
         self._terminal_message_call["payload"] = "requested"
         self._terminal_message_call["responsetopic"] = self.request_last_fault_status_topic
         self._terminal_message_call["properties"] = properties
-        self._terminal_message_call["timestamp"] = time.time()
 
         self.send_terminal_message(message)
 
@@ -527,13 +531,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         """
         self.Logger.debug("Sending reboot ASCII message")
 
-        message = format_terminal_message('$RBT:')
+        message = self.format_terminal_message('$RBT:')
 
         self._terminal_message_call["payload"] = 0
         self._terminal_message_call["responsetopic"] = None
         if properties is not None:
             self._terminal_message_call["properties"] = properties
-        self._terminal_message_call["timestamp"] = time.time()
 
         self.send_terminal_message(message)
 
@@ -580,15 +583,16 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                     match payload:
                         case s if s.startswith('$'):
                             self.Logger.debug("Sending ASCII message")
+                            self.Logger.warning(f"payload: {payload}")
 
-                            message = format_terminal_message(payload)
+                            message = self.format_terminal_message(payload)
 
                             self._terminal_message_call["payload"] = payload
-                            if responsetopic is not None:
-                                self._terminal_message_call["responsetopic"] = responsetopic
                             if properties is not None:
                                 self._terminal_message_call["properties"] = properties
-                            self._terminal_message_call["timestamp"] = time.time()
+                                self.Logger.warning(f"{properties}")
+                                if hasattr(properties, "ResponseTopic"):
+                                    self._terminal_message_call["responsetopic"] = properties.ResponseTopic
 
                             self.send_terminal_message(message)
 
