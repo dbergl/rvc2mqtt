@@ -150,7 +150,7 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
                            'state_topic': self.status_tank_percent_topic,
                            'unique_id': self.unique_device_id + 'pct'}
 
-        components = {'lvl': levelcmp, 'lvlpct': customlevel} 
+        components = {'lvl': levelcmp, 'lvlpct': customlevel}
 
         config = {'dev': self.device,
                   'o': origin,

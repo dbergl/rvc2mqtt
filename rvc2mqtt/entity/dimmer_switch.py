@@ -78,7 +78,6 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
                        'mdl': 'RV-C Dimmer from DC_DIMMER_STATUS_3',
                        'name': self.name
                        }
-                       
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
@@ -170,7 +169,7 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         """
 
         # produce the HA MQTT discovery config json
-	
+
         origin = {'name': self.mqtt_support.get_bridge_ha_name()}
 
         config = {'o:': origin,
@@ -187,7 +186,7 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
 
         config_json = json.dumps(config)
 
-	
+
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
             self.unique_device_id, "light")
 

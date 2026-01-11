@@ -141,7 +141,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         # produce the HA MQTT discovery config json
         origin = {'name': self.mqtt_support.get_bridge_ha_name()}
-        
+
         voltscmp = {'p': 'sensor', 'device_class': 'voltage',
                     'unit_of_measurement': 'V', 'suggested_display_precision': '2',
                     'value_template': '{{value}}',
