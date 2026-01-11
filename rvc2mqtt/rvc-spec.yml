@@ -4908,7 +4908,7 @@ Z0005:
 
 1AAFD:
   name: DC_SOURCE_STATUS_G12
-  comment: Broadcast in Ethos 20DL by G12 for chassis battery
+  comment: Broadcast in Ethos 20DL by G12 for chassis and coach batteries
   alias: 1FFFD
 
 1FACE:

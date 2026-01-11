@@ -143,11 +143,13 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         origin = {'name': self.mqtt_support.get_bridge_ha_name()}
         
         voltscmp = {'p': 'sensor', 'device_class': 'voltage',
-                    'unit_of_measurement': 'V', 'value_template': '{{value}}',
+                    'unit_of_measurement': 'V', 'suggested_display_precision': '2',
+                    'value_template': '{{value}}',
                     'state_topic': self.status_dc_voltage_topic,
                     'unique_id': self.unique_device_id + 'v'}
         currentcmp = {'p': 'sensor', 'device_class': 'current',
-                      'unit_of_measurement': 'C', 'value_template': '{{value}}',
+                      'unit_of_measurement': 'A', 'suggested_display_precision': '2',
+                      'value_template': '{{value}}',
                       'state_topic': self.status_dc_current_topic,
                       'unique_id': self.unique_device_id + 'c'}
 
