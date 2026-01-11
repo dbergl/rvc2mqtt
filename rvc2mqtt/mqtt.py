@@ -75,7 +75,7 @@ class MQTT_Support(object):
     def on_subscribe(self, client, userdata, mid, reason_codes, properties):
         pass
 
-    def on_message(self, client, userdata, msg):
+    def on_message(self, client, userdata, msg, properties=None):
         if msg.topic in self.registered_mqtt_devices:
             func = self.registered_mqtt_devices[msg.topic]
             func(msg.topic, msg.payload.decode('utf-8'), msg.properties)
@@ -141,17 +141,17 @@ class MQTT_Support(object):
 gMQTTObj:MQTT_Support = None
 
 
-def on_mqtt_connect(client, userdata, flags, reason_code, properties):
-    gMQTTObj.on_connect(client, userdata, flags, reason_code, properties)
+def on_mqtt_connect(client, userdata, flags, reason_code, properties=None):
+    gMQTTObj.on_connect(client, userdata, flags, reason_code, properties=None)
 
-def on_mqtt_subscribe(client, userdata, mid, reason_codes, properties):
-    gMQTTObj.on_subscribe(client, userdata, mid, reason_codes, properties)
+def on_mqtt_subscribe(client, userdata, mid, reason_codes, properties=None):
+    gMQTTObj.on_subscribe(client, userdata, mid, reason_codes, properties=None)
 
-def on_mqtt_message(client, userdata, msg):
-    gMQTTObj.on_message(client, userdata, msg)
+def on_mqtt_message(client, userdata, msg, properties=None):
+    gMQTTObj.on_message(client, userdata, msg, properties=None)
 
-def on_mqtt_disconnect(client, userdata, flags, reason_code, properties):
-    gMQTTObj.on_disconnect(client, userdata, flags, reason_code, properties)
+def on_mqtt_disconnect(client, userdata, flags, reason_code, properties=None):
+    gMQTTObj.on_disconnect(client, userdata, flags, reason_code, properties=None)
 
 def MqttInitalize(host:str, port:str, user:str, password:str, client_id:str, topic_base:str):
     """ main function to parse config and initialize the 

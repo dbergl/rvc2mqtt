@@ -763,7 +763,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     match payload.lower():
                         case '0' | '0000' | 'off':
                             self._send_circulation_pump_command(0b0000)
-                        case '1' | '0001' | 'test' | 'on':
+                        case '1' | '0001' | '0101' | 'test' | 'on':
                             self._send_circulation_pump_command(0b0101)
                         case _:
                             self.Logger.warning(
@@ -799,9 +799,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     match payload.lower():
                         case '0' | '00' | '0000' | 'off':
                             self._send_thermostat_command('operating_mode', 0b0000)
-                        case '2' | '02' | '0002' | 'heat':
+                        case '2' | '02' | '0002' | '0010' | 'heat':
                             self._send_thermostat_command('operating_mode', 0b0010)
-                        case '3' | '03' | '0003' | 'auto':
+                        case '3' | '03' | '0003' | '0011' | 'auto':
                             self._send_thermostat_command('operating_mode', 0b0011)
                         case _:
                             self.Logger.warning(

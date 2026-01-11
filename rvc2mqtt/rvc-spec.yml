@@ -4557,9 +4557,9 @@ API_VERSION: 0
     - byte: 2
       bit: 4 - 5
       name: charge detected
-      type: bit2
+      type: bit
       values:
-        00: no change detected
+        00: no charge detected
         01: charge detected
       comment: state of Charge source. Usually valid only when Power off.
     - byte: 2
@@ -4821,6 +4821,23 @@ Z0005:
   comment: APS-500. likely J1939 message according to wakespeed
   name: UNKNOWN-0FED5
 
+0FC08:
+  comment: Broadcast by APS-500 v2.6.1
+  name: UNKNOWN-0FC08
+
+0F004:
+  # Example messages
+  #FFFFFFB02CFFFFFF
+  #FFFFFFE82BFFFFFF
+  #FFFFFF901FFFFFFF
+  comment: Broadcast by APS-500 v2.6.1
+  name: UNKNOWN-0F004
+  parameters:
+    - byte: 4-5
+      name: output current ?
+      type: uint16
+      unit: a
+
 0BFC1:
   name: G12_TANK_LEVEL_SENSOR
   comment: Broadcast by G12 in Ethos 20DL
@@ -4882,7 +4899,7 @@ Z0005:
   comment: usually broadcast as part of 0ECFF and 0EBFF
 
 0EEFF:
-  comment: Broadcast by APS-500 in Ethol 20DL
+  comment: Broadcast by APS-500 in Ethos 20DL
   name: UNKNOWN-0EEFF
 
 0FF01:
@@ -4891,7 +4908,7 @@ Z0005:
 
 1AAFD:
   name: DC_SOURCE_STATUS_G12
-  comment: Broadcast in Ethos 20DL by G12 for chassis battery
+  comment: Broadcast in Ethos 20DL by G12 for chassis and coach batteries
   alias: 1FFFD
 
 1FACE:
@@ -4903,12 +4920,72 @@ Z0005:
   name: UNKNOWN-1FACF
 
 16F84:
-  comment: Broadcast in Ethos 20DL
+  comment: G12 Outputs and current
   name: UNKNOWN-16F84
+  parameters:
+    - byte: 0
+      name: unknown
+      type: uint8
+    - byte: 1
+      name: output pin
+      type: uint8
+    - byte: 2
+      name: unknown
+      type: uint8
+    - byte: 3
+      name: unknown
+      type: uint8
+    - byte: 4-5
+      name: output current
+      type: uint16
+      unit: a
+    - byte: 6
+      name: unknown
+      type: uint8
+    - byte: 7
+      name: unknown
+      type: uint8
+
 
 1FBDA:
-  comment: Broadcast in Ethos 20DL
-  name: UNKNOWN-1FBDA
+  comment: G12 Inputs (J5?)
+  name: G12_INPUTS
+  parameters:
+    - byte: 0
+      comment: pin number
+      bit: 0-3
+      name: input pin
+      type: uint4
+    - byte: 0
+      comment: seems to always be A
+      bit: 4-7
+      name: input high bits
+      type: uint4
+    - byte: 1
+      name: status
+      type: uint8
+      comment: momentary switch status
+      values:
+        00: open
+        01: closed
+    - byte: 2
+      name: unknown 2
+      type: uint8
+    - byte: 3
+      name: unknown 3
+      type: uint8
+    - byte: 4
+      name: unknown 4
+      type: uint8
+    - byte: 5
+      name: unknown 5
+      type: uint8
+    - byte: 6
+      name: unknown 6
+      type: uint8
+    - byte: 7
+      name: unknown 7
+      type: uint8
 
 16C84:
   comment: Broadcast in Ethos 20DL

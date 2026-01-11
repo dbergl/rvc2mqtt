@@ -43,12 +43,13 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         self.Logger.debug(f"Must match: {str(self.rvc_match_status)}")
 
         self.name = data['instance_name']
-        self.device = {"manufacturer": "RV-C",
-                       "via_device": self.mqtt_support.get_bridge_ha_name(),
-                       "identifiers": self.unique_device_id,
-                       "name": self.name,
-                       "model": "RV-C DC System Sensor from DC_SOURCE_STATUS_1"
+
+        self.device = {'mf': 'RV-C',
+                       'ids': self.unique_device_id,
+                       'mdl': 'RV-C DC System Sensor from DC_SOURCE_STATUS_1',
+                       'name': self.name
                        }
+
         self._changed = True  # property change tracking
 
         # class specific values that change
@@ -133,24 +134,34 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         """
 
         # produce the HA MQTT discovery config json
-        config = {"name": self.name,
-                  "dc_voltage_state_topic": self.status_dc_voltage_topic,
-                  "dc_voltage_state_template": '{{value}}',
+        origin = {'name': self.mqtt_support.get_bridge_ha_name()}
 
-                  "dc_current_state_topic": self.status_dc_current_topic,
-                  "dc_current_state_template": '{{value}}',
+        voltscmp = {'p': 'sensor', 'device_class': 'voltage',
+                    'unit_of_measurement': 'V', 'suggested_display_precision':'2',
+                    'value_template': '{{value}}',
+                    'state_topic': self.status_dc_voltage_topic,
+                    'unique_id': self.unique_device_id + 'v',}
+        currentcmp = {'p': 'sensor', 'device_class': 'current',
+                      'unit_of_measurement': 'A', 'suggested_display_precision':'2',
+                      'value_template': '{{value}}',
+                      'state_topic': self.status_dc_current_topic,
+                      'unique_id': self.unique_device_id + 'c',}
 
-                  "qos": 1, "retain": False,
-                  "unit_of_meas": 'V',
-                  "unique_id": self.unique_device_id,
-                  "device": self.device}
+        components = {'volts': voltscmp, 'current': currentcmp}
+
+        config = {'dev': self.device,
+                  'o': origin,
+                  'cmps': components,
+                  'qos': 1,
+                  }
+
 
         config.update(self.get_availability_discovery_info_for_ha())
 
         config_json = json.dumps(config)
 
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
-            self.unique_device_id, "sensor")
+            self.unique_device_id, "device")
 
         # publish info to mqtt
         self.mqtt_support.client.publish(

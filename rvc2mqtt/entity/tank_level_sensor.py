@@ -46,6 +46,13 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
         self.instance = data['instance']
         self.instance_name = self._get_instance_name(self.instance)
 
+        # produce the HA MQTT discovery device config json
+        self.device = {"mf": "RV-C",
+                       "ids": self.unique_device_id,
+                       "name": self.name,
+                       "mdl": "RV-C Tank from TANK_STATUS",
+                       }
+
         self.device = {"manufacturer": "RV-C",
                        "via_device": self.mqtt_support.get_bridge_ha_name(),
                        "identifiers": self.unique_device_id,
@@ -109,20 +116,29 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
     def _send_ha_mqtt_discovery_info(self):
 
         # produce the HA MQTT discovery config json
-        config = {"name": self.name,
-                  "state_topic": self.status_topic,
-                  "qos": 1, "retain": False,
-                  "unit_of_meas": 'percentage',
-                  "state_class": "measurement",
-                  "value_template": '{{value}}',
-                  "unique_id": self.unique_device_id,
-                  "device": self.device}
+        origin = {'name': self.mqtt_support.get_bridge_ha_name()}
+
+        level = {'p': 'sensor',
+                       'name': 'firefly level',
+                       'value_template': '{{value}}',
+                       'unit_of_measurement': '%',
+                       'state_topic': self.status_topic,
+                       'unique_id': self.unique_device_id + 'pct'}
+
+        components = {'lvlpct': level} 
+
+        config = {'dev': self.device,
+                  'o': origin,
+                  'cmps': components,
+                  'qos': 1,
+                  }
+
         config.update(self.get_availability_discovery_info_for_ha())
 
         config_json = json.dumps(config)
 
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
-            self.unique_device_id, "sensor")
+            self.unique_device_id, "device")
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
