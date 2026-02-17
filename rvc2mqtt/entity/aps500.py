@@ -33,7 +33,7 @@ from paho.mqtt.packettypes import PacketTypes
 class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
     FACTORY_MATCH_ATTRIBUTES = {"type": "dc_system", "name": "APS-500"}
 
-    """ Provide basic DC system information as published by the APS-500 
+    """ Provide basic DC system information as published by the APS-500
         using DC_SOURCE_STATUS_1 - 5, CHARGER_STATUS, CHARGER_STATUS_2,
         and CHARGER_EQUALIZATION_STATUS
     """
@@ -100,8 +100,8 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         self.rvc_match_terminal = {'name': 'TERMINAL', 'source_id': str(data['source_id'])}
 
-        # According to Wakespeed these are J1939 messages. We will just do
-        # noting with them, so the don't show as decoder pending
+        # According to Wakespeed these may be J1939 messages. We will just do
+        # nothing with them, so the don't show as decoder pending
         self.rvc_match_0ef80 = {'name': 'UNKNOWN-0EF80'} # ignore id since it is 70 on this one message from the APS
         self.rvc_match_0ef70 = {'name': 'UNKNOWN-0EF70', 'source_id': str(data['source_id'])}
         self.rvc_match_0fed5 = {'name': 'UNKNOWN-0FED5', 'source_id': str(data['source_id'])}
@@ -154,9 +154,8 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             self.reset_command_topic              = str(f"{topic_base}/reset")
             self.reboot_command_topic             = str(f"{topic_base}/reboot")
             self.request_last_fault_command_topic = str(f"{topic_base}/request_last_fault")
-            self.lowtempoverride_command_topic    = str(f"{topic_base}/danger/lowtempoverride")
-            self.ignorefaults_command_topic       = str(f"{topic_base}/danger/ignorefaults")
-            self.capwatts_command_topic           = str(f"{topic_base}/danger/capwatts")
+            self.terminal_command_topic           = str(f"{topic_base}/terminal")
+
         else:
             self.command_topic = mqtt_support.make_device_topic_string(
                 self.id, None, False)
@@ -164,8 +163,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         self.mqtt_support.register(self.reset_command_topic, self.process_mqtt_msg)
         self.mqtt_support.register(self.reboot_command_topic, self.process_mqtt_msg)
         self.mqtt_support.register(self.request_last_fault_command_topic, self.process_mqtt_msg)
-        self.mqtt_support.register(self.ignorefaults_command_topic, self.process_mqtt_msg)
-        self.mqtt_support.register(self.capwatts_command_topic, self.process_mqtt_msg)
+        self.mqtt_support.register(self.terminal_command_topic, self.process_mqtt_msg)
 
         if 'status_topic' in data:
             topic_base= str(data['status_topic'])
@@ -214,16 +212,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             self.max_charging_current_topic      = str(f"{topic_base}/max_charging_current")
             self.max_charging_current_pct_topic  = str(f"{topic_base}/max_charging_current_pct")
 
-            self.override_status_topic           = str(f"{topic_base}/danger/overridestatus")
-            self.ignorefaults_status_topic       = str(f"{topic_base}/danger/ignorefaults")
-            self.capwatts_status_topic           = str(f"{topic_base}/danger/capwatts")
             self.request_last_fault_status_topic = str(f"{topic_base}/fault/rlf_message")
             self.terminal_status_topic           = str(f"{topic_base}/danger/terminal_message")
 
 
         else:
-            self.status_dc_voltage_topic = mqtt_support.make_device_topic_string(self.id, "dc_voltage", True)
-            self.status_dc_current_topic = mqtt_support.make_device_topic_string(self.id, "dc_current", True)
+            self.status_dc_voltage_topic = mqtt_support.make_device_topic_string(self.id, "missing_status_topic", True)
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
@@ -266,14 +260,11 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         if self._is_entry_match(self.rvc_match_source_status_5, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            #For some reason the APS does not send this in standard RV-C format
-            # and instead sends this as 2 bytes (bytes 2&3) in little-endian byte order
-            hp_dc_voltage = struct.unpack_from('<xxHxxx', bytearray.fromhex(new_message["data"]))
 
-            if self._hp_dc_voltage != hp_dc_voltage:
-                self._hp_dc_voltage = hp_dc_voltage
+            if self._hp_dc_voltage != new_message["hp_dc_voltage"]:
+                self._hp_dc_voltage = new_message["hp_dc_voltage"]
                 self.mqtt_support.client.publish(
-                    self.hp_dc_voltage_topic, f"{float(self._hp_dc_voltage[0]) * 0.001:.3f}",
+                    self.hp_dc_voltage_topic, f"{self._hp_dc_voltage:.3f}",
                     retain=True)
             return True
 
@@ -406,15 +397,16 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         if self._is_entry_match(self.rvc_match_terminal, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-   
-            # Set CorrelationData and ResponseTopic
+
             messageproperties = Properties(PacketTypes.PUBLISH)
-            if hasattr(self._terminal_message_call["properties"],'CorrelationData'):
-                messageproperties.CorrelationData = self._terminal_message_call["properties"].CorrelationData
-            messageproperties.ResponseTopic = self._terminal_message_call.get("responsetopic")
+            # Set CorrelationData
+            #if self._terminal_message_call.get("properties"):
+            #    if hasattr(self._terminal_message_call["properties"],'CorrelationData'):
+            #        messageproperties.CorrelationData = self._terminal_message_call["properties"].CorrelationData
 
             response_timestamp = time.time()
-            if response_timestamp > self._terminal_message_call.get("timestamp") and response_timestamp - self._terminal_message_call.get("timestamp") < 10.0:
+            self.Logger.warning(f"response_timestamp: {response_timestamp}, terminal_call: {self._terminal_message_call.get("timestamp")}")
+            if response_timestamp > self._terminal_message_call.get("timestamp",time.time()) and response_timestamp - self._terminal_message_call.get("timestamp") < 10.0:
                 self._terminalmessage =  self._terminalmessage + new_message["data"]
                 messages = bytearray.fromhex(self._terminalmessage).decode()
                 publish_msg = False
@@ -428,13 +420,14 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                     publish_msg = True
 
                 if publish_msg:
-                    # Pubish full TERMINAL response
-                    self.mqtt_support.client.publish(topic=self.terminal_status_topic,
-                        payload=messages, retain=False, properties=messageproperties)
-                    # Publish payload to responsetopic if it exists
+                    # Publish TERMINAL response to responsetopic if it exists
                     if self._terminal_message_call.get("responsetopic") is not None:
                         self.mqtt_support.client.publish(topic=self._terminal_message_call.get("responsetopic"),
-                            payload=self._terminal_message_call.get("payload"), retain=True, properties=messageproperties)
+                            payload=messages, retain=False, properties=messageproperties)
+                    else:
+                        # Pubish TERMINAL response to terminal_status_topic
+                        self.mqtt_support.client.publish(topic=self.terminal_status_topic,
+                            payload=messages, retain=False, properties=messageproperties)
 
                     self._terminal_message_call = {}
                     self._terminalmessage = ""
@@ -455,13 +448,46 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         return False
 
 
-    def send_terminal_message(self, message: list):
+    def format_terminal_message(self, data: str) -> list[bytearray]:
         """
-        Expects a list of bytearray
+        Splits a string into 8 byte byte arrays.
+        Appends CR/LF which is expected by APS-500
+        Pads bytes with 0xFF if < 8 bytes
+        to match RV-C spec for TERMINAL messages
         """
+
+        try:
+            # Append CRLF and encode to ASCII
+            data += '\x0d\x0a'
+            byte_data = data.encode('ascii')
+        except UnicodeEncodeError as e:
+            raise ValueError("Input string contains non-ASCII characters.") from e
+
+        # Initialize the result list
+        chunks = []
+
+        # Process in chunks of 8 bytes
+        for i in range(0, len(byte_data), 8):
+            chunk = byte_data[i:i+8]
+            if len(chunk) < 8:
+                # Pad with 0xFF if less than 8 bytes
+                chunk += b'\xFF' * (8 - len(chunk))
+            chunks.append(bytearray(chunk))
+
+        return chunks
+
+
+    def send_terminal_message(self, message: list[bytearray]):
+        """
+        Sends message(s) to the APS-500 using the TERMINAL DGN
+        """
+
+        self._terminal_message_call["timestamp"] = time.time()
+
         for msg_bytes in message:
             self.send_queue.put({"dgn": "17E80", "data": msg_bytes})
             time.sleep(.10)
+
 
     def reset_aps(self, properties = None):
         """
@@ -481,19 +507,19 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         self.send_queue.put({"dgn": "17F80", "data": msg_bytes})
 
+
     def request_last_fault(self, properties = None):
         """
-        Sends $RLF:@ to TERMINAL dgn = 17E80 to the APS-500
-        $RLF:@ = 24 52 4C 46 3A 40
+        Sends $RLF: to TERMINAL dgn = 17E80 to the APS-500
+        $RLF: = 24 52 4C 46 3A
         """
         self.Logger.debug("Sending Request Last Fault ASCII message")
 
-        message = [bytearray(b'$RLF:@\xff\xff')]
+        message = self.format_terminal_message('$RLF:')
 
         self._terminal_message_call["payload"] = "requested"
         self._terminal_message_call["responsetopic"] = self.request_last_fault_status_topic
         self._terminal_message_call["properties"] = properties
-        self._terminal_message_call["timestamp"] = time.time()
 
         self.send_terminal_message(message)
 
@@ -501,82 +527,16 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
     def reboot_aps(self, properties = None):
         """
         Sends $RBT: to TERMINAL dgn = 17E80 to the APS-500
-        $RBT:@ = 24 52 42 54 3A 40
+        $RBT: = 24 52 42 54 3A
         """
         self.Logger.debug("Sending reboot ASCII message")
 
-        message = [bytearray(b'$RBT:@\xff\xff')]
+        message = self.format_terminal_message('$RBT:')
 
         self._terminal_message_call["payload"] = 0
         self._terminal_message_call["responsetopic"] = None
         if properties is not None:
             self._terminal_message_call["properties"] = properties
-        self._terminal_message_call["timestamp"] = time.time()
-
-        self.send_terminal_message(message)
-
-
-    def cap_max_watts(self, cap: bool, properties = None):
-        """
-        Sends:
-            cap == True:  $SCA: 0,100,0.31,0.23,0.00,0,0,1000,10000,0,0,30,8,6\x0d\x0a
-            cap == False: $SCA: 0,100,0.31,0.23,0.00,0,0,0,10000,0,0,30,8,6\x0d\x0a
-        """
-        message = []
-        message.append(bytearray(b'$SCA: 0,'))
-        message.append(bytearray(b'100,0.31'))
-        message.append(bytearray(b',0.23,0.'))
-
-        if cap:
-            self.Logger.debug("Sending $SCA Override ASCII message")
-
-            message.append(bytearray(b'00,0,0,6'))
-            message.append(bytearray(b'45,10000'))
-            message.append(bytearray(b',0,0,30,'))
-            message.append(bytearray(b'8,6\x0d\x0a\xff\xff\xff'))
-        else:
-            self.Logger.debug("Sending Default Jayco $SCA ASCII message")
-
-            message.append(bytearray(b'00,0,0,0'))
-            message.append(bytearray(b',10000,0'))
-            message.append(bytearray(b',0,30,8,'))
-            message.append(bytearray(b'6\x0d\x0a\xff\xff\xff\xff\xff'))
-
-        self._terminal_message_call["payload"] = 1 if cap else 0
-        self._terminal_message_call["responsetopic"] = self.capwatts_status_topic
-        if properties is not None:
-            self._terminal_message_call["properties"] = properties
-        self._terminal_message_call["timestamp"] = time.time()
-
-        self.send_terminal_message(message)
-
-
-    def ignore_bms_faults(self, override: bool, properties = None):
-        """
-        Sends:
-            True : $CCN: 0,1,120, 2,1,1,0,201,0,0,13.6,0\x0d\x0a  <-- Sets to constant voltage charging on fault instead of disabled
-            False: $CCN: 0,1,120, 2,1,1,0,201,0,0,0.0,0\x0d\x0a  <-- Sets to constant voltage charging on fault instead of disabled
-        """
-        self.Logger.debug("Sending $CCN Override ASCII message")
-
-        message = []
-        message.append(bytearray(b'$CCN: 0,'))
-        message.append(bytearray(b'1,120, 2'))
-        message.append(bytearray(b',1,1,0,2'))
-
-        if override:
-            message.append(bytearray(b'01,0,0,1'))
-            message.append(bytearray(b'3.60,0\x0d\x0a'))
-
-        else:
-            message.append(bytearray(b'01,0,0,0'))
-            message.append(bytearray(b'.0,0\x0d\x0a\xff\xff'))
-
-        self._terminal_message_call["payload"] = 1 if override else 0
-        self._terminal_message_call["responsetopic"] = self.ignorefaults_status_topic
-        if properties is not None:
-            self._terminal_message_call["properties"] = properties
-        self._terminal_message_call["timestamp"] = time.time()
 
         self.send_terminal_message(message)
 
@@ -600,7 +560,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 try:
                     match payload:
                         case '1':
-                            self.reboot_aps(properties) 
+                            self.reboot_aps(properties)
                         case _:
                             self.Logger.warning(
                             f"Invalid payload {payload} for topic {topic}")
@@ -618,45 +578,30 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 except Exception as e:
                     self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
 
-            case self.ignorefaults_command_topic:
-                print(f"{properties}")
+            case self.terminal_command_topic:
                 try:
                     match payload:
-                        case '0':
-                            self.ignore_bms_faults(False, properties)
-                        case '1':
-                            self.ignore_bms_faults(True, properties)
+                        case s if s.startswith('$'):
+                            self.Logger.debug("Sending ASCII message")
+                            self.Logger.warning(f"payload: {payload}")
+
+                            message = self.format_terminal_message(payload)
+
+                            self._terminal_message_call["payload"] = payload
+                            if properties is not None:
+                                self._terminal_message_call["properties"] = properties
+                                self.Logger.warning(f"{properties}")
+                                if hasattr(properties, "ResponseTopic"):
+                                    self._terminal_message_call["responsetopic"] = properties.ResponseTopic
+
+                            self.send_terminal_message(message)
+
                         case _:
                             self.Logger.warning(
                             f"Invalid payload {payload} for topic {topic}")
                 except Exception as e:
                     self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
 
-            case self.capwatts_command_topic:
-                try:
-                    match payload:
-                        case '0':
-                            self.cap_max_watts(False, properties)
-                        case '1':
-                            self.cap_max_watts(True, properties)
-                        case _:
-                            self.Logger.warning(
-                            f"Invalid payload {payload} for topic {topic}")
-                except Exception as e:
-                    self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
-
-    def refresh(self):
-        """
-        Send DGN request for each message that is only sent on demand
-        """
-        # request dgn report - this should trigger the APS-500 to report
-        # dgn = 1FFC6
-        self.Logger.debug("Sending Request for DGN")
-        msg_bytes = bytearray(8)
-        struct.pack_into("<BBBBBBBB", msg_bytes, 0, 0xC6,
-            0xFF, 1, 0xFF, 0, 0, 0, 0)
-
-        self.send_queue.put({"dgn": "0EA80", "data": msg_bytes})
 
     def initialize(self):
         """ Optional function
@@ -666,12 +611,6 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         This can be a good place to request data
         """
-
-        self.mqtt_support.client.publish(
-            self.ignorefaults_status_topic, "unknown", retain=True)
-
-        self.mqtt_support.client.publish(
-            self.capwatts_status_topic, "unknown", retain=True)
 
         self.mqtt_support.client.publish(
             self.request_last_fault_status_topic, "unknown", retain=True)

@@ -87,14 +87,16 @@ class TemperatureSensor_THERMOSTAT_AMBIENT_STATUS(EntityPluginBaseClass):
         """
 
         # produce the HA MQTT discovery config json
-        config = {"name": self.name, "state_topic": self.status_topic,
-                  "qos": 1, "retain": False,
-                  "unit_of_meas": '°C',
-                  "device_class": "temperature",
-                  "state_class": "measurement",
-                  "value_template": '{{value}}',
-                  "unique_id": self.unique_device_id,
-                  "device": self.device}
+        config = {'name': self.name, 'state_topic': self.status_topic,
+                  'qos': 1, 'retain': False,
+                  'unit_of_measurement': '°C',
+                  'suggested_display_precision': '0',
+                  'device_class': 'temperature',
+                  'state_class': 'measurement',
+                  'value_template': '{{value_json.c }}',
+                  'unique_id': self.unique_device_id,
+                  'device': self.device}
+
         config.update(self.get_availability_discovery_info_for_ha())
 
         config_json = json.dumps(config)

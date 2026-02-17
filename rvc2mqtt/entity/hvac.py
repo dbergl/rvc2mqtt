@@ -471,11 +471,6 @@ class HvacClass(EntityPluginBaseClass):
                   "temperature_command_topic": self.command_set_point_temp_topic,
                   "temperature_command_template": '{{value}}',
 
-                  "temperaturef_state_topic": self.status_set_point_tempf_topic,
-                  "temperaturef_state_template": '{{value}}',
-                  "temperaturef_command_topic": self.command_set_point_tempf_topic,
-                  "temperaturef_command_template": '{{value}}',
-
                   "qos": 1, "retain": False,
                   "unique_id": self.unique_device_id,
                   "device": self.device}

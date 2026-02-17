@@ -73,11 +73,10 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         self.state = "unknown"
         self.messagestate = "unknown"
 
-        self.device = {"manufacturer": "RV-C",
-                       "via_device": self.mqtt_support.get_bridge_ha_name(),
-                       "identifiers": self.unique_device_id,
-                       "name": self.name,
-                       "model": "RV-C Dimmer from DC_DIMMER_STATUS_3"
+        self.device = {'mf': 'RV-C',
+                       'ids': self.unique_device_id,
+                       'mdl': 'RV-C Dimmer from DC_DIMMER_STATUS_3',
+                       'name': self.name
                        }
 
     def process_rvc_msg(self, new_message: dict) -> bool:
@@ -170,21 +169,26 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         """
 
         # produce the HA MQTT discovery config json
-        config = {"name": self.name,
-                  "state_topic": self.status_topic,
-                  "command_topic": self.command_topic,
-                  "qos": 1, "retain": False,
-                  "payload_on": DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_ON,
-                  "payload_off": DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_OFF,
-                  "unique_id": self.unique_device_id,
-                  "device": self.device}
+
+        origin = {'name': self.mqtt_support.get_bridge_ha_name()}
+
+        config = {'o:': origin,
+                  'state_topic': self.status_topic,
+                  'command_topic': self.command_topic,
+                  'name': None,
+                  'qos': 1, 'retain': False,
+                  'payload_on': DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_ON,
+                  'payload_off': DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_OFF,
+                  'unique_id': self.unique_device_id,
+                  'dev': self.device}
 
         config.update(self.get_availability_discovery_info_for_ha())
 
         config_json = json.dumps(config)
 
+
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
-            self.unique_device_id, "dimmer_switch")
+            self.unique_device_id, "light")
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
