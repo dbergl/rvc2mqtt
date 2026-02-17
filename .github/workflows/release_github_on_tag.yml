@@ -2,8 +2,8 @@ name: CI to GHCR
 
 on:
   push:
-    branches:
-      - "*"
+    branches-ignore:
+      - main
     tags:
       - "v*.*.*"
   pull_request:
@@ -39,9 +39,13 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # set latest tag for default branch
+            # Branch event
             type=ref,event=branch
+            # Tag event
+            type=ref,event=tag
+            # Always create sha image tag
             type=sha
+            # set latest tag for default branch
             type=raw,value=latest,enable={{is_default_branch}}
 
       -
@@ -62,7 +66,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-to: type=inline
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       -
         name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}
