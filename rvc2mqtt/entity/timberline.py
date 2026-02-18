@@ -462,7 +462,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
         self.Logger.debug("Sending TIMBERLAND_PROPRIETARY message 0x89")
         msg_bytes = bytearray(8)
-        struct.pack_into("<HBBBBBB", msg_bytes, 0, message_type,
+        struct.pack_into("<BHBBBBB", msg_bytes, 0, message_type,
             system_limit, water_limit, 0xFF, 0xFF, 0xFF, 0xFF)
 
         self.send_queue.put({"dgn": "1EF65", "data": msg_bytes})
