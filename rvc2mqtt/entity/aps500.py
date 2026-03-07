@@ -1,5 +1,5 @@
 """
-DC system sensor from DC_SOURCE_STATUS_G12
+DC system sensor from DC_SOURCE_STATUS_1
 
 
 Copyright 2025 Dan Berglund
@@ -213,6 +213,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             self.max_charging_current_pct_topic  = str(f"{topic_base}/max_charging_current_pct")
 
             self.request_last_fault_status_topic = str(f"{topic_base}/fault/rlf_message")
+            self.log_status_topic                = str(f"{topic_base}/log")
             self.terminal_status_topic           = str(f"{topic_base}/danger/terminal_message")
 
 
@@ -400,39 +401,45 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
             messageproperties = Properties(PacketTypes.PUBLISH)
             # Set CorrelationData
-            #if self._terminal_message_call.get("properties"):
-            #    if hasattr(self._terminal_message_call["properties"],'CorrelationData'):
-            #        messageproperties.CorrelationData = self._terminal_message_call["properties"].CorrelationData
+            if self._terminal_message_call.get("properties"):
+                if hasattr(self._terminal_message_call["properties"],'CorrelationData'):
+                    messageproperties.CorrelationData = self._terminal_message_call["properties"].CorrelationData
 
-            response_timestamp = time.time()
-            self.Logger.warning(f"response_timestamp: {response_timestamp}, terminal_call: {self._terminal_message_call.get("timestamp")}")
-            if response_timestamp > self._terminal_message_call.get("timestamp",time.time()) and response_timestamp - self._terminal_message_call.get("timestamp") < 10.0:
-                self._terminalmessage =  self._terminalmessage + new_message["data"]
-                messages = bytearray.fromhex(self._terminalmessage).decode()
-                publish_msg = False
+            self._terminalmessage =  self._terminalmessage + new_message["data"]
+            messages = bytearray.fromhex(self._terminalmessage).decode()
+            self.Logger.debug(f"terminal_call: {self._terminal_message_call.get("timestamp")}, msg: {messages}")
+            publish_msg = False
 
-                if "AOK;" in messages:
+            if "AOK;" in messages:
+                self.Logger.debug(f"Terminal message: {bytearray.fromhex(self._terminalmessage).decode()}")
+                publish_msg = True
+
+            elif "NAK;" in messages:
+                self.Logger.debug(f"Terminal message: {bytearray.fromhex(self._terminalmessage).decode()}")
+                publish_msg = True
+
+            elif "RST;" in messages:
+                self.Logger.debug(f"Terminal message: {bytearray.fromhex(self._terminalmessage).decode()}")
+                publish_msg = True
+
+            elif self._terminal_message_call.get("tail") == "true":
+                if "\r\n" in  messages:
                     self.Logger.debug(f"Terminal message: {bytearray.fromhex(self._terminalmessage).decode()}")
                     publish_msg = True
 
-                elif "RST;" in messages:
-                    self.Logger.debug(f"Terminal message: {bytearray.fromhex(self._terminalmessage).decode()}")
-                    publish_msg = True
+            if publish_msg:
+                # Publish TERMINAL response to responsetopic if it exists
+                if self._terminal_message_call.get("responsetopic") is not None:
+                    self.mqtt_support.client.publish(topic=self._terminal_message_call.get("responsetopic"),
+                        payload=messages, retain=False, properties=messageproperties)
+                else:
+                    # Pubish TERMINAL response to terminal_status_topic
+                    self.mqtt_support.client.publish(topic=self.terminal_status_topic,
+                        payload=messages, retain=False, properties=messageproperties)
 
-                if publish_msg:
-                    # Publish TERMINAL response to responsetopic if it exists
-                    if self._terminal_message_call.get("responsetopic") is not None:
-                        self.mqtt_support.client.publish(topic=self._terminal_message_call.get("responsetopic"),
-                            payload=messages, retain=False, properties=messageproperties)
-                    else:
-                        # Pubish TERMINAL response to terminal_status_topic
-                        self.mqtt_support.client.publish(topic=self.terminal_status_topic,
-                            payload=messages, retain=False, properties=messageproperties)
+                self._terminal_message_call = {}
+                self._terminalmessage = ""
 
-                    self._terminal_message_call = {}
-                    self._terminalmessage = ""
-
-                return True
             return True
 
         if self._is_entry_match(self.rvc_match_0ef80, new_message):
@@ -450,10 +457,10 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
     def format_terminal_message(self, data: str) -> list[bytearray]:
         """
-        Splits a string into 8 byte byte arrays.
-        Appends CR/LF which is expected by APS-500
-        Pads bytes with 0xFF if < 8 bytes
-        to match RV-C spec for TERMINAL messages
+        Splits a string into 8 byte byte arrays and appends CR/LF
+        which is expected by APS-500.
+        The RV-C spec calls for padding the message 0xFF if < 8 bytes
+        but this causes weird behavior in the APS-500 so don't do it
         """
 
         try:
@@ -469,9 +476,9 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         # Process in chunks of 8 bytes
         for i in range(0, len(byte_data), 8):
             chunk = byte_data[i:i+8]
-            if len(chunk) < 8:
-                # Pad with 0xFF if less than 8 bytes
-                chunk += b'\xFF' * (8 - len(chunk))
+            #if len(chunk) < 8:
+            #    # Pad with 0xFF if less than 8 bytes
+            #    chunk += b'\xFF' * (8 - len(chunk))
             chunks.append(bytearray(chunk))
 
         return chunks
@@ -499,6 +506,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         struct.pack_into("<BBBBBBBB", msg_bytes, 0, 0x05,
             0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
 
+        self._terminal_message_call["tail"] = "false"
         self._terminal_message_call["payload"] = ""
         self._terminal_message_call["responsetopic"] = None
         if properties is not None:
@@ -519,7 +527,30 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         self._terminal_message_call["payload"] = "requested"
         self._terminal_message_call["responsetopic"] = self.request_last_fault_status_topic
-        self._terminal_message_call["properties"] = properties
+        if properties is not None:
+            self._terminal_message_call["properties"] = properties
+
+        self.send_terminal_message(message)
+
+    def read_log(self, properties = None):
+        """
+        Sends an empty message to TERMINAL dgn = 17E80 to the APS-500
+        This makes the APS-500 print out the console to TERMINAL
+        Messages line are terminated with 0D0A (CR LF) but no AOK; message is sent
+        You must send another message or reboot the APS-500 to stop the messages
+        """
+        self.Logger.debug("Sending Empty ASCII message")
+
+        message = self.format_terminal_message('')
+
+        # Special flag to indicate we should send to MQTT when message ends with 0x0D 0x0A
+        # rather than AOK; or NAK; or RBT;
+        self._terminal_message_call["tail"] = "true"
+
+        self._terminal_message_call["payload"] = "requested"
+        self._terminal_message_call["responsetopic"] = self.log_status_topic
+        if properties is not None:
+            self._terminal_message_call["properties"] = properties
 
         self.send_terminal_message(message)
 
@@ -544,6 +575,10 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
     def process_mqtt_msg(self, topic, payload, properties = None):
         self.Logger.info(
             f"MQTT Msg Received on topic {topic} with payload {payload}")
+
+        # Clear the tail flag since we have recieved a new request
+        self._terminal_message_call["tail"] = "false"
+
         match topic:
             case self.reset_command_topic:
                 try:
@@ -560,7 +595,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 try:
                     match payload:
                         case '1':
-                            self.reboot_aps(properties)
+                            self.reboot_aps(properties) if properties is not None else self.reboot_aps()
                         case _:
                             self.Logger.warning(
                             f"Invalid payload {payload} for topic {topic}")
@@ -583,18 +618,21 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                     match payload:
                         case s if s.startswith('$'):
                             self.Logger.debug("Sending ASCII message")
-                            self.Logger.warning(f"payload: {payload}")
+                            self.Logger.debug(f"payload: {payload}")
 
                             message = self.format_terminal_message(payload)
 
                             self._terminal_message_call["payload"] = payload
                             if properties is not None:
                                 self._terminal_message_call["properties"] = properties
-                                self.Logger.warning(f"{properties}")
+                                self.Logger.debug(f"{properties}")
                                 if hasattr(properties, "ResponseTopic"):
                                     self._terminal_message_call["responsetopic"] = properties.ResponseTopic
 
                             self.send_terminal_message(message)
+                        case s if len(s) == 0:
+                            self.Logger.debug("Sending empty payload")
+                            self.read_log(properties) if properties is not None else self.read_log()
 
                         case _:
                             self.Logger.warning(

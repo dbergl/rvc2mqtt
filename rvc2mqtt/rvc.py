@@ -107,7 +107,10 @@ class RVC_Decoder(object):
             # Get bytes based on byte param and convert into integer
             try:
                 mybytes = self._get_bytes(data, param["byte"])
-                myvalue = int(mybytes, 16)  # Get the decimal value of the hex bytes
+                if len(mybytes) > 0:
+                  myvalue = int(mybytes, 16)  # Get the decimal value of the hex bytes
+                else:
+                  myvalue = int(mybytes or b'0', 16)
             except:
                 # If you get here, it's because the params had more bytes than the data packet.
                 # Thus, skip the rest of the processing

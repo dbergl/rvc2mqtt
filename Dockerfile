@@ -1,4 +1,4 @@
-FROM python:3.12-slim-bookworm AS builder
+FROM python:3.14-slim-bookworm AS builder
 
 RUN  apt-get update && apt-get install build-essential -y
 
@@ -16,7 +16,7 @@ COPY setup.py /app
 COPY rvc2mqtt /app/rvc2mqtt
 RUN pip install --user --no-cache-dir .
 
-FROM python:3.12-slim-bookworm
+FROM python:3.14-slim-bookworm
 
 RUN adduser worker
 RUN install -o worker -g worker -d /config /floorplan /logs

@@ -477,7 +477,7 @@ class HvacClass(EntityPluginBaseClass):
 
         if self.temperature_entity_link is not None:
             config["current_temperature_topic"] = self.temperature_entity_link.status_topic
-            config["current_temperature_template"] = '{{value}}'
+            config["current_temperature_template"] = "{{value_json['c']}}"
 
         config.update(self.get_availability_discovery_info_for_ha())
 
