@@ -158,6 +158,23 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
             self.rvc_group, 2), 250, 5, 0xFF, 0, 0xFF, 0xFF)
         self.send_queue.put({"dgn": "1FEDB", "data": msg_bytes})
 
+    def publish_ha_discovery_config(self):
+        origin = {'name': self.mqtt_support.get_bridge_ha_name()}
+        config = {'o': origin,
+                  'state_topic': self.status_topic,
+                  'command_topic': self.command_topic,
+                  'name': None,
+                  'qos': 1, 'retain': False,
+                  'payload_on': DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_ON,
+                  'payload_off': DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_OFF,
+                  'unique_id': self.unique_device_id,
+                  'dev': self.device}
+        config.update(self.get_availability_discovery_info_for_ha())
+        config_json = json.dumps(config)
+        ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
+            self.unique_device_id, "light")
+        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
+
     def initialize(self):
         """ Optional function
         Will get called once when the object is loaded.
@@ -167,34 +184,8 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         This can be a good place to request data
 
         """
-
-        # produce the HA MQTT discovery config json
-
-        origin = {'name': self.mqtt_support.get_bridge_ha_name()}
-
-        config = {'o:': origin,
-                  'state_topic': self.status_topic,
-                  'command_topic': self.command_topic,
-                  'name': None,
-                  'qos': 1, 'retain': False,
-                  'payload_on': DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_ON,
-                  'payload_off': DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_OFF,
-                  'unique_id': self.unique_device_id,
-                  'dev': self.device}
-
-        config.update(self.get_availability_discovery_info_for_ha())
-
-        config_json = json.dumps(config)
-
-
-        ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
-            self.unique_device_id, "light")
-
-        # publish info to mqtt
-        self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_topic, self.state, retain=True)
+        self.publish_ha_discovery_config()
+        self.mqtt_support.client.publish(self.status_topic, self.state, retain=True)
 
         # request dgn report - this should trigger that dimmer to report
         # dgn = 1FEDA which is actually  DA FE 01 <instance> FF 00 00 00
@@ -202,5 +193,4 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         msg_bytes = bytearray(8)
         struct.pack_into("<BBBBBBBB", msg_bytes, 0, 0xDA,
             0xFE, 1, self.rvc_instance, 0, 0, 0, 0)
-
         self.send_queue.put({"dgn": "0EAFF", "data": msg_bytes})

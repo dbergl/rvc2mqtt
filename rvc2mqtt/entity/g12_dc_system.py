@@ -87,7 +87,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
     def dc_current(self, value):
         if value != self._dc_current:
             self._dc_current = value
-            self._rhanged = True
+            self._current_changed = True
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
@@ -130,18 +130,8 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         return False
 
 
-    def initialize(self):
-        """ Optional function
-        Will get called once when the object is loaded.
-        RVC canbus tx queue is available
-        mqtt client is ready.
-
-        This can be a good place to request data
-        """
-
-        # produce the HA MQTT discovery config json
+    def publish_ha_discovery_config(self):
         origin = {'name': self.mqtt_support.get_bridge_ha_name()}
-
         voltscmp = {'p': 'sensor', 'device_class': 'voltage',
                     'unit_of_measurement': 'V', 'suggested_display_precision': '2',
                     'value_template': '{{value}}',
@@ -152,22 +142,20 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                       'value_template': '{{value}}',
                       'state_topic': self.status_dc_current_topic,
                       'unique_id': self.unique_device_id + 'c'}
-
-        components = {'volts': voltscmp, 'current': currentcmp} 
-
-        config = {'dev': self.device,
-                  'o': origin,
-                  'cmps': components,
-                  'qos': 1,
-                  }
-
+        components = {'volts': voltscmp, 'current': currentcmp}
+        config = {'dev': self.device, 'o': origin, 'cmps': components, 'qos': 1}
         config.update(self.get_availability_discovery_info_for_ha())
-
         config_json = json.dumps(config)
-
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
             self.unique_device_id, "device")
+        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
 
-        # publish info to mqtt
-        self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
+    def initialize(self):
+        """ Optional function
+        Will get called once when the object is loaded.
+        RVC canbus tx queue is available
+        mqtt client is ready.
+
+        This can be a good place to request data
+        """
+        self.publish_ha_discovery_config()

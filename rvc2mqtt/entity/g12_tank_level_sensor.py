@@ -112,27 +112,7 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
             return True
         return False
 
-    def initialize(self):
-        """ Optional function
-        Will get called once when the object is loaded.
-        RVC canbus tx queue is available
-        mqtt client is ready.
-
-        This can be a good place to request data
-        """
-        # request dgn report - this should trigger the tanks to report
-        # dgn = 0BFC1 which is actually  C1 BF 00 <instance> 00 00 00 00
-        self.Logger.debug("Sending Request for DGN")
-        data = struct.pack("<BBBBBBBB", int("0xC1", 0), int(
-            "0xBF", 0), 0, self.instance, 0, 0, 0, 0)
-        self.send_queue.put({"dgn": "0EAFF", "data": data})
-
-        # send auto discovery info
-        self._send_ha_mqtt_discovery_info()
-
-
-    def _send_ha_mqtt_discovery_info(self):
-
+    def publish_ha_discovery_config(self):
         # produce the HA MQTT discovery config json
         origin = {'name': self.mqtt_support.get_bridge_ha_name()}
 
@@ -150,7 +130,9 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
                            'state_topic': self.status_tank_percent_topic,
                            'unique_id': self.unique_device_id + 'pct'}
 
-        components = {'lvl': levelcmp, 'lvlpct': customlevel}
+        components = {'lvl': levelcmp}
+        if self.custom_triggers:
+            components['lvlpct'] = customlevel
 
         config = {'dev': self.device,
                   'o': origin,
@@ -167,5 +149,21 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
+            ha_config_topic, config_json, retain=False)
 
+    def initialize(self):
+        """ Optional function
+        Will get called once when the object is loaded.
+        RVC canbus tx queue is available
+        mqtt client is ready.
+
+        This can be a good place to request data
+        """
+        # request dgn report - this should trigger the tanks to report
+        # dgn = 0BFC1 which is actually  C1 BF 00 <instance> 00 00 00 00
+        self.Logger.debug("Sending Request for DGN")
+        data = struct.pack("<BBBBBBBB", int("0xC1", 0), int(
+            "0xBF", 0), 0, self.instance, 0, 0, 0, 0)
+        self.send_queue.put({"dgn": "0EAFF", "data": data})
+
+        self.publish_ha_discovery_config()

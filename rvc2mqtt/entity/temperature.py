@@ -77,16 +77,7 @@ class TemperatureSensor_THERMOSTAT_AMBIENT_STATUS(EntityPluginBaseClass):
             return True
         return False
 
-    def initialize(self):
-        """ Optional function 
-        Will get called once when the object is loaded.  
-        RVC canbus tx queue is available
-        mqtt client is ready.  
-
-        This can be a good place to request data    
-        """
-
-        # produce the HA MQTT discovery config json
+    def publish_ha_discovery_config(self):
         config = {'name': self.name, 'state_topic': self.status_topic,
                   'qos': 1, 'retain': False,
                   'unit_of_measurement': '°C',
@@ -96,14 +87,18 @@ class TemperatureSensor_THERMOSTAT_AMBIENT_STATUS(EntityPluginBaseClass):
                   'value_template': '{{value_json.c }}',
                   'unique_id': self.unique_device_id,
                   'device': self.device}
-
         config.update(self.get_availability_discovery_info_for_ha())
-
         config_json = json.dumps(config)
-
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
             self.unique_device_id, "sensor")
+        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
 
-        # publish info to mqtt
-        self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
+    def initialize(self):
+        """ Optional function
+        Will get called once when the object is loaded.
+        RVC canbus tx queue is available
+        mqtt client is ready.
+
+        This can be a good place to request data
+        """
+        self.publish_ha_discovery_config()

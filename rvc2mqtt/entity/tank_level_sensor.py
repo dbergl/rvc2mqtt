@@ -82,9 +82,6 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
                 # because we don't have all info until first message we need to wait
                 # figure out level resolution
                 self.resolution = new_message['resolution']
-                # send auto discovery info
-                self._send_ha_mqtt_discovery_info()
-                # mark first msg sent
                 self.waiting_for_first_msg = False
 
             
@@ -97,24 +94,7 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
             return True
         return False
 
-    def initialize(self):
-        """ Optional function 
-        Will get called once when the object is loaded.  
-        RVC canbus tx queue is available
-        mqtt client is ready.  
-
-        This can be a good place to request data    
-        """
-        # request dgn report - this should trigger the tanks to report
-        # dgn = 1FFB7 which is actually  BD FF 01 <instance> 00 00 00 00
-        self.Logger.debug("Sending Request for DGN")
-        data = struct.pack("<BBBBBBBB", int("0xB7", 0), int(
-            "0xFF", 0), 1, self.instance, 0, 0, 0, 0)
-        self.send_queue.put({"dgn": "0EAFF", "data": data})
-
-    
-    def _send_ha_mqtt_discovery_info(self):
-
+    def publish_ha_discovery_config(self):
         # produce the HA MQTT discovery config json
         origin = {'name': self.mqtt_support.get_bridge_ha_name()}
 
@@ -142,7 +122,7 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
+            ha_config_topic, config_json, retain=False)
 
     def _get_instance_name(self, instance: int) -> str:
         imap = {0: "fresh water", 
@@ -158,4 +138,21 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
         else:
             self.Logger.error(f"Unknown instance name for instance {str(instance)}")
             return "unknown tank type"
+
+
+    def initialize(self):
+        """ Optional function
+        Will get called once when the object is loaded.
+        RVC canbus tx queue is available
+        mqtt client is ready.
+
+        This can be a good place to request data
+        """
+        # request dgn report - this should trigger the tanks to report
+        # dgn = 1FFB7 which is actually  BD FF 01 <instance> 00 00 00 00
+        self.Logger.debug("Sending Request for DGN")
+        data = struct.pack("<BBBBBBBB", int("0xB7", 0), int(
+            "0xFF", 0), 1, self.instance, 0, 0, 0, 0)
+        self.send_queue.put({"dgn": "0EAFF", "data": data})
+        self.publish_ha_discovery_config()
 

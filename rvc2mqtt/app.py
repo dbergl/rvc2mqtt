@@ -115,10 +115,13 @@ class app(object):
                     requested_entity = next(filter(lambda entry: entry.link_id == link, self.entity_list), None)
                     if requested_entity is not None:
                         obj.add_entity_link(requested_entity)
-                    
+
                 obj.set_rvc_send_queue(self.tx_RVC_Buffer)
                 obj.initialize()
                 self.entity_list.append(obj)
+
+        if self.mqtt_client is not None:
+            self.mqtt_client.register("homeassistant/status", self.on_ha_birth_message)
 
         # Our RVC message loop here
         while True:
@@ -126,6 +129,13 @@ class app(object):
             self.message_rx_loop()
             self.message_tx_loop()
             time.sleep(0.001)
+
+    def on_ha_birth_message(self, topic, payload, properties=None):
+        """Re-publish HA discovery configs when Home Assistant comes online."""
+        if payload == "online":
+            self.Logger.info("Home Assistant birth message received - republishing discovery configs")
+            for entity in self.entity_list:
+                entity.publish_ha_discovery_config()
 
     def close(self):
         """Shutdown the app and any threads"""

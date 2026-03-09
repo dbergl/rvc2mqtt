@@ -364,16 +364,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
         self.Logger.debug(f"Set hotwater set point to {temp}")
         raise NotImplementedError()
 
-    def initialize(self):
-        """ Optional function 
-        Will get called once when the object is loaded.  
-        RVC canbus tx queue is available
-        mqtt client is ready.  
-
-        This can be a good place to request data
-
-        """
-
+    def publish_ha_discovery_config(self):
         # Gas switch - produce the HA MQTT discovery config json for
         config = {"name": self.name + " Gas",
                   "state_topic": self.status_gas_topic,
@@ -392,9 +383,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_gas_topic, self.gas_mode, retain=True)
+            ha_config_topic, config_json, retain=False)
 
         # AC element switch - produce the HA MQTT discovery config json for
         config = {"name": self.name + " AC", "state_topic": self.status_ac_topic,
@@ -411,9 +400,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_ac_topic, self.ac_mode, retain=True)
+            ha_config_topic, config_json, retain=False)
 
         # Set Point Temp input - produce the HA MQTT discovery config json for
         config = {"name": self.name + " Set Point Temperature", "state_topic": self.status_set_point_temp_topic,
@@ -434,10 +421,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_set_point_temp_topic, self.set_point_temperature, retain=True)
-
+            ha_config_topic, config_json, retain=False)
 
         # Water Temperature sensor  - produce the HA MQTT discovery config json for
         config = {"name": self.name + " Water Temperature", "state_topic": self.status_water_temp_topic,
@@ -458,9 +442,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_water_temp_topic, self.water_temperature, retain=True)
+            ha_config_topic, config_json, retain=False)
 
 
         # thermostat status binary sensor  - produce the HA MQTT discovery config json for
@@ -479,9 +461,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_thermostat_topic, self.thermostat_status, retain=True)
+            ha_config_topic, config_json, retain=False)
 
 
         # Gas Burner Status binary sensor  - produce the HA MQTT discovery config json for
@@ -501,9 +481,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_gas_burner_topic, self.burner_status, retain=True)
+            ha_config_topic, config_json, retain=False)
 
         # AC Element Status binary sensor  - produce the HA MQTT discovery config json for
         config = {"name": self.name + " AC Element" , "state_topic": self.status_ac_element_topic,
@@ -522,9 +500,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_ac_element_topic, self.ac_element_status, retain=True)
+            ha_config_topic, config_json, retain=False)
 
         # High temp limit switch Status binary sensor  - produce the HA MQTT discovery config json for
         config = {"name": self.name + " High-Temp Limit" , "state_topic": self.status_high_temp_topic,
@@ -543,9 +519,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_high_temp_topic, self.high_temp_switch_status, retain=True)
+            ha_config_topic, config_json, retain=False)
 
         # Failure to ignite Status binary sensor  - produce the HA MQTT discovery config json for
         config = {"name": self.name + " Gas Igniter Failure" , "state_topic": self.status_failure_gas_topic,
@@ -563,9 +537,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_failure_gas_topic, self.failure_to_ignite, retain=True)
+            ha_config_topic, config_json, retain=False)
 
         # Failure AC Power Status binary sensor  - produce the HA MQTT discovery config json for
         config = {"name": self.name + " AC Power Failure" , "state_topic": self.status_failure_ac_topic,
@@ -583,9 +555,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_failure_ac_topic, self.failure_ac_power, retain=True)
+            ha_config_topic, config_json, retain=False)
 
         # Failure DC Power Status binary sensor  - produce the HA MQTT discovery config json for
         config = {"name": self.name + " DC Power Failure" , "state_topic": self.status_failure_dc_topic,
@@ -603,9 +573,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_failure_dc_topic, self.failure_dc_power, retain=True)
+            ha_config_topic, config_json, retain=False)
 
         # Failure DC Power warning Status binary sensor  - produce the HA MQTT discovery config json for
         config = {"name": self.name + " DC Low Power Warning" , "state_topic": self.status_failure_low_dc_topic,
@@ -623,6 +591,42 @@ class WaterHeaterClass(EntityPluginBaseClass):
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
+            ha_config_topic, config_json, retain=False)
+
+    def initialize(self):
+        """ Optional function
+        Will get called once when the object is loaded.
+        RVC canbus tx queue is available
+        mqtt client is ready.
+
+        This can be a good place to request data
+
+        """
+        self.publish_ha_discovery_config()
+
+        # publish info to mqtt
+        self.mqtt_support.client.publish(
+            self.status_gas_topic, self.gas_mode, retain=True)
+        self.mqtt_support.client.publish(
+            self.status_ac_topic, self.ac_mode, retain=True)
+        self.mqtt_support.client.publish(
+            self.status_set_point_temp_topic, self.set_point_temperature, retain=True)
+        self.mqtt_support.client.publish(
+            self.status_water_temp_topic, self.water_temperature, retain=True)
+        self.mqtt_support.client.publish(
+            self.status_thermostat_topic, self.thermostat_status, retain=True)
+        self.mqtt_support.client.publish(
+            self.status_gas_burner_topic, self.burner_status, retain=True)
+        self.mqtt_support.client.publish(
+            self.status_ac_element_topic, self.ac_element_status, retain=True)
+        self.mqtt_support.client.publish(
+            self.status_high_temp_topic, self.high_temp_switch_status, retain=True)
+        self.mqtt_support.client.publish(
+            self.status_failure_gas_topic, self.failure_to_ignite, retain=True)
+        self.mqtt_support.client.publish(
+            self.status_failure_ac_topic, self.failure_ac_power, retain=True)
+        self.mqtt_support.client.publish(
+            self.status_failure_dc_topic, self.failure_dc_power, retain=True)
         self.mqtt_support.client.publish(
             self.status_failure_low_dc_topic, self.failure_dc_warning, retain=True)
+

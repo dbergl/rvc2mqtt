@@ -181,15 +181,7 @@ class Diagnostic(EntityPluginBaseClass):
             self._changed = False
 
 
-    def initialize(self):
-        """ Optional function 
-        Will get called once when the object is loaded.  
-        RVC canbus tx queue is available
-        mqtt client is ready.  
-
-        This can be a good place to request data    
-        """
-
+    def publish_ha_discovery_config(self):
         # produce the HA MQTT discovery config json
         config = {"name": self.name + " power state",
                   "state_topic": self.status_topic,
@@ -199,7 +191,7 @@ class Diagnostic(EntityPluginBaseClass):
         config.update(self.get_availability_discovery_info_for_ha())
         config_json = json.dumps(config)
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(self.unique_device_id, "sensor", "power_state")
-        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=True)
+        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
 
         # produce the HA MQTT discovery config json for binary sensor fault
         config = {"name": self.name + " fault state",
@@ -213,7 +205,7 @@ class Diagnostic(EntityPluginBaseClass):
         config.update(self.get_availability_discovery_info_for_ha())
         config_json = json.dumps(config)
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(self.unique_device_id, "binary_sensor", "fault_state")
-        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=True)
+        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
 
         # produce the HA MQTT discovery config json for text sensor fault msg
         config = {"name": self.name + " fault message",
@@ -224,7 +216,7 @@ class Diagnostic(EntityPluginBaseClass):
         config.update(self.get_availability_discovery_info_for_ha())
         config_json = json.dumps(config)
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(self.unique_device_id, "sensor", "fault_message")
-        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=True)
+        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
 
         # produce the HA MQTT discovery config json for binary sensor warning
         config = {"name": self.name + " warning state",
@@ -238,7 +230,7 @@ class Diagnostic(EntityPluginBaseClass):
         config.update(self.get_availability_discovery_info_for_ha())
         config_json = json.dumps(config)
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(self.unique_device_id, "binary_sensor", "warning_state")
-        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=True)
+        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
 
         # produce the HA MQTT discovery config json for text sensor warning msg
         config = {"name": self.name + " warning message",
@@ -249,4 +241,14 @@ class Diagnostic(EntityPluginBaseClass):
         config.update(self.get_availability_discovery_info_for_ha())
         config_json = json.dumps(config)
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(self.unique_device_id, "sensor", "warning_message")
-        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=True)
+        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
+
+    def initialize(self):
+        """ Optional function
+        Will get called once when the object is loaded.
+        RVC canbus tx queue is available
+        mqtt client is ready.
+
+        This can be a good place to request data
+        """
+        self.publish_ha_discovery_config()

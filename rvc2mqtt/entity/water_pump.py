@@ -190,16 +190,7 @@ class WaterPumpClass(EntityPluginBaseClass):
         self.Logger.debug("Turn Pump On")
         self.send_queue.put({"dgn": "1FFB2", "data": msg_bytes})
 
-    def initialize(self):
-        """ Optional function 
-        Will get called once when the object is loaded.  
-        RVC canbus tx queue is available
-        mqtt client is ready.  
-
-        This can be a good place to request data
-
-        """
-
+    def publish_ha_discovery_config(self):
         # power state switch - produce the HA MQTT discovery config json for
         config = {"name": self.name + " power",
                   "state_topic": self.status_topic,
@@ -218,8 +209,6 @@ class WaterPumpClass(EntityPluginBaseClass):
         # publish info to mqtt
         self.mqtt_support.client.publish(
             ha_config_topic, config_json, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_topic, self.power_state, retain=True)
 
         # running state binary sensor  - produce the HA MQTT discovery config json for
         config = {"name": self.name + " running status",
@@ -240,8 +229,6 @@ class WaterPumpClass(EntityPluginBaseClass):
         # publish info to mqtt
         self.mqtt_support.client.publish(
             ha_config_topic, config_json, retain=True)
-        self.mqtt_support.client.publish(
-            self.running_status_topic, self.running_state, retain=True)
 
         # External Water Connected binary sensor  - produce the HA MQTT discovery config json for
         config = {"name": self.name + " external water",
@@ -286,5 +273,22 @@ class WaterPumpClass(EntityPluginBaseClass):
         # publish info to mqtt
         self.mqtt_support.client.publish(
             ha_config_topic, config_json, retain=True)
+
+    def initialize(self):
+        """ Optional function
+        Will get called once when the object is loaded.
+        RVC canbus tx queue is available
+        mqtt client is ready.
+
+        This can be a good place to request data
+
+        """
+        self.publish_ha_discovery_config()
+
+        # publish status to mqtt
+        self.mqtt_support.client.publish(
+            self.status_topic, self.power_state, retain=True)
+        self.mqtt_support.client.publish(
+            self.running_status_topic, self.running_state, retain=True)
         self.mqtt_support.client.publish(
             self.system_pressure_status_topic, self.system_pressure, retain=True)
