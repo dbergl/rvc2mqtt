@@ -357,7 +357,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
         # off
         # 0100000000000000
         msg_bytes = bytearray(8)
-        struct.pack_into("<BBHBBBB", msg_bytes, 0, self.instance, mode, 0, 0, 0, 0, 0)
+        struct.pack_into("<BBHBBBB", msg_bytes, 0, self.instance, mode, 0xFFFF, 0xFF, 0xFF, 0xFF, 0xFF)
         self.send_queue.put({"dgn": "1FFF6", "data": msg_bytes})
 
     def _rvc_change_set_point(self, temp: float):

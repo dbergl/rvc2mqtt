@@ -122,7 +122,7 @@ class Diagnostic(EntityPluginBaseClass):
         
     @property
     def warning(self):
-        return self._fault
+        return self._warning
 
     @warning.setter
     def warning(self, value):

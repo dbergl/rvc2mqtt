@@ -91,6 +91,7 @@ class app(object):
             self.mqtt_client = MqttInitalize(
                 argsns.mqtt_host, argsns.mqtt_port, argsns.mqtt_user, argsns.mqtt_pass, argsns.mqtt_client_id, argsns.mqtt_topic_base)
             if self.mqtt_client:
+                self.mqtt_client.register(f"{MQTT_Support.HA_AUTO_BASE}/status", self.on_ha_birth_message)
                 self.mqtt_client.client.loop_start()
 
         # Enable plugins
@@ -119,9 +120,6 @@ class app(object):
                 obj.set_rvc_send_queue(self.tx_RVC_Buffer)
                 obj.initialize()
                 self.entity_list.append(obj)
-
-        if self.mqtt_client is not None:
-            self.mqtt_client.register("homeassistant/status", self.on_ha_birth_message)
 
         # Our RVC message loop here
         while True:

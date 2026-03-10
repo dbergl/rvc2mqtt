@@ -208,7 +208,7 @@ class WaterPumpClass(EntityPluginBaseClass):
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
+            ha_config_topic, config_json, retain=False)
 
         # running state binary sensor  - produce the HA MQTT discovery config json for
         config = {"name": self.name + " running status",
@@ -228,7 +228,7 @@ class WaterPumpClass(EntityPluginBaseClass):
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
+            ha_config_topic, config_json, retain=False)
 
         # External Water Connected binary sensor  - produce the HA MQTT discovery config json for
         config = {"name": self.name + " external water",
@@ -248,9 +248,7 @@ class WaterPumpClass(EntityPluginBaseClass):
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
-        self.mqtt_support.client.publish(
-            self.external_water_status_topic, self.external_water_hookup, retain=True)
+            ha_config_topic, config_json, retain=False)
 
         # System Pressure sensor  - produce the HA MQTT discovery config json for
         config = {"name": self.name + " system pressure", 
@@ -272,7 +270,7 @@ class WaterPumpClass(EntityPluginBaseClass):
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
+            ha_config_topic, config_json, retain=False)
 
     def initialize(self):
         """ Optional function
@@ -290,5 +288,7 @@ class WaterPumpClass(EntityPluginBaseClass):
             self.status_topic, self.power_state, retain=True)
         self.mqtt_support.client.publish(
             self.running_status_topic, self.running_state, retain=True)
+        self.mqtt_support.client.publish(
+            self.external_water_status_topic, self.external_water_hookup, retain=True)
         self.mqtt_support.client.publish(
             self.system_pressure_status_topic, self.system_pressure, retain=True)

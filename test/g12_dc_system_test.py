@@ -1,7 +1,7 @@
 """
-Unit tests for the water pump entity class
+Unit tests for the G12 DC system entity class
 
-Copyright 2022 Sean Brogan
+Copyright 2025 Dan Berglund
 SPDX-License-Identifier: Apache-2.0
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,7 +21,7 @@ limitations under the License.
 import unittest
 from unittest.mock import MagicMock
 import context  # add rvc2mqtt package to the python path using local reference
-from rvc2mqtt.entity.water_pump import WaterPumpClass as WaterPump
+from rvc2mqtt.entity.g12_dc_system import DcSystemSensor_DC_SOURCE_STATUS_1 as G12DcSystem
 
 
 def _make_mock():
@@ -31,31 +31,43 @@ def _make_mock():
     mock.client_id = 'bridge'
     mock.get_bridge_ha_name.return_value = 'bridge'
     mock.bridge_state_topic = 'rvc2mqtt/bridge/state'
-    mock.make_ha_auto_discovery_config_topic.return_value = 'homeassistant/switch/test/config'
+    mock.make_ha_auto_discovery_config_topic.return_value = 'homeassistant/device/test/config'
     return mock
 
 
-class Test_WaterPump(unittest.TestCase):
+class Test_G12DcSystem(unittest.TestCase):
 
     def test_basic(self):
-        mock = MagicMock()
-        mock.mqtt_support.make_device_topic_string.return_value = 'topic_string'
-
-        l = WaterPump({'instance': 1, 'instance_name': "test WaterPump"}, mock)
-        self.assertTrue(type(l), WaterPump)
-
-    def test_publish_ha_discovery_config_retain_false(self):
-        """All four HA discovery config publishes must use retain=False."""
         mock = _make_mock()
-        entity = WaterPump({'instance': 1, 'instance_name': "test WaterPump"}, mock)
+        entity = G12DcSystem({'instance': 1, 'instance_name': "test G12 DC System"}, mock)
+        self.assertTrue(type(entity), G12DcSystem)
+
+    def test_publish_ha_discovery_config(self):
+        mock = _make_mock()
+        entity = G12DcSystem({'instance': 1, 'instance_name': "test G12 DC System"}, mock)
         entity.publish_ha_discovery_config()
         self.assertTrue(mock.client.publish.called)
-        # Should publish 4 discovery configs (power, running, external_water, system_pressure)
-        self.assertEqual(mock.client.publish.call_count, 4)
         for call in mock.client.publish.call_args_list:
             _, kwargs = call
             self.assertFalse(kwargs.get('retain', False),
                              f"Discovery config published with retain=True: {call}")
+
+    def test_process_rvc_msg_voltage_change(self):
+        mock = _make_mock()
+        entity = G12DcSystem({'instance': 1, 'instance_name': "test G12 DC System"}, mock)
+        msg = {'name': 'DC_SOURCE_STATUS_G12', 'instance': 1, 'dc_voltage': 13.5, 'dc_current': -2.0}
+        result = entity.process_rvc_msg(msg)
+        self.assertTrue(result)
+        self.assertEqual(entity.dc_voltage, 13.5)
+        self.assertEqual(entity.dc_current, -2.0)
+
+    def test_process_rvc_msg_no_match(self):
+        mock = _make_mock()
+        entity = G12DcSystem({'instance': 1, 'instance_name': "test G12 DC System"}, mock)
+        msg = {'name': 'SOME_OTHER_MSG', 'instance': 1, 'dc_voltage': 13.5, 'dc_current': -2.0}
+        result = entity.process_rvc_msg(msg)
+        self.assertFalse(result)
+
 
 if __name__ == '__main__':
     unittest.main()

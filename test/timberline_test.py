@@ -1,7 +1,7 @@
 """
-Unit tests for the water pump entity class
+Unit tests for the timberline entity class
 
-Copyright 2022 Sean Brogan
+Copyright 2025 Dan Berglund
 SPDX-License-Identifier: Apache-2.0
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,7 +21,7 @@ limitations under the License.
 import unittest
 from unittest.mock import MagicMock
 import context  # add rvc2mqtt package to the python path using local reference
-from rvc2mqtt.entity.water_pump import WaterPumpClass as WaterPump
+from rvc2mqtt.entity.timberline import hvac_TIMBERLINE
 
 
 def _make_mock():
@@ -31,31 +31,38 @@ def _make_mock():
     mock.client_id = 'bridge'
     mock.get_bridge_ha_name.return_value = 'bridge'
     mock.bridge_state_topic = 'rvc2mqtt/bridge/state'
-    mock.make_ha_auto_discovery_config_topic.return_value = 'homeassistant/switch/test/config'
+    mock.make_ha_auto_discovery_config_topic.return_value = 'homeassistant/device/test/config'
     return mock
 
 
-class Test_WaterPump(unittest.TestCase):
+_TIMBERLINE_DATA = {
+    'instance': 1,
+    'instance_name': "test timberline",
+    'source_id': '65',
+    'command_topic': 'timberline/set',
+    'status_topic': 'timberline/status',
+}
+
+
+class Test_Timberline(unittest.TestCase):
 
     def test_basic(self):
         mock = MagicMock()
-        mock.mqtt_support.make_device_topic_string.return_value = 'topic_string'
+        mock.make_device_topic_string.return_value = 'topic_string'
 
-        l = WaterPump({'instance': 1, 'instance_name': "test WaterPump"}, mock)
-        self.assertTrue(type(l), WaterPump)
+        l = hvac_TIMBERLINE(_TIMBERLINE_DATA, mock)
+        self.assertTrue(type(l), hvac_TIMBERLINE)
 
-    def test_publish_ha_discovery_config_retain_false(self):
-        """All four HA discovery config publishes must use retain=False."""
+    def test_publish_ha_discovery_config(self):
         mock = _make_mock()
-        entity = WaterPump({'instance': 1, 'instance_name': "test WaterPump"}, mock)
+        entity = hvac_TIMBERLINE(_TIMBERLINE_DATA, mock)
         entity.publish_ha_discovery_config()
         self.assertTrue(mock.client.publish.called)
-        # Should publish 4 discovery configs (power, running, external_water, system_pressure)
-        self.assertEqual(mock.client.publish.call_count, 4)
         for call in mock.client.publish.call_args_list:
             _, kwargs = call
             self.assertFalse(kwargs.get('retain', False),
                              f"Discovery config published with retain=True: {call}")
+
 
 if __name__ == '__main__':
     unittest.main()

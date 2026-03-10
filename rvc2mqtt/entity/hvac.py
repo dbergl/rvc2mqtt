@@ -202,6 +202,7 @@ class HvacClass(EntityPluginBaseClass):
 
         self._set_point_temperature = 16.09
         self._set_point_temperaturef = 61.0
+        self._changed = False
 
         self.device = {"manufacturer": "RV-C",
                        "via_device": self.mqtt_support.get_bridge_ha_name(),

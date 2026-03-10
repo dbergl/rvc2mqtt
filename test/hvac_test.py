@@ -80,14 +80,35 @@ class Test_HvacMode(unittest.TestCase):
         self.assertEqual(HvacMode.get_hvac_mode_from_rvc('cool'), HvacMode.COOL)
         
 
+def _make_mock():
+    mock = MagicMock()
+    mock.make_device_topic_string.return_value = 'test/topic'
+    mock.TOPIC_BASE = 'rvc2mqtt'
+    mock.client_id = 'bridge'
+    mock.get_bridge_ha_name.return_value = 'bridge'
+    mock.bridge_state_topic = 'rvc2mqtt/bridge/state'
+    mock.make_ha_auto_discovery_config_topic.return_value = 'homeassistant/climate/test/config'
+    return mock
+
+
 class Test_HvacClimate(unittest.TestCase):
 
     def test_basic(self):
         mock = MagicMock()
         mock.mqtt_support.make_device_topic_string.return_value = 'topic_string'
-        
+
         l = HvacClass({'instance': 1, 'instance_name': "test hvac"}, mock)
         self.assertTrue(type(l), HvacClass)
+
+    def test_publish_ha_discovery_config(self):
+        mock = _make_mock()
+        entity = HvacClass({'instance': 1, 'instance_name': "test hvac"}, mock)
+        entity.publish_ha_discovery_config()
+        self.assertTrue(mock.client.publish.called)
+        for call in mock.client.publish.call_args_list:
+            _, kwargs = call
+            self.assertFalse(kwargs.get('retain', False),
+                             f"Discovery config published with retain=True: {call}")
 
     def test_convert_c_to_uint16(self):
         mock = MagicMock()

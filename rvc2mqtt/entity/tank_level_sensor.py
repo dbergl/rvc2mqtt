@@ -53,13 +53,6 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
                        "mdl": "RV-C Tank from TANK_STATUS",
                        }
 
-        self.device = {"manufacturer": "RV-C",
-                       "via_device": self.mqtt_support.get_bridge_ha_name(),
-                       "identifiers": self.unique_device_id,
-                       "name": self.name,
-                       "model": "RV-C Tank from TANK_STATUS"
-                       }
-
         self.waiting_for_first_msg = True
 
         if 'status_topic' in data:

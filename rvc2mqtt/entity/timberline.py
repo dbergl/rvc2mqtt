@@ -68,6 +68,13 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
         super().__init__(data, mqtt_support)
         self.Logger = logging.getLogger(__class__.__name__)
 
+        self.name = data['instance_name']
+        self.device = {'mf': 'Elwell',
+                       'ids': self.unique_device_id,
+                       'mdl': 'Timberline 1.5',
+                       'name': self.name
+                       }
+
         if 'command_topic' in data:
             command_base = f"{str(data['command_topic'])}"
             #WATERHEATER_COMMAND
@@ -976,6 +983,63 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
+    def publish_ha_discovery_config(self):
+        origin = {'name': self.mqtt_support.get_bridge_ha_name()}
+        components = {
+            'set_point_temperature': {
+                'p': 'sensor', 'device_class': 'temperature',
+                'unit_of_measurement': '°C', 'suggested_display_precision': '2',
+                'value_template': '{{value}}',
+                'state_topic': self.set_point_temp_topic,
+                'unique_id': self.unique_device_id + '_setpoint'
+            },
+            'tank_temperature': {
+                'p': 'sensor', 'device_class': 'temperature',
+                'unit_of_measurement': '°C', 'suggested_display_precision': '2',
+                'value_template': '{{value}}',
+                'state_topic': self.tank_temperature_topic,
+                'unique_id': self.unique_device_id + '_tank_temp'
+            },
+            'heater_temperature': {
+                'p': 'sensor', 'device_class': 'temperature',
+                'unit_of_measurement': '°C', 'suggested_display_precision': '2',
+                'value_template': '{{value}}',
+                'state_topic': self.heater_temperature_topic,
+                'unique_id': self.unique_device_id + '_heater_temp'
+            },
+            'heat_exchanger_temperature': {
+                'p': 'sensor', 'device_class': 'temperature',
+                'unit_of_measurement': '°C', 'suggested_display_precision': '2',
+                'value_template': '{{value}}',
+                'state_topic': self.waterheater_temp_topic,
+                'unique_id': self.unique_device_id + '_hx_temp'
+            },
+            'mode': {
+                'p': 'sensor',
+                'value_template': '{{value}}',
+                'state_topic': self.thermostat_operating_mode_def_topic,
+                'unique_id': self.unique_device_id + '_mode'
+            },
+            'burner_status': {
+                'p': 'sensor',
+                'value_template': '{{value}}',
+                'state_topic': self.burner_status_def_topic,
+                'unique_id': self.unique_device_id + '_burner'
+            },
+            'pump_status': {
+                'p': 'sensor',
+                'value_template': '{{value}}',
+                'state_topic': self.output_status_def_topic,
+                'unique_id': self.unique_device_id + '_pump'
+            },
+        }
+        config = {'dev': self.device, 'o': origin, 'cmps': components, 'qos': 1}
+        config.update(self.get_availability_discovery_info_for_ha())
+        config_json = json.dumps(config)
+        ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
+            self.unique_device_id, "device")
+        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
+
     def initialize(self):
         """ Optional function
         Will get called once when the object is loaded.
@@ -985,4 +1049,5 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
         This can be a good place to request data
 
         """
+        self.publish_ha_discovery_config()
 
