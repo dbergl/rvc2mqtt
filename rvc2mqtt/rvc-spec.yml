@@ -4919,33 +4919,59 @@ Z0005:
   comment: Broadcast in Ethos 20DL
   name: UNKNOWN-1FACF
 
-16F84:
-  comment: G12 Outputs and current
-  name: UNKNOWN-16F84
+16F:
+  name: DC_COMPONENT_DRIVER_STATUS_1
+  comment: This is only the dgn_h
   parameters:
     - byte: 0
-      name: unknown
+      name: instance
       type: uint8
     - byte: 1
-      name: output pin
+      name: driver index
       type: uint8
-    - byte: 2
-      name: unknown
-      type: uint8
-    - byte: 3
-      name: unknown
-      type: uint8
+    - byte: 2-3
+      name: voltage
+      type: uint16
+      unit: v
     - byte: 4-5
-      name: output current
+      name: current
       type: uint16
       unit: a
     - byte: 6
-      name: unknown
-      type: uint8
+      bit: 0-1
+      name: output status
+      type: uint2
+      values:
+        0: off
+        1: on
+    - byte: 6
+      bit: 2-3
+      name: desired status
+      type: uint2
+      values:
+        0: off
+        1: on
+    - byte: 6
+      bit: 4-5
+      name: shutdown status
+      type: uint2
+      values:
+        0: ok
+        1: output disabled
+    - byte: 6
+      bit: 6-7
+      name: reset type
+      type: uint2
+      values:
+        0: manual
+        1: automatic
     - byte: 7
-      name: unknown
+      name: reason for shutdown
       type: uint8
-
+      values:
+        0: output not disabled
+        1: over current
+        2: short circuit
 
 1FBDA:
   comment: G12 Inputs (J5?)
@@ -4987,9 +5013,22 @@ Z0005:
       name: unknown 7
       type: uint8
 
-16C84:
-  comment: Broadcast in Ethos 20DL
-  name: UNKNOWN-16C84
+16C:
+  name: DC_COMPONENT_DRIVER_STATUS_4
+  comment: This is only the dgn_h
+  parameters:
+    - byte: 0
+      name: instance
+      type: uint8
+    - byte: 1
+      name: driver index
+      type: uint8
+    - byte: 2-3
+      name: on cycle count
+      type: uint16
+    - byte: 4-7
+      name: channel on time
+      type: uint32
 
 1AAB7:
   comment: Broadcast in Ethos 20DL
@@ -5041,7 +5080,7 @@ Z0005:
       bit: 0-1
       name: solenoid
       values:
-        0: off 
+        0: off
         1: on
     - byte: 1
       bit: 2-3
@@ -5154,7 +5193,7 @@ Z0005:
       type: uint16
       unit: v
     - byte: 5
-      name: battery low voltage limit time delay 
+      name: battery low voltage limit time delay
       type: uint8
     - byte: 6
       name: absorption duration
@@ -5162,7 +5201,7 @@ Z0005:
     - byte: 7
       name: temperature compensation factor
       type: uint8
-      comment: mV/°C 
+      comment: mV/°C
 
 1FDFB:
   name: SOLAR_CONTROLLER_CONFIGURATION_COMMAND_3
@@ -5288,7 +5327,7 @@ Z0005:
       name: instance
       type: uint8
     - byte: 1-2
-      name: today's amp-hours to battery 
+      name: today's amp-hours to battery
       type: uint16
       unit: ah
     - byte: 3-4
