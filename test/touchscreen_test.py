@@ -138,28 +138,29 @@ class Test_Touchscreen(unittest.TestCase):
         self.assertEqual(len(calls), 2)
 
 
-    # --- DM_1 tests ---
+    # --- DM_RV tests ---
 
-    def _make_dm_1(self, source_id='9F', spn_msb=0x7F, spn_isb=0x00, spn_lsb=0,
-                   red_lamp=0, fmi_definition="No fault"):
+    def _make_dm_rv(self, source_id='9F', spn_msb=0x7F, spn_isb=0x00, spn_lsb=0,
+                    red_lamp=0, yellow_lamp=0, fmi_definition="No fault"):
         return {
-            'name': 'DM_1',
+            'name': 'DM_RV',
             'source_id': source_id,
             'spn-msb': spn_msb,
             'spn-isb': spn_isb,
             'spn-lsb': spn_lsb,
             'red_lamp_status': red_lamp,
+            'yellow_lamp_status': yellow_lamp,
             'fmi_definition': fmi_definition,
         }
 
-    def test_dm_1_wrong_source_id_not_processed(self):
+    def test_dm_rv_wrong_source_id_not_processed(self):
         t = self._make_ts()
-        result = t.process_rvc_msg(self._make_dm_1(source_id='FD'))
+        result = t.process_rvc_msg(self._make_dm_rv(source_id='FD'))
         self.assertFalse(result)
 
-    def test_dm_1_publishes_fault_code_and_description(self):
+    def test_dm_rv_publishes_fault_code_and_description(self):
         t = self._make_ts()
-        result = t.process_rvc_msg(self._make_dm_1(fmi_definition="Bad node"))
+        result = t.process_rvc_msg(self._make_dm_rv(fmi_definition="Bad node"))
         self.assertTrue(result)
         publish_calls = {c[0][0]: c[0][1]
                          for c in t.mqtt_support.client.publish.call_args_list}
@@ -167,23 +168,37 @@ class Test_Touchscreen(unittest.TestCase):
         self.assertIn('touchscreen/status/fault/description', publish_calls)
         self.assertEqual(publish_calls['touchscreen/status/fault/description'], "Bad node")
 
-    def test_dm_1_lamp_on_when_red_lamp_set(self):
+    def test_dm_rv_lamp_red_when_red_lamp_set(self):
         t = self._make_ts()
-        t.process_rvc_msg(self._make_dm_1(red_lamp=1))
+        t.process_rvc_msg(self._make_dm_rv(red_lamp=1, yellow_lamp=0))
         publish_calls = {c[0][0]: c[0][1]
                          for c in t.mqtt_support.client.publish.call_args_list}
-        self.assertEqual(publish_calls.get('touchscreen/status/fault/lamp'), 'on')
+        self.assertEqual(publish_calls.get('touchscreen/status/fault/lamp'), 'red')
 
-    def test_dm_1_lamp_off_when_red_lamp_clear(self):
+    def test_dm_rv_lamp_yellow_when_only_yellow_lamp_set(self):
         t = self._make_ts()
-        t.process_rvc_msg(self._make_dm_1(red_lamp=0))
+        t.process_rvc_msg(self._make_dm_rv(red_lamp=0, yellow_lamp=1))
+        publish_calls = {c[0][0]: c[0][1]
+                         for c in t.mqtt_support.client.publish.call_args_list}
+        self.assertEqual(publish_calls.get('touchscreen/status/fault/lamp'), 'yellow')
+
+    def test_dm_rv_lamp_off_when_no_lamps_set(self):
+        t = self._make_ts()
+        t.process_rvc_msg(self._make_dm_rv(red_lamp=0, yellow_lamp=0))
         publish_calls = {c[0][0]: c[0][1]
                          for c in t.mqtt_support.client.publish.call_args_list}
         self.assertEqual(publish_calls.get('touchscreen/status/fault/lamp'), 'off')
 
-    def test_dm_1_no_publish_when_fault_unchanged(self):
+    def test_dm_rv_red_takes_priority_over_yellow(self):
         t = self._make_ts()
-        msg = self._make_dm_1()
+        t.process_rvc_msg(self._make_dm_rv(red_lamp=1, yellow_lamp=1))
+        publish_calls = {c[0][0]: c[0][1]
+                         for c in t.mqtt_support.client.publish.call_args_list}
+        self.assertEqual(publish_calls.get('touchscreen/status/fault/lamp'), 'red')
+
+    def test_dm_rv_no_publish_when_fault_unchanged(self):
+        t = self._make_ts()
+        msg = self._make_dm_rv()
         t.process_rvc_msg(msg)
         t.mqtt_support.client.publish.reset_mock()
         t.process_rvc_msg(msg)
@@ -191,12 +206,12 @@ class Test_Touchscreen(unittest.TestCase):
                            if 'fault/code' in c[0][0] or 'fault/description' in c[0][0]]
         self.assertEqual(len(fault_publishes), 0)
 
-    def test_dm_1_publishes_on_fault_change(self):
+    def test_dm_rv_publishes_on_fault_change(self):
         t = self._make_ts()
-        t.process_rvc_msg(self._make_dm_1(spn_msb=0x7F, spn_isb=0x00, spn_lsb=0))
+        t.process_rvc_msg(self._make_dm_rv(spn_msb=0x7F, spn_isb=0x00, spn_lsb=0))
         t.mqtt_support.client.publish.reset_mock()
-        t.process_rvc_msg(self._make_dm_1(spn_msb=0x7F, spn_isb=0x00, spn_lsb=4,
-                                          fmi_definition="Datum erratic"))
+        t.process_rvc_msg(self._make_dm_rv(spn_msb=0x7F, spn_isb=0x00, spn_lsb=4,
+                                           fmi_definition="Datum erratic"))
         fault_publishes = [c for c in t.mqtt_support.client.publish.call_args_list
                            if 'fault/code' in c[0][0]]
         self.assertEqual(len(fault_publishes), 1)

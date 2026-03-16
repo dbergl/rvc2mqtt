@@ -141,7 +141,7 @@ class Test_Timberline_DM_RV(unittest.TestCase):
         t = self._make_timberline()
         t.process_rvc_msg(self._make_dm_rv(spn_msb=0x7F, spn_isb=0x00, spn_lsb=0))
         t.mqtt_support.client.publish.reset_mock()
-        t.process_rvc_msg(self._make_dm_rv(spn_msb=0x7F, spn_isb=0x00, spn_lsb=4,
+        t.process_rvc_msg(self._make_dm_rv(spn_msb=0x7E, spn_isb=0x00, spn_lsb=0,
                                            fmi_definition="Datum erratic"))
         fault_publishes = [c for c in t.mqtt_support.client.publish.call_args_list
                            if 'fault/code' in c[0][0]]

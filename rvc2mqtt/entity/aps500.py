@@ -114,8 +114,8 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         # nothing with them, so they don't show as decoder pending
         # The APS-500 will query the BMS and decode it's response. It will not wait very long so sometimes messages are missed
         # or can come in out of order.
-        self.rvc_match_0ef80 = {'name': 'UNKNOWN-0EF80'} # ignore id since it is the response from the BMS
-        self.rvc_match_0ef70 = {'name': 'UNKNOWN-0EF70', 'source_id': str(data['source_id'])}
+        self.rvc_match_0ef80 = {'name': 'RENOGY_BMS_RESPONSE'} # ignore id since it is the response from the BMS
+        self.rvc_match_0ef70 = {'name': 'WAKESPEED_BMS_QUERY', 'source_id': str(data['source_id'])}
         self.rvc_match_0fed5 = {'name': 'UNKNOWN-0FED5', 'source_id': str(data['source_id'])}
 
         self.Logger.debug(f"Must match: {str(self.rvc_match_source_status_1)}")
