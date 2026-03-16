@@ -202,6 +202,7 @@ class HvacClass(EntityPluginBaseClass):
 
         self._set_point_temperature = 16.09
         self._set_point_temperaturef = 61.0
+        self._changed = False
 
         self.device = {"manufacturer": "RV-C",
                        "via_device": self.mqtt_support.get_bridge_ha_name(),
@@ -440,15 +441,7 @@ class HvacClass(EntityPluginBaseClass):
         else:
             self.Logger.error(f"Invalid payload {payload} for topic {topic}")
 
-    def initialize(self):
-        """ Optional function
-        Will get called once when the object is loaded.
-        RVC canbus tx queue is available
-        mqtt client is ready.
-
-        This can be a good place to request data
-
-        """
+    def publish_ha_discovery_config(self):
         config = {"name": self.name,
                   "modes": HvacClass.MQTT_SUPPORTED_MODES,
                   "mode_state_topic": self.status_mode_topic,
@@ -480,15 +473,21 @@ class HvacClass(EntityPluginBaseClass):
             config["current_temperature_template"] = "{{value_json['c']}}"
 
         config.update(self.get_availability_discovery_info_for_ha())
-
         config_json = json.dumps(config)
-
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
             self.unique_device_id, "climate")
+        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
 
-        # publish info to mqtt
-        self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
+    def initialize(self):
+        """ Optional function
+        Will get called once when the object is loaded.
+        RVC canbus tx queue is available
+        mqtt client is ready.
+
+        This can be a good place to request data
+
+        """
+        self.publish_ha_discovery_config()
 
 
 '''

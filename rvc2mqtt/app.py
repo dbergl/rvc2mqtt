@@ -91,6 +91,7 @@ class app(object):
             self.mqtt_client = MqttInitalize(
                 argsns.mqtt_host, argsns.mqtt_port, argsns.mqtt_user, argsns.mqtt_pass, argsns.mqtt_client_id, argsns.mqtt_topic_base)
             if self.mqtt_client:
+                self.mqtt_client.register(f"{MQTT_Support.HA_AUTO_BASE}/status", self.on_ha_birth_message)
                 self.mqtt_client.client.loop_start()
 
         # Enable plugins
@@ -115,7 +116,7 @@ class app(object):
                     requested_entity = next(filter(lambda entry: entry.link_id == link, self.entity_list), None)
                     if requested_entity is not None:
                         obj.add_entity_link(requested_entity)
-                    
+
                 obj.set_rvc_send_queue(self.tx_RVC_Buffer)
                 obj.initialize()
                 self.entity_list.append(obj)
@@ -126,6 +127,13 @@ class app(object):
             self.message_rx_loop()
             self.message_tx_loop()
             time.sleep(0.001)
+
+    def on_ha_birth_message(self, topic, payload, properties=None):
+        """Re-publish HA discovery configs when Home Assistant comes online."""
+        if payload == "online":
+            self.Logger.info("Home Assistant birth message received - republishing discovery configs")
+            for entity in self.entity_list:
+                entity.publish_ha_discovery_config()
 
     def close(self):
         """Shutdown the app and any threads"""

@@ -158,17 +158,7 @@ class TankWarmer_DC_LOAD_STATUS(EntityPluginBaseClass):
         struct.pack_into("<BBBBBBH", msg_bytes, 0, self.rvc_instance, 0, 250, 0, 1, 0xFF, 0)
         self.send_queue.put({"dgn": "1FFBC", "data": msg_bytes})
 
-    def initialize(self):
-        """ Optional function 
-        Will get called once when the object is loaded.  
-        RVC canbus tx queue is available
-        mqtt client is ready.  
-
-        This can be a good place to request data
-
-        """
-
-        # produce the HA MQTT discovery config json
+    def publish_ha_discovery_config(self):
         config = {"name": self.name,
                   "state_topic": self.status_topic,
                   "command_topic": self.command_topic,
@@ -178,17 +168,22 @@ class TankWarmer_DC_LOAD_STATUS(EntityPluginBaseClass):
                   "unique_id": self.unique_device_id,
                   "device": self.device}
         config.update(self.get_availability_discovery_info_for_ha())
-
         config_json = json.dumps(config)
-
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
             self.unique_device_id, "switch")
+        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
 
-        # publish info to mqtt
-        self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_topic, self.state, retain=True)
+    def initialize(self):
+        """ Optional function
+        Will get called once when the object is loaded.
+        RVC canbus tx queue is available
+        mqtt client is ready.
+
+        This can be a good place to request data
+
+        """
+        self.publish_ha_discovery_config()
+        self.mqtt_support.client.publish(self.status_topic, self.state, retain=True)
 
         # request dgn report - this should trigger that light to report
         # dgn = 1FFBD which is actually  BD FF 01 <instance> FF 00 00 00

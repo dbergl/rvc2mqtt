@@ -23,14 +23,36 @@ from unittest.mock import MagicMock
 import context  # add rvc2mqtt package to the python path using local reference
 from rvc2mqtt.entity.temperature import TemperatureSensor_THERMOSTAT_AMBIENT_STATUS as TemperatureSensor
 
+
+def _make_mock():
+    mock = MagicMock()
+    mock.make_device_topic_string.return_value = 'test/topic'
+    mock.TOPIC_BASE = 'rvc2mqtt'
+    mock.client_id = 'bridge'
+    mock.get_bridge_ha_name.return_value = 'bridge'
+    mock.bridge_state_topic = 'rvc2mqtt/bridge/state'
+    mock.make_ha_auto_discovery_config_topic.return_value = 'homeassistant/sensor/test/config'
+    return mock
+
+
 class Test_TemperatureSensor(unittest.TestCase):
 
     def test_basic(self):
         mock = MagicMock()
         mock.mqtt_support.make_device_topic_string.return_value = 'topic_string'
-        
+
         l = TemperatureSensor({'instance': 1, 'instance_name': "test TemperatureSensor"}, mock)
         self.assertTrue(type(l), TemperatureSensor)
+
+    def test_publish_ha_discovery_config(self):
+        mock = _make_mock()
+        entity = TemperatureSensor({'instance': 1, 'instance_name': "test TemperatureSensor"}, mock)
+        entity.publish_ha_discovery_config()
+        self.assertTrue(mock.client.publish.called)
+        for call in mock.client.publish.call_args_list:
+            _, kwargs = call
+            self.assertFalse(kwargs.get('retain', False),
+                             f"Discovery config published with retain=True: {call}")
 
 if __name__ == '__main__':
     unittest.main()

@@ -61,13 +61,18 @@ class EntityPluginBaseClass(object):
         raise NotImplementedError()
 
     def initialize(self):
-        """ Optional function 
-        Will get called once when the object is loaded.  
+        """ Optional function
+        Will get called once when the object is loaded.
         RVC canbus tx queue is available
-        mqtt client is ready.  
-        
+        mqtt client is ready.
+
         This can be a good place to request data
         """
+        pass
+
+    def publish_ha_discovery_config(self):
+        """Publish Home Assistant MQTT auto-discovery config.
+        Override in subclasses that support HA discovery."""
         pass
     
     def add_entity_link(self, obj):

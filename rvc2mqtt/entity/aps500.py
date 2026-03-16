@@ -80,6 +80,13 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         super().__init__(data, mqtt_support)
         self.Logger = logging.getLogger(__class__.__name__)
 
+        self.name = data['instance_name']
+        self.device = {'mf': 'Wakespeed',
+                       'ids': self.unique_device_id,
+                       'mdl': 'APS-500',
+                       'name': self.name
+                       }
+
         # RVC message must match the following to be this device
         self.rvc_match_source_status_1 = {'name': 'DC_SOURCE_STATUS_1', 'source_id': str(data['source_id'])}
         self.rvc_match_source_status_2 = {'name': 'DC_SOURCE_STATUS_2', 'source_id': str(data['source_id'])}
@@ -101,8 +108,10 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         self.rvc_match_terminal = {'name': 'TERMINAL', 'source_id': str(data['source_id'])}
 
         # According to Wakespeed these may be J1939 messages. We will just do
-        # nothing with them, so the don't show as decoder pending
-        self.rvc_match_0ef80 = {'name': 'UNKNOWN-0EF80'} # ignore id since it is 70 on this one message from the APS
+        # nothing with them, so they don't show as decoder pending
+        # The APS-500 will query the BMS and decode it's response. It will not wait very long so sometimes messages are missed
+        # or can come in out of order.
+        self.rvc_match_0ef80 = {'name': 'UNKNOWN-0EF80'} # ignore id since it is the response from the BMS
         self.rvc_match_0ef70 = {'name': 'UNKNOWN-0EF70', 'source_id': str(data['source_id'])}
         self.rvc_match_0fed5 = {'name': 'UNKNOWN-0FED5', 'source_id': str(data['source_id'])}
 
@@ -641,6 +650,56 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                     self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
 
 
+    def publish_ha_discovery_config(self):
+        origin = {'name': self.mqtt_support.get_bridge_ha_name()}
+        components = {
+            'charge_voltage': {
+                'p': 'sensor', 'device_class': 'voltage',
+                'unit_of_measurement': 'V', 'suggested_display_precision': '2',
+                'value_template': '{{value}}',
+                'state_topic': self.charge_voltage_topic,
+                'unique_id': self.unique_device_id + '_charge_v'
+            },
+            'charge_current': {
+                'p': 'sensor', 'device_class': 'current',
+                'unit_of_measurement': 'A', 'suggested_display_precision': '2',
+                'value_template': '{{value}}',
+                'state_topic': self.charge_current_topic,
+                'unique_id': self.unique_device_id + '_charge_a'
+            },
+            'operating_state': {
+                'p': 'sensor',
+                'value_template': '{{value}}',
+                'state_topic': self.operating_state_topic,
+                'unique_id': self.unique_device_id + '_op_state'
+            },
+            'charger_temperature': {
+                'p': 'sensor', 'device_class': 'temperature',
+                'unit_of_measurement': '°C', 'suggested_display_precision': '1',
+                'value_template': '{{value}}',
+                'state_topic': self.charger_temperature_topic,
+                'unique_id': self.unique_device_id + '_chg_temp'
+            },
+            'fault_code': {
+                'p': 'sensor',
+                'value_template': '{{value}}',
+                'state_topic': self.dm_rv_fault_code_topic,
+                'unique_id': self.unique_device_id + '_fault_code'
+            },
+            'fault_description': {
+                'p': 'sensor',
+                'value_template': '{{value}}',
+                'state_topic': self.dm_rv_fault_description_topic,
+                'unique_id': self.unique_device_id + '_fault_desc'
+            },
+        }
+        config = {'dev': self.device, 'o': origin, 'cmps': components, 'qos': 1}
+        config.update(self.get_availability_discovery_info_for_ha())
+        config_json = json.dumps(config)
+        ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
+            self.unique_device_id, "device")
+        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
+
     def initialize(self):
         """ Optional function
         Will get called once when the object is loaded.
@@ -649,6 +708,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         This can be a good place to request data
         """
+        self.publish_ha_discovery_config()
 
         self.mqtt_support.client.publish(
             self.request_last_fault_status_topic, "unknown", retain=True)
