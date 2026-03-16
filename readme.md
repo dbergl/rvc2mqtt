@@ -14,8 +14,7 @@ No Guarantees or warranties. This software can be used to control physical devic
 
 ### Latest release:
 `ghcr.io/dbergl/rvc2mqtt:latest`  
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/dbergl/rvc2mqtt?style=for-the-badge)](https://github.com/dbergl/rvc2mqtt/pkgs/container/rvc2mqtt/277188461?tag=latest)
-
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/dbergl/rvc2mqtt?style=for-the-badge)](https://github.com/dbergl/rvc2mqtt/pkgs/container/rvc2mqtt/723215503?tag=latest)
 
 See the github repo [__docs__](docs/overview.md) folder
 
