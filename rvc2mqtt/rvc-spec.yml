@@ -3092,6 +3092,23 @@ API_VERSION: 0
         17: ramp brightness to new value
         51: flash alternate
 
+# G12 (Firefly) repurposes 1FED9 as a configuration command when byte[1]=0x96 (group bitmap).
+# Byte layout for G12 config use:
+#   byte[0] = 0xFF  (broadcast instance)
+#   byte[1] = 0x96  (G12 group, bitmap "10010110")
+#   byte[2] = selector  (config parameter, matches 15FCE message_type byte)
+#   byte[3] = 0x0F  (bank select)
+#   bytes[4-5] = uint16 LE value (new value for SET, 0xFFFF for QUERY)
+#   byte[6] = function  (0xD1/0xD2 = SET, 0xD3 = QUERY)
+#   byte[7] = 0xEA (SET) / 0xFF (QUERY)
+# Selector mapping (same as 15FCE byte[0]):
+#   0x0C = time at start volts (sec), 0x0D = stop at voltage (v),
+#   0x0E = time at stop volts (sec),  0x16 = max engine run time (min),
+#   0x2B = quiet time start (byte[4]=min, byte[5]=hr),
+#   0x2C = quiet time stop  (byte[4]=min, byte[5]=hr),
+#   0x31 = start at voltage (v),
+#   0xCC/0xCD/0xCE = tank thresholds 0-33/33-67/67-100%
+# Source: log analysis of UNHANDLED_RVC.log (410 messages, source_id=0x9F touchscreen)
 1FEE0:
   name: DC_MOTOR_CONTROL_STATUS
 
@@ -4806,16 +4823,92 @@ Z0005:
   alias: 1FE8B
 
 15FCE:
-  comment: Broadcast in Ethos 20DL
-  name: UNKNOWN-15FCE
+  comment: G12 Parameter storage in Ethos 20DL. Hopefully Firefly doesn't reuse message types across floorplans
+  name: G12_CONFIGURATION
+  usefirstbyte: true
+  parameters:
+    - byte: 0
+      name: message type
+      type: uint8
+      unit: hex
+      values:
+        "01": involves aes enabled
+        "03": involves aes enabled
+        "05": involves aes enabled
+        "0C": time at start volts
+        "0D": stop at voltage
+        "0E": time at stop volts
+        "16": max engine run time
+        "2B": quiet time start
+        "2C": quiet time stop
+        "31": start at voltage
+        "9B": involves aes enabled
+        "CC": 0%-33% threshold
+        "CD": 33%-67% threshold
+        "CE": 67%-100% threshold
+  "16":
+    - byte: 2-3
+      name: minutes
+      type: uint16
+      unit: min
+  "0C":
+    - byte: 2-3
+      name: duration
+      type: uint16
+      unit: sec
+  "0D":
+    - byte: 2-3
+      name: volts
+      type: uint16
+      unit: v
+  "0E":
+    - byte: 2-3
+      name: duration
+      type: uint16
+      unit: sec
+  "2B":
+    - byte: 2
+      name: minutes
+      type: uint8
+      unit: min
+    - byte: 3
+      name: hours
+      type: uint8
+      unit: hr
+  "2C":
+    - byte: 2
+      name: minutes
+      type: uint8
+      unit: min
+    - byte: 3
+      name: hours
+      type: uint8
+      unit: hr
+  "CC":
+    - byte: 2-3
+      name: value
+      type: uint16
+  "CD":
+    - byte: 2-3
+      name: value
+      type: uint16
+  "CE":
+    - byte: 2-3
+      name: value
+      type: uint16
+  "31":
+    - byte: 2-3
+      name: volts
+      type: uint16
+      unit: v
 
 0EF70:
   comment: APS-500. likely J1939 message according to wakespeed
-  name: UNKNOWN-0EF70
+  name: WAKESPEED_BMS_QUERY
 
 0EF80:
-  comment: APS-500. likely J1939 message according to wakespeed
-  name: UNKNOWN-0EF80
+  comment: BMS reply to query. Not RV-C format
+  name: RENOGY_BMS_RESPONSE
 
 0FED5:
   comment: APS-500. likely J1939 message according to wakespeed
@@ -4974,43 +5067,27 @@ Z0005:
         2: short circuit
 
 1FBDA:
-  comment: G12 Inputs (J5?)
-  name: G12_INPUTS
+  name: G12_INPUT_STATUS
+  comment: >
+    Firefly G12 active physical input status. Broadcast by source_id 9C.
+    Byte 0 (active_input_code) encodes the currently active input as 0xA0|input_number.
+    Byte 1 (aux_12v_active) is 0x01 when any 12V-driven input is active, 0x00 otherwise.
+    12V inputs (9, 10, etc.) use a heartbeat pattern while held: the G12 alternates between
+    the active code (0xAn, aux=1) and the idle code (0xFB, aux=1) at ~1 Hz. aux_12v_active
+    remaining 1 during 0xFB frames distinguishes this heartbeat from true deactivation.
+    Deactivation of a 12V input is signalled by aux_12v_active dropping to 0, either via
+    0xFB/aux=0 or the active code itself with aux=0 (e.g. 0xAA00). Code 0xBF has also been
+    observed as a transition frame during some deactivation sequences.
+    GND inputs (1, 2, 4, etc.) broadcast only the active code while held (no FB alternation)
+    and deactivate via 0xFB/aux=0.
+    Ethos 20DL inputs: 1=Kitchen Lights (GND), 2=Bath Lights (GND), 4=Living Room Lights (GND),
+    9=Water Pump (12V), 10=Ignition (12V). 6=Awning EXT (12V), 7=Awning RET (12V) but there is no physical switch.
   parameters:
     - byte: 0
-      comment: pin number
-      bit: 0-3
-      name: input pin
-      type: uint4
-    - byte: 0
-      comment: seems to always be A
-      bit: 4-7
-      name: input high bits
-      type: uint4
+      name: active_input_code
+      type: uint8
     - byte: 1
-      name: status
-      type: uint8
-      comment: momentary switch status
-      values:
-        00: open
-        01: closed
-    - byte: 2
-      name: unknown 2
-      type: uint8
-    - byte: 3
-      name: unknown 3
-      type: uint8
-    - byte: 4
-      name: unknown 4
-      type: uint8
-    - byte: 5
-      name: unknown 5
-      type: uint8
-    - byte: 6
-      name: unknown 6
-      type: uint8
-    - byte: 7
-      name: unknown 7
+      name: aux_12v_active
       type: uint8
 
 16C:

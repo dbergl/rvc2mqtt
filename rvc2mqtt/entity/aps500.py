@@ -107,6 +107,9 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         self.rvc_match_terminal = {'name': 'TERMINAL', 'source_id': str(data['source_id'])}
 
+        self.rvc_match_initial_packet = {'name': 'INITIAL_PACKET', 'source_id': str(data['source_id'])}
+        self.rvc_match_data_packet = {'name': 'DATA_PACKET', 'source_id': str(data['source_id'])}
+
         # According to Wakespeed these may be J1939 messages. We will just do
         # nothing with them, so they don't show as decoder pending
         # The APS-500 will query the BMS and decode it's response. It will not wait very long so sometimes messages are missed
@@ -157,6 +160,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         #TERMINAL
         self._terminal_message_call  = {}
         self._terminalmessage        = ""
+
+        # INITIAL_PACKET / DATA_PACKET (multi-packet transport)
+        self._mp_expected_count = 0
+        self._mp_message_length = 0
+        self._mp_packets = {}  # keyed by packet_number for ordered assembly + duplicate detection
+        self._product_id = None
 
         if 'command_topic' in data:
             topic_base                            = str(data['command_topic'])
@@ -224,6 +233,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             self.request_last_fault_status_topic = str(f"{topic_base}/fault/rlf_message")
             self.log_status_topic                = str(f"{topic_base}/log")
             self.terminal_status_topic           = str(f"{topic_base}/danger/terminal_message")
+            self.product_id_topic                = str(f"{topic_base}/product_id")
 
 
         else:
@@ -416,7 +426,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
             self._terminalmessage =  self._terminalmessage + new_message["data"]
             messages = bytearray.fromhex(self._terminalmessage).decode()
-            self.Logger.debug(f"terminal_call: {self._terminal_message_call.get("timestamp")}, msg: {messages}")
+            self.Logger.debug(f"terminal_call: {self._terminal_message_call.get('timestamp')}, msg: {messages}")
             publish_msg = False
 
             if "AOK;" in messages:
@@ -449,6 +459,54 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 self._terminal_message_call = {}
                 self._terminalmessage = ""
 
+            return True
+
+        if self._is_entry_match(self.rvc_match_initial_packet, new_message):
+            count = new_message["packet_count"]
+            if count <= 0:
+                self.Logger.warning(f"INITIAL_PACKET: invalid packet_count {count}, ignoring")
+                return True
+            self._mp_expected_count = count
+            self._mp_message_length = new_message["message_length"]
+            self._mp_packets = {}
+            self.Logger.debug(
+                f"INITIAL_PACKET: expecting {self._mp_expected_count} packets, "
+                f"{self._mp_message_length} bytes"
+            )
+            return True
+
+        if self._is_entry_match(self.rvc_match_data_packet, new_message):
+            if self._mp_expected_count == 0:
+                self.Logger.debug("DATA_PACKET received without INITIAL_PACKET, discarding")
+                return True
+            packet_num = new_message["packet_number"]
+            if packet_num in self._mp_packets:
+                self.Logger.warning(f"Duplicate DATA_PACKET #{packet_num}, ignoring")
+                return True
+            # Recover bytes 1-7 in correct order from the little-endian encoded integer
+            data_bytes = int(new_message["data"]).to_bytes(7, 'little')
+            self._mp_packets[packet_num] = data_bytes
+            self.Logger.debug(
+                f"DATA_PACKET #{packet_num}: "
+                f"{len(self._mp_packets)}/{self._mp_expected_count}"
+            )
+            if len(self._mp_packets) >= self._mp_expected_count:
+                try:
+                    all_bytes = b''.join(
+                        self._mp_packets[i] for i in range(1, self._mp_expected_count + 1)
+                    )
+                    trimmed = all_bytes[:self._mp_message_length]
+                    product_id = trimmed.decode('ascii').strip('\x00')
+                    if product_id != self._product_id:
+                        self._product_id = product_id
+                        self.Logger.info(f"PRODUCT_IDENTIFICATION: {product_id}")
+                        self.mqtt_support.client.publish(
+                            self.product_id_topic, product_id, retain=True)
+                except Exception as e:
+                    self.Logger.error(f"Failed to decode PRODUCT_IDENTIFICATION: {e}")
+                finally:
+                    self._mp_packets = {}
+                    self._mp_expected_count = 0
             return True
 
         if self._is_entry_match(self.rvc_match_0ef80, new_message):

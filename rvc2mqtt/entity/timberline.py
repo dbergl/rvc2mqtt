@@ -192,6 +192,10 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             # 0x8A
             self.system_limitation_topic            = str(f"{topic_base}/info/system_limit")
             self.water_limitation_topic             = str(f"{topic_base}/info/water_limit")
+            # DM_RV
+            self.dm_rv_fault_code_topic             = str(f"{topic_base}/fault/code")
+            self.dm_rv_fault_description_topic      = str(f"{topic_base}/fault/description")
+            self.dm_rv_lamp_topic                   = str(f"{topic_base}/fault/lamp")
 
 
         # RVC message must match the following to be this device
@@ -261,6 +265,10 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
         # 0x8A
         self._system_limitation = "unknown"
         self._water_limitation = "unknown"
+        # DM_RV
+        self._fault_code = "unknown"
+        self._fault_description = "unknown"
+        self._lamp = "unknown"
 
     def _convert_c_to_f(self, temp_c: float):
         """ Convert Celsius to Fahrenheit"""
@@ -720,6 +728,29 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     self._water_limitation = new_message["water_limitation"]
                     self.mqtt_support.client.publish(
                         self.water_limitation_topic, new_message["water_limitation"], retain=True)
+            processed = True
+        elif self._is_entry_match(self.rvc_dm_rv, new_message):
+            self.Logger.debug(f"Msg Match DM_RV: {str(new_message)}")
+            message_fault_code = str(
+                int(f"{new_message['spn-msb']:08b}"
+                ,2))
+            fault_description = new_message.get("fmi_definition", "unknown")
+            lamp_status = "on" if int(new_message["red_lamp_status"]) > 0 else "off"
+
+            if self._fault_code != message_fault_code:
+                self._fault_code = message_fault_code
+                self._fault_description = fault_description
+                self.mqtt_support.client.publish(
+                    self.dm_rv_fault_code_topic,
+                    "00" if self._fault_code == "255" else str(self._fault_code),
+                    retain=True)
+                self.mqtt_support.client.publish(
+                    self.dm_rv_fault_description_topic,
+                    self._fault_description, retain=True)
+            if self._lamp != lamp_status:
+                self._lamp = lamp_status
+                self.mqtt_support.client.publish(
+                    self.dm_rv_lamp_topic, self._lamp, retain=True)
             processed = True
         elif self._is_entry_match(self.rvc_waterheater_command, new_message):
             # This is the command. Eat message so it doesn't show up as unhandled.
