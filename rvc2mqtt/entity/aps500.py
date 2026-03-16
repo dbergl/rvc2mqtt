@@ -152,6 +152,10 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         self._charging_current       = "unknown"
         self._charger_temperature    = "unknown"
 
+        #CHARGER_EQUALIZATION_STATUS
+        self._equalization_time_remaining       = "unknown"
+        self._equalization_pre_charging_status  = "unknown"
+
         #DM_RV
         self._fault_code             = "unknown"
         self._fault_description      = "unknown"
@@ -217,6 +221,10 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             self.charging_mode_topic             = str(f"{topic_base}/charging_mode")
             self.battery_sensor_present_topic    = str(f"{topic_base}/battery_sensor_present")
 
+            # CHARGER_EQUALIZATION_STATUS
+            self.equalization_time_remaining_topic      = str(f"{topic_base}/equalization_time_remaining")
+            self.equalization_pre_charging_status_topic = str(f"{topic_base}/equalization_pre_charging_status")
+
             # BATTERY_STATUS_11
             self.charge_detected_topic           = str(f"{topic_base}/charge_detected")
             self.reserve_status_topic            = str(f"{topic_base}/reserve_status")
@@ -238,6 +246,8 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         else:
             self.status_dc_voltage_topic = mqtt_support.make_device_topic_string(self.id, "missing_status_topic", True)
+            self.equalization_time_remaining_topic      = mqtt_support.make_device_topic_string(self.id, "missing_status_topic", True)
+            self.equalization_pre_charging_status_topic = mqtt_support.make_device_topic_string(self.id, "missing_status_topic", True)
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
@@ -358,6 +368,24 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 self._battery_sensor_present = new_message["battery_sensor_present"]
                 self.mqtt_support.client.publish(
                     self.battery_sensor_present_topic, new_message.get("battery_sensor_present_definition", "unknown").title(), retain=True)
+
+            return True
+
+        if self._is_entry_match(self.rvc_match_charger_equalization_status, new_message):
+            self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+
+            if self._equalization_time_remaining != new_message["time_remaining"]:
+                self._equalization_time_remaining = new_message["time_remaining"]
+                self.mqtt_support.client.publish(
+                    self.equalization_time_remaining_topic,
+                    self._equalization_time_remaining, retain=True)
+
+            if self._equalization_pre_charging_status != new_message["pre-charging_status"]:
+                self._equalization_pre_charging_status = new_message["pre-charging_status"]
+                self.mqtt_support.client.publish(
+                    self.equalization_pre_charging_status_topic,
+                    new_message.get("pre-charging_status_definition", "unknown").title(),
+                    retain=True)
 
             return True
 

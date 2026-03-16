@@ -191,5 +191,85 @@ class Test_Aps500(unittest.TestCase):
         l.mqtt_support.client.publish.assert_called_with(
             'aps500/status//product_id', 'APS500 v2.0', retain=True)
 
+class Test_APS500_ChargerEqualizationStatus(unittest.TestCase):
+
+    def _make_aps(self):
+        mock = MagicMock()
+        mock.mqtt_support.make_device_topic_string.return_value = 'topic_string'
+        return Aps500(
+            {'instance': 1, 'instance_name': "test aps", 'source_id': '80',
+             'command_topic': 'aps500/set/', 'status_topic': 'aps500/status/'},
+            mock
+        )
+
+    def _make_msg(self, time_remaining=10, pre_charging_status=0,
+                  pre_charging_status_definition="pre-charging not in process",
+                  source_id='80'):
+        return {
+            'name': 'CHARGER_EQUALIZATION_STATUS',
+            'source_id': source_id,
+            'instance': 1,
+            'time_remaining': time_remaining,
+            'pre-charging_status': pre_charging_status,
+            'pre-charging_status_definition': pre_charging_status_definition,
+        }
+
+    def test_returns_true(self):
+        l = self._make_aps()
+        result = l.process_rvc_msg(self._make_msg())
+        self.assertTrue(result)
+
+    def test_wrong_source_id_not_processed(self):
+        l = self._make_aps()
+        result = l.process_rvc_msg(self._make_msg(source_id='FF'))
+        self.assertFalse(result)
+
+    def test_publishes_time_remaining_on_change(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._make_msg(time_remaining=42))
+        l.mqtt_support.client.publish.assert_any_call(
+            'aps500/status//equalization_time_remaining', 42, retain=True)
+
+    def test_publishes_pre_charging_status_definition_on_change(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._make_msg(
+            pre_charging_status=1,
+            pre_charging_status_definition="charging batteries to prepare for equalization"))
+        l.mqtt_support.client.publish.assert_any_call(
+            'aps500/status//equalization_pre_charging_status',
+            "Charging Batteries To Prepare For Equalization",
+            retain=True)
+
+    def test_no_publish_when_unchanged(self):
+        l = self._make_aps()
+        msg = self._make_msg(time_remaining=10, pre_charging_status=0)
+        l.process_rvc_msg(msg)
+        first_call_count = l.mqtt_support.client.publish.call_count
+        l.process_rvc_msg(msg)
+        self.assertEqual(l.mqtt_support.client.publish.call_count, first_call_count)
+
+    def test_fields_tracked_independently(self):
+        l = self._make_aps()
+        # Establish baseline for both fields
+        l.process_rvc_msg(self._make_msg(time_remaining=10, pre_charging_status=0))
+        call_count_after_first = l.mqtt_support.client.publish.call_count
+
+        # Only time_remaining changes — only that topic should be published
+        l.process_rvc_msg(self._make_msg(time_remaining=99, pre_charging_status=0))
+        self.assertEqual(l.mqtt_support.client.publish.call_count, call_count_after_first + 1)
+        l.mqtt_support.client.publish.assert_called_with(
+            'aps500/status//equalization_time_remaining', 99, retain=True)
+
+        # Only pre-charging_status changes — only that topic should be published
+        l.process_rvc_msg(self._make_msg(
+            time_remaining=99, pre_charging_status=1,
+            pre_charging_status_definition="charging batteries to prepare for equalization"))
+        self.assertEqual(l.mqtt_support.client.publish.call_count, call_count_after_first + 2)
+        l.mqtt_support.client.publish.assert_called_with(
+            'aps500/status//equalization_pre_charging_status',
+            "Charging Batteries To Prepare For Equalization",
+            retain=True)
+
+
 if __name__ == '__main__':
     unittest.main()
