@@ -790,7 +790,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                             self._send_waterheater_command(1)
                         case '2' | '02' | 'electric':
                             self._send_waterheater_command(2)
-                        case '3' | '03' | 'both' | 'combustion & electric':
+                        case '3' | '03' | 'both' | 'combustion & electric' | 'gas/electric (both)':
                             self._send_waterheater_command(3)
                         case _:
                             self.Logger.warning(
@@ -803,7 +803,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     match payload.lower():
                         case '0' | '0000' | 'off':
                             self._send_circulation_pump_command(0b0000)
-                        case '1' | '0001' | '0101' | 'test' | 'on':
+                        case '1' | '0001' | 'on':
+                            self._send_circulation_pump_command(0b0001)
+                        case '5' | '0101' | 'test' | 'test (forced on)':
                             self._send_circulation_pump_command(0b0101)
                         case _:
                             self.Logger.warning(
@@ -852,9 +854,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             case self.command_schedule_mode:
                 try:
                     match payload.lower():
-                        case '0' | '00' | 'off':
+                        case '0' | '00' | 'off' | 'disabled':
                             self._send_thermostat_command('schedule_mode', 0b00)
-                        case '1' | '01' | 'on':
+                        case '1' | '01' | 'on' | 'enabled':
                             self._send_thermostat_command('schedule_mode', 0b01)
                         case _:
                             self.Logger.warning(
@@ -864,22 +866,18 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
             case self.command_setpointtemp:
                 try:
-                    if payload.isdigit():
-                        self._send_thermostat_command('setpoint_temperature', float(payload))
-                    else:
-                        self.Logger.warning(
-                        f'Invalid payload {payload} for topic {topic}')
+                    self._send_thermostat_command('setpoint_temperature', float(payload))
+                except ValueError:
+                    self.Logger.warning(f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_setpointtempf:
                 try:
-                    if payload.isdigit():
-                            self._send_thermostat_command(
-                            'setpoint_temperature', self._convert_f_to_c(float(payload)))
-                    else:
-                        self.Logger.warning(
-                        f'Invalid payload {payload} for topic {topic}')
+                    self._send_thermostat_command(
+                        'setpoint_temperature', self._convert_f_to_c(float(payload)))
+                except ValueError:
+                    self.Logger.warning(f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
@@ -899,23 +897,19 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
             case self.command_sleep_schedule_temp:
                 try:
-                    if payload.isdigit():
-                            self._send_thermostat_command(
-                            'setpoint_temperature', ScheduleInstance.SLEEP, float(payload))
-                    else:
-                        self.Logger.warning(
-                        f'Invalid payload {payload} for topic {topic}')
+                    self._send_thermostat_schedule_command(
+                        'setpoint_temperature', ScheduleInstance.SLEEP, float(payload))
+                except ValueError:
+                    self.Logger.warning(f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_sleep_schedule_tempf:
                 try:
-                    if payload.isdigit():
-                            self._send_thermostat_schedule_command(
-                            'setpoint_temperature', ScheduleInstance.SLEEP, self._convert_f_to_c(float(payload)))
-                    else:
-                        self.Logger.warning(
-                        f'Invalid payload {payload} for topic {topic}')
+                    self._send_thermostat_schedule_command(
+                        'setpoint_temperature', ScheduleInstance.SLEEP, self._convert_f_to_c(float(payload)))
+                except ValueError:
+                    self.Logger.warning(f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
@@ -936,23 +930,19 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
             case self.command_wake_schedule_temp:
                 try:
-                    if payload.isdigit():
-                            self._send_thermostat_command(
-                            'setpoint_temperature', ScheduleInstance.WAKE, float(payload))
-                    else:
-                        self.Logger.warning(
-                        f'Invalid payload {payload} for topic {topic}')
+                    self._send_thermostat_schedule_command(
+                        'setpoint_temperature', ScheduleInstance.WAKE, float(payload))
+                except ValueError:
+                    self.Logger.warning(f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
             case self.command_wake_schedule_tempf:
                 try:
-                    if payload.isdigit():
-                            self._send_thermostat_schedule_command(
-                            'setpoint_temperature', ScheduleInstance.WAKE, self._convert_f_to_c(float(payload)))
-                    else:
-                        self.Logger.warning(
-                        f'Invalid payload {payload} for topic {topic}')
+                    self._send_thermostat_schedule_command(
+                        'setpoint_temperature', ScheduleInstance.WAKE, self._convert_f_to_c(float(payload)))
+                except ValueError:
+                    self.Logger.warning(f'Invalid payload {payload} for topic {topic}')
                 except Exception as e:
                     self.Logger.error(f'Exception trying to respond to topic {topic} + {str(e)}')
 
@@ -1020,13 +1010,6 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
         origin = {'name': self.mqtt_support.get_bridge_ha_name()}
         components = {
             # WATERHEATER_STATUS
-            'heat_source': {
-                'p': 'sensor',
-                'name': 'Heat Source',
-                'value_template': '{{value}}',
-                'state_topic': self.source_def_topic,
-                'unique_id': self.unique_device_id + '_heatsrc'
-            },
             'heat_exchanger_temperature': {
                 'p': 'sensor', 'device_class': 'temperature',
                 'name': 'Heat Exchanger Temperature',
@@ -1071,81 +1054,13 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 'unique_id': self.unique_device_id + '_pump'
             },
             # FURNACE_STATUS
-            'fan_mode': {
-                'p': 'sensor',
-                'name': 'Fan Mode',
-                'value_template': '{{value}}',
-                'state_topic': self.operating_mode_def_topic,
-                'unique_id': self.unique_device_id + '_fan_mode'
-            },
-            'fan_speed': {
-                'p': 'sensor',
-                'name': 'Fan Speed',
-                'unit_of_measurement': '%',
-                'value_template': '{{value}}',
-                'state_topic': self.circulation_fan_speed_topic,
-                'unique_id': self.unique_device_id + '_fan_spd'
-            },
             # THERMOSTAT_STATUS_1
-            'mode': {
-                'p': 'sensor',
-                'name': 'Mode',
-                'value_template': '{{value}}',
-                'state_topic': self.thermostat_operating_mode_def_topic,
-                'unique_id': self.unique_device_id + '_mode'
-            },
-            'schedule_mode': {
-                'p': 'sensor',
-                'name': 'Schedule Mode',
-                'value_template': '{{value}}',
-                'state_topic': self.thermostat_schedule_mode_def_topic,
-                'unique_id': self.unique_device_id + '_sched_mode'
-            },
-            'set_point_temperature': {
-                'p': 'sensor', 'device_class': 'temperature',
-                'name': 'Set Point Temperature',
-                'unit_of_measurement': '°C', 'suggested_display_precision': '2',
-                'value_template': '{{value}}',
-                'state_topic': self.set_point_temp_topic,
-                'unique_id': self.unique_device_id + '_setpoint'
-            },
             'current_schedule': {
                 'p': 'sensor',
                 'name': 'Current Schedule',
                 'value_template': '{{value}}',
                 'state_topic': self.current_schedule_instance_def_topic,
                 'unique_id': self.unique_device_id + '_cur_sched'
-            },
-            # THERMOSTAT_SCHEDULE_STATUS_1
-            'sleep_start_time': {
-                'p': 'sensor',
-                'name': 'Sleep Start Time',
-                'value_template': '{{value}}',
-                'state_topic': self.sleep_start_time_topic,
-                'unique_id': self.unique_device_id + '_slp_start'
-            },
-            'sleep_set_point_temperature': {
-                'p': 'sensor', 'device_class': 'temperature',
-                'name': 'Sleep Set Point Temperature',
-                'unit_of_measurement': '°C', 'suggested_display_precision': '2',
-                'value_template': '{{value}}',
-                'state_topic': self.sleep_schedule_temp_topic,
-                'unique_id': self.unique_device_id + '_slp_temp'
-            },
-            'wake_start_time': {
-                'p': 'sensor',
-                'name': 'Wake Start Time',
-                'value_template': '{{value}}',
-                'state_topic': self.wake_start_time_topic,
-                'unique_id': self.unique_device_id + '_wak_start'
-            },
-            'wake_set_point_temperature': {
-                'p': 'sensor', 'device_class': 'temperature',
-                'name': 'Wake Set Point Temperature',
-                'unit_of_measurement': '°C', 'suggested_display_precision': '2',
-                'value_template': '{{value}}',
-                'state_topic': self.wake_schedule_temp_topic,
-                'unique_id': self.unique_device_id + '_wak_temp'
             },
             # TIMBERLINE_PROPRIETARY (0x82)
             'solenoid': {
@@ -1154,13 +1069,6 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 'value_template': '{{value}}',
                 'state_topic': self.solenoid_def_topic,
                 'unique_id': self.unique_device_id + '_solenoid'
-            },
-            'temperature_sensor': {
-                'p': 'sensor',
-                'name': 'Temperature Sensor',
-                'value_template': '{{value}}',
-                'state_topic': self.temperature_sensor_def_topic,
-                'unique_id': self.unique_device_id + '_temp_sens'
             },
             'tank_temperature': {
                 'p': 'sensor', 'device_class': 'temperature',
@@ -1204,20 +1112,6 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 'unique_id': self.unique_device_id + '_po_timer'
             },
             # TIMBERLINE_PROPRIETARY (0x89)
-            'system_limitation': {
-                'p': 'sensor',
-                'name': 'System Limitation',
-                'value_template': '{{value}}',
-                'state_topic': self.system_limitation_topic,
-                'unique_id': self.unique_device_id + '_sys_lim'
-            },
-            'water_limitation': {
-                'p': 'sensor',
-                'name': 'Water Limitation',
-                'value_template': '{{value}}',
-                'state_topic': self.water_limitation_topic,
-                'unique_id': self.unique_device_id + '_wat_lim'
-            },
             # TIMBERLINE_PROPRIETARY (0x8A) — info/version
             'heater_runtime': {
                 'p': 'sensor',
@@ -1283,45 +1177,52 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
         if hasattr(self, 'command_source'):
             components['cmd_heat_source'] = {
                 'p': 'select',
-                'name': 'Set Heat Source',
+                'name': 'Heat Source',
                 'command_topic': self.command_source,
-                'options': ['Off', 'Combustion', 'Electric', 'Combustion & Electric'],
+                'state_topic': self.source_def_topic,
+                'options': ['Off', 'Combustion', 'Electric', 'Gas/Electric (Both)'],
                 'unique_id': self.unique_device_id + '_cmd_src'
             }
             components['cmd_pump_test'] = {
-                'p': 'select',
+                'p': 'switch',
                 'name': 'Pump Test',
                 'command_topic': self.command_pump_test,
-                'options': ['Off', 'Test'],
+                'state_topic': self.output_status_def_topic,
+                'payload_on': 'Test (Forced On)',
+                'payload_off': 'Off',
                 'unique_id': self.unique_device_id + '_cmd_pump'
             }
             components['cmd_fan_mode'] = {
                 'p': 'select',
-                'name': 'Set Fan Mode',
+                'name': 'Fan Mode',
                 'command_topic': self.command_fan_mode,
+                'state_topic': self.operating_mode_def_topic,
                 'options': ['Automatic', 'Manual'],
                 'unique_id': self.unique_device_id + '_cmd_fan_mode'
             }
             components['cmd_fan_speed'] = {
                 'p': 'number',
-                'name': 'Set Fan Speed',
+                'name': 'Fan Speed',
                 'command_topic': self.command_fan_speed,
+                'state_topic': self.circulation_fan_speed_topic,
                 'min': 0, 'max': 100, 'step': 1,
                 'unit_of_measurement': '%',
                 'unique_id': self.unique_device_id + '_cmd_fan_spd'
             }
             components['cmd_operating_mode'] = {
                 'p': 'select',
-                'name': 'Set Mode',
+                'name': 'Mode',
                 'command_topic': self.command_operating_mode,
+                'state_topic': self.thermostat_operating_mode_def_topic,
                 'options': ['Off', 'Heat', 'Auto'],
                 'unique_id': self.unique_device_id + '_cmd_mode'
             }
             components['cmd_schedule_mode'] = {
                 'p': 'select',
-                'name': 'Set Schedule Mode',
+                'name': 'Schedule Mode',
                 'command_topic': self.command_schedule_mode,
-                'options': ['Off', 'On'],
+                'state_topic': self.thermostat_schedule_mode_def_topic,
+                'options': ['Disabled', 'Enabled'],
                 'unique_id': self.unique_device_id + '_cmd_sched'
             }
             components['cmd_set_point_temperature'] = {
@@ -1329,39 +1230,44 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 'name': 'Set Point Temperature',
                 'device_class': 'temperature',
                 'command_topic': self.command_setpointtemp,
-                'min': 10, 'max': 32, 'step': 1,
+                'state_topic': self.set_point_temp_topic,
+                'min': 10, 'max': 32, 'step': 0.5,
                 'unit_of_measurement': '°C',
                 'unique_id': self.unique_device_id + '_cmd_setpt'
             }
             components['cmd_sleep_start_time'] = {
                 'p': 'text',
-                'name': 'Set Sleep Start Time',
+                'name': 'Sleep Start Time',
                 'command_topic': self.command_sleep_start_time,
+                'state_topic': self.sleep_start_time_topic,
                 'pattern': '^([01][0-9]|2[0-3]):[0-5][0-9]$',
                 'unique_id': self.unique_device_id + '_cmd_slp_st'
             }
             components['cmd_sleep_set_point_temperature'] = {
                 'p': 'number',
-                'name': 'Set Sleep Set Point Temperature',
+                'name': 'Sleep Set Point Temperature',
                 'device_class': 'temperature',
                 'command_topic': self.command_sleep_schedule_temp,
-                'min': 10, 'max': 32, 'step': 1,
+                'state_topic': self.sleep_schedule_temp_topic,
+                'min': 10, 'max': 32, 'step': 0.5,
                 'unit_of_measurement': '°C',
                 'unique_id': self.unique_device_id + '_cmd_slp_tmp'
             }
             components['cmd_wake_start_time'] = {
                 'p': 'text',
-                'name': 'Set Wake Start Time',
+                'name': 'Wake Start Time',
                 'command_topic': self.command_wake_start_time,
+                'state_topic': self.wake_start_time_topic,
                 'pattern': '^([01][0-9]|2[0-3]):[0-5][0-9]$',
                 'unique_id': self.unique_device_id + '_cmd_wak_st'
             }
             components['cmd_wake_set_point_temperature'] = {
                 'p': 'number',
-                'name': 'Set Wake Set Point Temperature',
+                'name': 'Wake Set Point Temperature',
                 'device_class': 'temperature',
                 'command_topic': self.command_wake_schedule_temp,
-                'min': 10, 'max': 32, 'step': 1,
+                'state_topic': self.wake_schedule_temp_topic,
+                'min': 10, 'max': 32, 'step': 0.5,
                 'unit_of_measurement': '°C',
                 'unique_id': self.unique_device_id + '_cmd_wak_tmp'
             }
@@ -1374,30 +1280,34 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             }
             components['cmd_hot_water_priority'] = {
                 'p': 'select',
-                'name': 'Set Hot Water Priority',
+                'name': 'Hot Water Priority',
                 'command_topic': self.command_hot_water_priority,
+                'state_topic': self.hot_water_priority_def_topic,
                 'options': ['Domestic Water Priority', 'Heating Priority'],
                 'unique_id': self.unique_device_id + '_cmd_hwp'
             }
             components['cmd_temperature_sensor'] = {
                 'p': 'select',
-                'name': 'Set Temperature Sensor',
+                'name': 'Temperature Sensor',
                 'command_topic': self.command_temperature_sensor,
+                'state_topic': self.temperature_sensor_def_topic,
                 'options': ['External Sensor', 'Panel Sensor'],
                 'unique_id': self.unique_device_id + '_cmd_tsens'
             }
             components['cmd_timers_system_limit'] = {
                 'p': 'number',
-                'name': 'Set System Limit Timer (7200 = No Limit)',
+                'name': 'System Limit Timer',
                 'command_topic': self.command_timers_system_limit,
-                'min': 60, 'max': 7200, 'step': 1,
+                'state_topic': self.system_limitation_topic,
+                'min': 60, 'max': 7200, 'step': 60,
                 'unit_of_measurement': 'min',
                 'unique_id': self.unique_device_id + '_cmd_sys_lim'
             }
             components['cmd_timers_water_limit'] = {
                 'p': 'number',
-                'name': 'Set Water Limit Timer',
+                'name': 'Water Limit Timer',
                 'command_topic': self.command_timers_water_limit,
+                'state_topic': self.water_limitation_topic,
                 'min': 30, 'max': 60, 'step': 1,
                 'unit_of_measurement': 'min',
                 'unique_id': self.unique_device_id + '_cmd_wat_lim'
