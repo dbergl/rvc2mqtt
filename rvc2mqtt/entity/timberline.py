@@ -890,6 +890,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     else:
                         self.Logger.warning(
                         f'Invalid payload {payload} for topic {topic}')
+                        return
                     self._send_thermostat_schedule_command(
                         'start_time', ScheduleInstance.SLEEP, start_time)
                 except Exception as e:
@@ -922,7 +923,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     else:
                         self.Logger.warning(
                         f'Invalid payload {payload} for topic {topic}')
-
+                        return
                     self._send_thermostat_schedule_command(
                         'start_time', ScheduleInstance.WAKE, start_time)
                 except Exception as e:
@@ -1190,6 +1191,8 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 'state_topic': self.output_status_def_topic,
                 'payload_on': 'Test (Forced On)',
                 'payload_off': 'Off',
+                'state_on': 'Test (Forced On)',
+                'state_off': 'Off',
                 'unique_id': self.unique_device_id + '_cmd_pump'
             }
             components['cmd_fan_mode'] = {

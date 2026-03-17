@@ -107,9 +107,13 @@ class app(object):
         self.entity_list = []
 
         # initialize objects from the floorplan
-        for item in argsns.fp:
-            obj = entity_factory(
-                item, self.mqtt_client, entity_factory_list)
+        for item, source_file in argsns.fp:
+            try:
+                obj = entity_factory(
+                    item, self.mqtt_client, entity_factory_list, source_file)
+            except Exception as e:
+                self.Logger.error(f"Unsupported entry in {source_file}: {str(e)}")
+                continue
             if obj is not None:
                 # add entity links if defined.  This allows one entity to reference another entity
                 for link in obj.entity_links:
@@ -267,19 +271,18 @@ def main():
                                      "%A, %B %d, %Y %I:%M%p")
     )
 
+    args.fp = []
     try:
-        fp = []
         if args.floorplan is not None:
             if os.path.isfile(args.floorplan):
                 c = load_the_config(args.floorplan)
                 if "floorplan" in c:
-                    fp.extend(c["floorplan"])
+                    args.fp.extend((item, args.floorplan) for item in c["floorplan"])
 
         if args.floorplan2 is not None:
             d = load_the_config(args.floorplan2)
             if "floorplan" in d:
-                fp.extend(d["floorplan"])
-        args.fp = fp
+                args.fp.extend((item, args.floorplan2) for item in d["floorplan"])
     except Exception as e:
         logging.critical(f"Floorplan failure: {str(e)}")
 
