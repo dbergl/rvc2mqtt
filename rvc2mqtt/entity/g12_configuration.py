@@ -213,17 +213,19 @@ class G12_Configuration(EntityPluginBaseClass):
             if self._fault_code != message_fault_code:
                 self._fault_code = message_fault_code
                 self._fault_description = fault_description
-                self.mqtt_support.client.publish(
-                    self.dm_rv_fault_code_topic,
-                    str(self._fault_code),
-                    retain=True)
-                self.mqtt_support.client.publish(
-                    self.dm_rv_fault_description_topic,
-                    self._fault_description, retain=True)
+                if hasattr(self, 'dm_rv_fault_code_topic'):
+                    self.mqtt_support.client.publish(
+                        self.dm_rv_fault_code_topic,
+                        str(self._fault_code),
+                        retain=True)
+                    self.mqtt_support.client.publish(
+                        self.dm_rv_fault_description_topic,
+                        self._fault_description, retain=True)
             if self._lamp != lamp_status:
                 self._lamp = lamp_status
-                self.mqtt_support.client.publish(
-                    self.dm_rv_lamp_topic, self._lamp, retain=True)
+                if hasattr(self, 'dm_rv_lamp_topic'):
+                    self.mqtt_support.client.publish(
+                        self.dm_rv_lamp_topic, self._lamp, retain=True)
             return True
 
         if self._is_entry_match(self.rvc_match_input_status, new_message):

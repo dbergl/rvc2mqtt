@@ -202,6 +202,17 @@ class Test_VegatouchMira(unittest.TestCase):
                            if 'fault/code' in c[0][0]]
         self.assertEqual(len(fault_publishes), 1)
 
+    def test_data_packet_invalid_bytes_logs_error(self):
+        m = self._make_mira()
+        m.process_rvc_msg({'name': 'INITIAL_PACKET', 'source_id': 'FD',
+                           'packet_count': 1, 'message_length': 7})
+        invalid_data = int.from_bytes(b'\xff\xff\xff\xff\xff\xff\xff', 'little')
+        m.process_rvc_msg({'name': 'DATA_PACKET', 'source_id': 'FD',
+                           'packet_number': 1, 'data': invalid_data})
+        self.assertEqual(m._mp_expected_count, 0)
+        self.assertEqual(m._mp_packets, {})
+        m.mqtt_support.client.publish.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()

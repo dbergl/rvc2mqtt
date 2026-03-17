@@ -137,6 +137,17 @@ class Test_Touchscreen(unittest.TestCase):
                  if c[0][0] == 'touchscreen/status/product_id']
         self.assertEqual(len(calls), 2)
 
+    def test_data_packet_invalid_bytes_logs_error(self):
+        t = self._make_ts()
+        t.process_rvc_msg({'name': 'INITIAL_PACKET', 'source_id': '9F',
+                           'packet_count': 1, 'message_length': 7})
+        invalid_data = int.from_bytes(b'\xff\xff\xff\xff\xff\xff\xff', 'little')
+        t.process_rvc_msg({'name': 'DATA_PACKET', 'source_id': '9F',
+                           'packet_number': 1, 'data': invalid_data})
+        self.assertEqual(t._mp_expected_count, 0)
+        self.assertEqual(t._mp_packets, {})
+        t.mqtt_support.client.publish.assert_not_called()
+
 
     # --- DM_RV tests ---
 

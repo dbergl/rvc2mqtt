@@ -191,6 +191,35 @@ class Test_Aps500(unittest.TestCase):
         l.mqtt_support.client.publish.assert_called_with(
             'aps500/status//product_id', 'APS500 v2.0', retain=True)
 
+    def test_data_packet_duplicate_mid_sequence_ignored(self):
+        # count=2: packet 1 sent twice before packet 2 arrives — hits duplicate branch
+        l = self._make_aps()
+        l.process_rvc_msg({
+            'name': 'INITIAL_PACKET', 'source_id': '80',
+            'packet_count': 2, 'message_length': 7,
+        })
+        pkt1 = {'name': 'DATA_PACKET', 'source_id': '80', 'packet_number': 1, 'data': 0}
+        l.process_rvc_msg(pkt1)
+        l.process_rvc_msg(pkt1)  # true duplicate mid-sequence
+        self.assertEqual(len(l._mp_packets), 1)  # still only one unique packet
+        l.mqtt_support.client.publish.assert_not_called()
+
+    def test_data_packet_invalid_bytes_logs_error(self):
+        # non-ASCII bytes trigger the decode exception path
+        l = self._make_aps()
+        l.process_rvc_msg({
+            'name': 'INITIAL_PACKET', 'source_id': '80',
+            'packet_count': 1, 'message_length': 7,
+        })
+        invalid_data = int.from_bytes(b'\xff\xff\xff\xff\xff\xff\xff', 'little')
+        l.process_rvc_msg({'name': 'DATA_PACKET', 'source_id': '80',
+                           'packet_number': 1, 'data': invalid_data})
+        # state reset in finally block
+        self.assertEqual(l._mp_expected_count, 0)
+        self.assertEqual(l._mp_packets, {})
+        l.mqtt_support.client.publish.assert_not_called()
+
+
 class Test_APS500_ChargerEqualizationStatus(unittest.TestCase):
 
     def _make_aps(self):

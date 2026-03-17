@@ -731,6 +731,8 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             processed = True
         elif self._is_entry_match(self.rvc_dm_rv, new_message):
             self.Logger.debug(f"Msg Match DM_RV: {str(new_message)}")
+            # Per Timberline RV-C spec: only red lamp is used (DSA=101), SPN-MSB holds
+            # the error code (0xFF = no fault), SPN-ISB is the instance, bytes 4-7 unused.
             message_fault_code = str(
                 int(f"{new_message['spn-msb']:08b}"
                 ,2))
@@ -788,7 +790,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                             self._send_waterheater_command(1)
                         case '2' | '02' | 'electric':
                             self._send_waterheater_command(2)
-                        case '3' | '03' | 'both':
+                        case '3' | '03' | 'both' | 'combustion & electric':
                             self._send_waterheater_command(3)
                         case _:
                             self.Logger.warning(
@@ -967,13 +969,13 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
             case self.command_hot_water_priority:
                 try:
-                    match payload:
+                    match payload.lower():
                         # In this custom DGN the values expected for heating vs hot water priority
                         # are the opposite of WATERHEATER_STATUS_2.
                         # Match WATERHEATER_STATUS_2 to keep it consistent
-                        case '0' | '00' | 'water':
+                        case '0' | '00' | 'water' | 'heating priority':
                             self._send_extension_command('hot_water_priority', 0b01)
-                        case '1' | '01' | 'heat':
+                        case '1' | '01' | 'heat' | 'domestic water priority':
                             self._send_extension_command('hot_water_priority', 0b00)
                         case _:
                             self.Logger.warning(
@@ -983,10 +985,10 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
             case self.command_temperature_sensor:
                 try:
-                    match payload:
-                        case '0' | '00' | 'external' :
+                    match payload.lower():
+                        case '0' | '00' | 'external' | 'external sensor':
                             self._send_extension_command('temp_sensor', 0b00)
-                        case '1' | '01' | 'panel' :
+                        case '1' | '01' | 'panel' | 'panel sensor':
                             self._send_extension_command('temp_sensor', 0b01)
                         case _:
                             self.Logger.warning(
@@ -1017,15 +1019,152 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
     def publish_ha_discovery_config(self):
         origin = {'name': self.mqtt_support.get_bridge_ha_name()}
         components = {
+            # WATERHEATER_STATUS
+            'heat_source': {
+                'p': 'sensor',
+                'name': 'Heat Source',
+                'value_template': '{{value}}',
+                'state_topic': self.source_def_topic,
+                'unique_id': self.unique_device_id + '_heatsrc'
+            },
+            'heat_exchanger_temperature': {
+                'p': 'sensor', 'device_class': 'temperature',
+                'name': 'Heat Exchanger Temperature',
+                'unit_of_measurement': '°C', 'suggested_display_precision': '2',
+                'value_template': '{{value}}',
+                'state_topic': self.waterheater_temp_topic,
+                'unique_id': self.unique_device_id + '_hx_temp'
+            },
+            'burner_status': {
+                'p': 'sensor',
+                'name': 'Burner Status',
+                'value_template': '{{value}}',
+                'state_topic': self.burner_status_def_topic,
+                'unique_id': self.unique_device_id + '_burner'
+            },
+            'ac_element_status': {
+                'p': 'sensor',
+                'name': 'AC Element Status',
+                'value_template': '{{value}}',
+                'state_topic': self.ac_element_status_def_topic,
+                'unique_id': self.unique_device_id + '_ac_elem'
+            },
+            'failure_to_ignite': {
+                'p': 'sensor',
+                'name': 'Failure to Ignite',
+                'value_template': '{{value}}',
+                'state_topic': self.failure_to_ignite_status_def_topic,
+                'unique_id': self.unique_device_id + '_fti'
+            },
+            'hot_water_priority': {
+                'p': 'sensor',
+                'name': 'Hot Water Priority',
+                'value_template': '{{value}}',
+                'state_topic': self.hot_water_priority_def_topic,
+                'unique_id': self.unique_device_id + '_hw_pri'
+            },
+            'pump_status': {
+                'p': 'sensor',
+                'name': 'Pump Status',
+                'value_template': '{{value}}',
+                'state_topic': self.output_status_def_topic,
+                'unique_id': self.unique_device_id + '_pump'
+            },
+            # FURNACE_STATUS
+            'fan_mode': {
+                'p': 'sensor',
+                'name': 'Fan Mode',
+                'value_template': '{{value}}',
+                'state_topic': self.operating_mode_def_topic,
+                'unique_id': self.unique_device_id + '_fan_mode'
+            },
+            'fan_speed': {
+                'p': 'sensor',
+                'name': 'Fan Speed',
+                'unit_of_measurement': '%',
+                'value_template': '{{value}}',
+                'state_topic': self.circulation_fan_speed_topic,
+                'unique_id': self.unique_device_id + '_fan_spd'
+            },
+            # THERMOSTAT_STATUS_1
+            'mode': {
+                'p': 'sensor',
+                'name': 'Mode',
+                'value_template': '{{value}}',
+                'state_topic': self.thermostat_operating_mode_def_topic,
+                'unique_id': self.unique_device_id + '_mode'
+            },
+            'schedule_mode': {
+                'p': 'sensor',
+                'name': 'Schedule Mode',
+                'value_template': '{{value}}',
+                'state_topic': self.thermostat_schedule_mode_def_topic,
+                'unique_id': self.unique_device_id + '_sched_mode'
+            },
             'set_point_temperature': {
                 'p': 'sensor', 'device_class': 'temperature',
+                'name': 'Set Point Temperature',
                 'unit_of_measurement': '°C', 'suggested_display_precision': '2',
                 'value_template': '{{value}}',
                 'state_topic': self.set_point_temp_topic,
                 'unique_id': self.unique_device_id + '_setpoint'
             },
+            'current_schedule': {
+                'p': 'sensor',
+                'name': 'Current Schedule',
+                'value_template': '{{value}}',
+                'state_topic': self.current_schedule_instance_def_topic,
+                'unique_id': self.unique_device_id + '_cur_sched'
+            },
+            # THERMOSTAT_SCHEDULE_STATUS_1
+            'sleep_start_time': {
+                'p': 'sensor',
+                'name': 'Sleep Start Time',
+                'value_template': '{{value}}',
+                'state_topic': self.sleep_start_time_topic,
+                'unique_id': self.unique_device_id + '_slp_start'
+            },
+            'sleep_set_point_temperature': {
+                'p': 'sensor', 'device_class': 'temperature',
+                'name': 'Sleep Set Point Temperature',
+                'unit_of_measurement': '°C', 'suggested_display_precision': '2',
+                'value_template': '{{value}}',
+                'state_topic': self.sleep_schedule_temp_topic,
+                'unique_id': self.unique_device_id + '_slp_temp'
+            },
+            'wake_start_time': {
+                'p': 'sensor',
+                'name': 'Wake Start Time',
+                'value_template': '{{value}}',
+                'state_topic': self.wake_start_time_topic,
+                'unique_id': self.unique_device_id + '_wak_start'
+            },
+            'wake_set_point_temperature': {
+                'p': 'sensor', 'device_class': 'temperature',
+                'name': 'Wake Set Point Temperature',
+                'unit_of_measurement': '°C', 'suggested_display_precision': '2',
+                'value_template': '{{value}}',
+                'state_topic': self.wake_schedule_temp_topic,
+                'unique_id': self.unique_device_id + '_wak_temp'
+            },
+            # TIMBERLINE_PROPRIETARY (0x82)
+            'solenoid': {
+                'p': 'sensor',
+                'name': 'Solenoid',
+                'value_template': '{{value}}',
+                'state_topic': self.solenoid_def_topic,
+                'unique_id': self.unique_device_id + '_solenoid'
+            },
+            'temperature_sensor': {
+                'p': 'sensor',
+                'name': 'Temperature Sensor',
+                'value_template': '{{value}}',
+                'state_topic': self.temperature_sensor_def_topic,
+                'unique_id': self.unique_device_id + '_temp_sens'
+            },
             'tank_temperature': {
                 'p': 'sensor', 'device_class': 'temperature',
+                'name': 'Tank Temperature',
                 'unit_of_measurement': '°C', 'suggested_display_precision': '2',
                 'value_template': '{{value}}',
                 'state_topic': self.tank_temperature_topic,
@@ -1033,37 +1172,236 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             },
             'heater_temperature': {
                 'p': 'sensor', 'device_class': 'temperature',
+                'name': 'Heater Temperature',
                 'unit_of_measurement': '°C', 'suggested_display_precision': '2',
                 'value_template': '{{value}}',
                 'state_topic': self.heater_temperature_topic,
                 'unique_id': self.unique_device_id + '_heater_temp'
             },
-            'heat_exchanger_temperature': {
-                'p': 'sensor', 'device_class': 'temperature',
-                'unit_of_measurement': '°C', 'suggested_display_precision': '2',
-                'value_template': '{{value}}',
-                'state_topic': self.waterheater_temp_topic,
-                'unique_id': self.unique_device_id + '_hx_temp'
-            },
-            'mode': {
+            # TIMBERLINE_PROPRIETARY (0x88)
+            'system_timer': {
                 'p': 'sensor',
+                'name': 'System Timer',
+                'unit_of_measurement': 'min',
                 'value_template': '{{value}}',
-                'state_topic': self.thermostat_operating_mode_def_topic,
-                'unique_id': self.unique_device_id + '_mode'
+                'state_topic': self.system_timer_topic,
+                'unique_id': self.unique_device_id + '_sys_timer'
             },
-            'burner_status': {
+            'domestic_water_timer': {
                 'p': 'sensor',
+                'name': 'Domestic Water Timer',
+                'unit_of_measurement': 'min',
                 'value_template': '{{value}}',
-                'state_topic': self.burner_status_def_topic,
-                'unique_id': self.unique_device_id + '_burner'
+                'state_topic': self.domestic_water_timer_topic,
+                'unique_id': self.unique_device_id + '_dw_timer'
             },
-            'pump_status': {
+            'pump_override_timer': {
                 'p': 'sensor',
+                'name': 'Pump Override Timer',
+                'unit_of_measurement': 'min',
                 'value_template': '{{value}}',
-                'state_topic': self.output_status_def_topic,
-                'unique_id': self.unique_device_id + '_pump'
+                'state_topic': self.pump_override_timer_topic,
+                'unique_id': self.unique_device_id + '_po_timer'
+            },
+            # TIMBERLINE_PROPRIETARY (0x89)
+            'system_limitation': {
+                'p': 'sensor',
+                'name': 'System Limitation',
+                'value_template': '{{value}}',
+                'state_topic': self.system_limitation_topic,
+                'unique_id': self.unique_device_id + '_sys_lim'
+            },
+            'water_limitation': {
+                'p': 'sensor',
+                'name': 'Water Limitation',
+                'value_template': '{{value}}',
+                'state_topic': self.water_limitation_topic,
+                'unique_id': self.unique_device_id + '_wat_lim'
+            },
+            # TIMBERLINE_PROPRIETARY (0x8A) — info/version
+            'heater_runtime': {
+                'p': 'sensor',
+                'name': 'Heater Runtime',
+                'unit_of_measurement': 'min',
+                'value_template': '{{value}}',
+                'state_topic': self.heater_minutes_topic,
+                'unique_id': self.unique_device_id + '_htr_min'
+            },
+            'heater_version': {
+                'p': 'sensor',
+                'name': 'Heater Version',
+                'value_template': '{{value}}',
+                'state_topic': self.heater_version_topic,
+                'unique_id': self.unique_device_id + '_htr_ver'
+            },
+            'panel_runtime': {
+                'p': 'sensor',
+                'name': 'Panel Runtime',
+                'unit_of_measurement': 'min',
+                'value_template': '{{value}}',
+                'state_topic': self.minutes_since_start_topic,
+                'unique_id': self.unique_device_id + '_pnl_min'
+            },
+            'panel_version': {
+                'p': 'sensor',
+                'name': 'Panel Version',
+                'value_template': '{{value}}',
+                'state_topic': self.panel_version_topic,
+                'unique_id': self.unique_device_id + '_pnl_ver'
+            },
+            'hcu_version': {
+                'p': 'sensor',
+                'name': 'HCU Version',
+                'value_template': '{{value}}',
+                'state_topic': self.hcu_version_topic,
+                'unique_id': self.unique_device_id + '_hcu_ver'
+            },
+            # DM_RV
+            'fault_code': {
+                'p': 'sensor',
+                'name': 'Fault Code',
+                'value_template': '{{value}}',
+                'state_topic': self.dm_rv_fault_code_topic,
+                'unique_id': self.unique_device_id + '_fault_code'
+            },
+            'fault_description': {
+                'p': 'sensor',
+                'name': 'Fault Description',
+                'value_template': '{{value}}',
+                'state_topic': self.dm_rv_fault_description_topic,
+                'unique_id': self.unique_device_id + '_fault_desc'
+            },
+            'fault_lamp': {
+                'p': 'sensor',
+                'name': 'Fault Lamp',
+                'value_template': '{{value}}',
+                'state_topic': self.dm_rv_lamp_topic,
+                'unique_id': self.unique_device_id + '_fault_lamp'
             },
         }
+        # Commands (only present when command_topic is configured)
+        if hasattr(self, 'command_source'):
+            components['cmd_heat_source'] = {
+                'p': 'select',
+                'name': 'Set Heat Source',
+                'command_topic': self.command_source,
+                'options': ['Off', 'Combustion', 'Electric', 'Combustion & Electric'],
+                'unique_id': self.unique_device_id + '_cmd_src'
+            }
+            components['cmd_pump_test'] = {
+                'p': 'select',
+                'name': 'Pump Test',
+                'command_topic': self.command_pump_test,
+                'options': ['Off', 'Test'],
+                'unique_id': self.unique_device_id + '_cmd_pump'
+            }
+            components['cmd_fan_mode'] = {
+                'p': 'select',
+                'name': 'Set Fan Mode',
+                'command_topic': self.command_fan_mode,
+                'options': ['Automatic', 'Manual'],
+                'unique_id': self.unique_device_id + '_cmd_fan_mode'
+            }
+            components['cmd_fan_speed'] = {
+                'p': 'number',
+                'name': 'Set Fan Speed',
+                'command_topic': self.command_fan_speed,
+                'min': 0, 'max': 100, 'step': 1,
+                'unit_of_measurement': '%',
+                'unique_id': self.unique_device_id + '_cmd_fan_spd'
+            }
+            components['cmd_operating_mode'] = {
+                'p': 'select',
+                'name': 'Set Mode',
+                'command_topic': self.command_operating_mode,
+                'options': ['Off', 'Heat', 'Auto'],
+                'unique_id': self.unique_device_id + '_cmd_mode'
+            }
+            components['cmd_schedule_mode'] = {
+                'p': 'select',
+                'name': 'Set Schedule Mode',
+                'command_topic': self.command_schedule_mode,
+                'options': ['Off', 'On'],
+                'unique_id': self.unique_device_id + '_cmd_sched'
+            }
+            components['cmd_set_point_temperature'] = {
+                'p': 'number',
+                'name': 'Set Point Temperature',
+                'device_class': 'temperature',
+                'command_topic': self.command_setpointtemp,
+                'min': 10, 'max': 32, 'step': 1,
+                'unit_of_measurement': '°C',
+                'unique_id': self.unique_device_id + '_cmd_setpt'
+            }
+            components['cmd_sleep_start_time'] = {
+                'p': 'text',
+                'name': 'Set Sleep Start Time',
+                'command_topic': self.command_sleep_start_time,
+                'pattern': '^([01][0-9]|2[0-3]):[0-5][0-9]$',
+                'unique_id': self.unique_device_id + '_cmd_slp_st'
+            }
+            components['cmd_sleep_set_point_temperature'] = {
+                'p': 'number',
+                'name': 'Set Sleep Set Point Temperature',
+                'device_class': 'temperature',
+                'command_topic': self.command_sleep_schedule_temp,
+                'min': 10, 'max': 32, 'step': 1,
+                'unit_of_measurement': '°C',
+                'unique_id': self.unique_device_id + '_cmd_slp_tmp'
+            }
+            components['cmd_wake_start_time'] = {
+                'p': 'text',
+                'name': 'Set Wake Start Time',
+                'command_topic': self.command_wake_start_time,
+                'pattern': '^([01][0-9]|2[0-3]):[0-5][0-9]$',
+                'unique_id': self.unique_device_id + '_cmd_wak_st'
+            }
+            components['cmd_wake_set_point_temperature'] = {
+                'p': 'number',
+                'name': 'Set Wake Set Point Temperature',
+                'device_class': 'temperature',
+                'command_topic': self.command_wake_schedule_temp,
+                'min': 10, 'max': 32, 'step': 1,
+                'unit_of_measurement': '°C',
+                'unique_id': self.unique_device_id + '_cmd_wak_tmp'
+            }
+            components['cmd_clear_errors'] = {
+                'p': 'button',
+                'name': 'Clear Errors',
+                'command_topic': self.command_clear_errors,
+                'payload_press': '1',
+                'unique_id': self.unique_device_id + '_cmd_clrerr'
+            }
+            components['cmd_hot_water_priority'] = {
+                'p': 'select',
+                'name': 'Set Hot Water Priority',
+                'command_topic': self.command_hot_water_priority,
+                'options': ['Domestic Water Priority', 'Heating Priority'],
+                'unique_id': self.unique_device_id + '_cmd_hwp'
+            }
+            components['cmd_temperature_sensor'] = {
+                'p': 'select',
+                'name': 'Set Temperature Sensor',
+                'command_topic': self.command_temperature_sensor,
+                'options': ['External Sensor', 'Panel Sensor'],
+                'unique_id': self.unique_device_id + '_cmd_tsens'
+            }
+            components['cmd_timers_system_limit'] = {
+                'p': 'number',
+                'name': 'Set System Limit Timer (7200 = No Limit)',
+                'command_topic': self.command_timers_system_limit,
+                'min': 60, 'max': 7200, 'step': 1,
+                'unit_of_measurement': 'min',
+                'unique_id': self.unique_device_id + '_cmd_sys_lim'
+            }
+            components['cmd_timers_water_limit'] = {
+                'p': 'number',
+                'name': 'Set Water Limit Timer',
+                'command_topic': self.command_timers_water_limit,
+                'min': 30, 'max': 60, 'step': 1,
+                'unit_of_measurement': 'min',
+                'unique_id': self.unique_device_id + '_cmd_wat_lim'
+            }
         config = {'dev': self.device, 'o': origin, 'cmps': components, 'qos': 1}
         config.update(self.get_availability_discovery_info_for_ha())
         config_json = json.dumps(config)

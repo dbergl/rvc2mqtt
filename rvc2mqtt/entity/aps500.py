@@ -528,8 +528,9 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                     if product_id != self._product_id:
                         self._product_id = product_id
                         self.Logger.info(f"PRODUCT_IDENTIFICATION: {product_id}")
-                        self.mqtt_support.client.publish(
-                            self.product_id_topic, product_id, retain=True)
+                        if hasattr(self, 'product_id_topic'):
+                            self.mqtt_support.client.publish(
+                                self.product_id_topic, product_id, retain=True)
                 except Exception as e:
                     self.Logger.error(f"Failed to decode PRODUCT_IDENTIFICATION: {e}")
                 finally:
@@ -739,8 +740,10 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
     def publish_ha_discovery_config(self):
         origin = {'name': self.mqtt_support.get_bridge_ha_name()}
         components = {
+            # CHARGER_STATUS
             'charge_voltage': {
                 'p': 'sensor', 'device_class': 'voltage',
+                'name': 'Charge Voltage',
                 'unit_of_measurement': 'V', 'suggested_display_precision': '2',
                 'value_template': '{{value}}',
                 'state_topic': self.charge_voltage_topic,
@@ -748,35 +751,210 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             },
             'charge_current': {
                 'p': 'sensor', 'device_class': 'current',
+                'name': 'Charge Current',
                 'unit_of_measurement': 'A', 'suggested_display_precision': '2',
                 'value_template': '{{value}}',
                 'state_topic': self.charge_current_topic,
                 'unique_id': self.unique_device_id + '_charge_a'
             },
+            'charge_current_pct': {
+                'p': 'sensor',
+                'name': 'Charge Current %',
+                'unit_of_measurement': '%',
+                'value_template': '{{value}}',
+                'state_topic': self.charge_current_pct_topic,
+                'unique_id': self.unique_device_id + '_charge_a_pct'
+            },
             'operating_state': {
                 'p': 'sensor',
+                'name': 'Operating State',
                 'value_template': '{{value}}',
                 'state_topic': self.operating_state_topic,
                 'unique_id': self.unique_device_id + '_op_state'
             },
+            'power_up_default_state': {
+                'p': 'sensor',
+                'name': 'Power-Up Default State',
+                'value_template': '{{value}}',
+                'state_topic': self.power_up_default_state_topic,
+                'unique_id': self.unique_device_id + '_pu_state'
+            },
+            'auto_recharge_enable': {
+                'p': 'sensor',
+                'name': 'Auto Recharge Enable',
+                'value_template': '{{value}}',
+                'state_topic': self.auto_recharge_enable_topic,
+                'unique_id': self.unique_device_id + '_auto_rchg'
+            },
+            'force_charge': {
+                'p': 'sensor',
+                'name': 'Force Charge',
+                'value_template': '{{value}}',
+                'state_topic': self.force_charge_topic,
+                'unique_id': self.unique_device_id + '_force_chg'
+            },
+            # CHARGER_STATUS_2
+            'charging_voltage': {
+                'p': 'sensor', 'device_class': 'voltage',
+                'name': 'Charging Voltage',
+                'unit_of_measurement': 'V', 'suggested_display_precision': '2',
+                'value_template': '{{value}}',
+                'state_topic': self.charging_voltage_topic,
+                'unique_id': self.unique_device_id + '_chging_v'
+            },
+            'charging_current': {
+                'p': 'sensor', 'device_class': 'current',
+                'name': 'Charging Current',
+                'unit_of_measurement': 'A', 'suggested_display_precision': '2',
+                'value_template': '{{value}}',
+                'state_topic': self.charging_current_topic,
+                'unique_id': self.unique_device_id + '_chging_a'
+            },
             'charger_temperature': {
                 'p': 'sensor', 'device_class': 'temperature',
+                'name': 'Charger Temperature',
                 'unit_of_measurement': '°C', 'suggested_display_precision': '1',
                 'value_template': '{{value}}',
                 'state_topic': self.charger_temperature_topic,
                 'unique_id': self.unique_device_id + '_chg_temp'
             },
+            # DC_SOURCE_STATUS_4
+            'desired_charge_state': {
+                'p': 'sensor',
+                'name': 'Desired Charge State',
+                'value_template': '{{value}}',
+                'state_topic': self.desired_charge_state_topic,
+                'unique_id': self.unique_device_id + '_des_chg_st'
+            },
+            'desired_dc_voltage': {
+                'p': 'sensor', 'device_class': 'voltage',
+                'name': 'Desired DC Voltage',
+                'unit_of_measurement': 'V', 'suggested_display_precision': '2',
+                'value_template': '{{value}}',
+                'state_topic': self.desired_dc_voltage_topic,
+                'unique_id': self.unique_device_id + '_des_dc_v'
+            },
+            'desired_dc_current': {
+                'p': 'sensor', 'device_class': 'current',
+                'name': 'Desired DC Current',
+                'unit_of_measurement': 'A', 'suggested_display_precision': '2',
+                'value_template': '{{value}}',
+                'state_topic': self.desired_dc_current_topic,
+                'unique_id': self.unique_device_id + '_des_dc_a'
+            },
+            # DC_SOURCE_STATUS_5
+            'hp_dc_voltage': {
+                'p': 'sensor', 'device_class': 'voltage',
+                'name': 'HP DC Voltage',
+                'unit_of_measurement': 'V', 'suggested_display_precision': '3',
+                'value_template': '{{value}}',
+                'state_topic': self.hp_dc_voltage_topic,
+                'unique_id': self.unique_device_id + '_hp_dc_v'
+            },
+            # CHARGER_CONFIGURATION_STATUS
+            'charging_algorithm': {
+                'p': 'sensor',
+                'name': 'Charging Algorithm',
+                'value_template': '{{value}}',
+                'state_topic': self.charging_algorithm_topic,
+                'unique_id': self.unique_device_id + '_chg_algo'
+            },
+            'charging_mode': {
+                'p': 'sensor',
+                'name': 'Charging Mode',
+                'value_template': '{{value}}',
+                'state_topic': self.charging_mode_topic,
+                'unique_id': self.unique_device_id + '_chg_mode'
+            },
+            'battery_sensor_present': {
+                'p': 'sensor',
+                'name': 'Battery Sensor Present',
+                'value_template': '{{value}}',
+                'state_topic': self.battery_sensor_present_topic,
+                'unique_id': self.unique_device_id + '_bat_sens'
+            },
+            # CHARGER_EQUALIZATION_STATUS
+            'equalization_time_remaining': {
+                'p': 'sensor',
+                'name': 'Equalization Time Remaining',
+                'unit_of_measurement': 's',
+                'value_template': '{{value}}',
+                'state_topic': self.equalization_time_remaining_topic,
+                'unique_id': self.unique_device_id + '_eq_time'
+            },
+            'equalization_pre_charging_status': {
+                'p': 'sensor',
+                'name': 'Equalization Pre-Charging Status',
+                'value_template': '{{value}}',
+                'state_topic': self.equalization_pre_charging_status_topic,
+                'unique_id': self.unique_device_id + '_eq_prchg'
+            },
+            # BATTERY_STATUS_11
+            'charge_detected': {
+                'p': 'sensor',
+                'name': 'Charge Detected',
+                'value_template': '{{value}}',
+                'state_topic': self.charge_detected_topic,
+                'unique_id': self.unique_device_id + '_chg_det'
+            },
+            'reserve_status': {
+                'p': 'sensor',
+                'name': 'Reserve Status',
+                'value_template': '{{value}}',
+                'state_topic': self.reserve_status_topic,
+                'unique_id': self.unique_device_id + '_reserve'
+            },
+            # DM_RV
             'fault_code': {
                 'p': 'sensor',
+                'name': 'Fault Code',
                 'value_template': '{{value}}',
                 'state_topic': self.dm_rv_fault_code_topic,
                 'unique_id': self.unique_device_id + '_fault_code'
             },
             'fault_description': {
                 'p': 'sensor',
+                'name': 'Fault Description',
                 'value_template': '{{value}}',
                 'state_topic': self.dm_rv_fault_description_topic,
                 'unique_id': self.unique_device_id + '_fault_desc'
+            },
+            'fault_lamp': {
+                'p': 'sensor',
+                'name': 'Fault Lamp',
+                'value_template': '{{value}}',
+                'state_topic': self.dm_rv_lamp_topic,
+                'unique_id': self.unique_device_id + '_fault_lamp'
+            },
+            # PRODUCT_ID
+            'product_id': {
+                'p': 'sensor',
+                'name': 'Product ID',
+                'value_template': '{{value}}',
+                'state_topic': self.product_id_topic,
+                'unique_id': self.unique_device_id + '_product_id'
+            },
+            # Commands
+            'reset': {
+                'p': 'button',
+                'name': 'Reset',
+                'command_topic': self.reset_command_topic,
+                'payload_press': '1',
+                'unique_id': self.unique_device_id + '_reset'
+            },
+            'request_last_fault': {
+                'p': 'button',
+                'name': 'Request Last Fault',
+                'command_topic': self.request_last_fault_command_topic,
+                'payload_press': '1',
+                'unique_id': self.unique_device_id + '_rlf_btn'
+            },
+            'last_fault_response': {
+                'p': 'sensor',
+                'name': 'Last Fault Response',
+                'value_template': '{{value}}',
+                'state_topic': self.request_last_fault_status_topic,
+                'unique_id': self.unique_device_id + '_rlf_resp'
             },
         }
         config = {'dev': self.device, 'o': origin, 'cmps': components, 'qos': 1}
