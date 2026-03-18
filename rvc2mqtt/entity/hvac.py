@@ -199,6 +199,25 @@ class HvacClass(EntityPluginBaseClass):
         self._mode     = HvacMode.OFF
         self._fan_mode = FanMode.OFF
 
+        valid_hvac_modes = {e.value for e in HvacMode}
+        valid_fan_modes  = {e.value for e in FanMode}
+
+        if 'hvac_modes' in data:
+            invalid = [m for m in data['hvac_modes'] if m not in valid_hvac_modes]
+            if invalid:
+                self.Logger.warning(f"Unknown hvac_modes ignored: {invalid}. Valid: {sorted(valid_hvac_modes)}")
+            self._hvac_modes = [m for m in data['hvac_modes'] if m in valid_hvac_modes]
+        else:
+            self._hvac_modes = HvacClass.MQTT_SUPPORTED_MODES
+
+        if 'fan_modes' in data:
+            invalid = [m for m in data['fan_modes'] if m not in valid_fan_modes]
+            if invalid:
+                self.Logger.warning(f"Unknown fan_modes ignored: {invalid}. Valid: {sorted(valid_fan_modes)}")
+            self._fan_modes = [m for m in data['fan_modes'] if m in valid_fan_modes]
+        else:
+            self._fan_modes = HvacClass.MQTT_SUPPORTED_FAN_MODE
+
 
         self._set_point_temperature = 16.09
         self._set_point_temperaturef = 61.0
@@ -443,7 +462,7 @@ class HvacClass(EntityPluginBaseClass):
 
     def publish_ha_discovery_config(self):
         config = {"name": self.name,
-                  "modes": HvacClass.MQTT_SUPPORTED_MODES,
+                  "modes": self._hvac_modes,
                   "mode_state_topic": self.status_mode_topic,
                   "mode_state_template": '{{value}}',
                   "mode_command_topic": self.command_mode_topic,
@@ -453,7 +472,7 @@ class HvacClass(EntityPluginBaseClass):
                   "min_temp": HvacClass.MIN_TEMP,
                   "max_temp": HvacClass.MAX_TEMP,
 
-                  "fan_modes": HvacClass.MQTT_SUPPORTED_FAN_MODE,
+                  "fan_modes": self._fan_modes,
                   "fan_mode_state_topic": self.status_fan_mode_topic,
                   "fan_mode_state_template": '{{value}}',
                   "fan_mode_command_topic": self.command_fan_mode_topic,

@@ -18,6 +18,7 @@ limitations under the License.
 
 """
 
+import json
 import logging
 import struct
 from rvc2mqtt.mqtt import MQTT_Support
@@ -61,6 +62,14 @@ class G12_Configuration(EntityPluginBaseClass):
         self.id = "g12-configuration-15FCE-" + str(data['source_id'])
         super().__init__(data, mqtt_support)
         self.Logger = logging.getLogger(__class__.__name__)
+
+        self.name = data.get('instance_name', 'Generator Controller')
+        self.device = {
+            'mf': 'Firefly Integrations',
+            'ids': self.unique_device_id,
+            'mdl': 'Firefly G12 Control Module',
+            'name': self.name
+        }
 
         self.source_id = str(data['source_id'])
 
@@ -534,3 +543,112 @@ class G12_Configuration(EntityPluginBaseClass):
 
         except Exception as e:
             self.Logger.error(f"Failed to process MQTT set message on {topic}: {e}")
+
+    def publish_ha_discovery_config(self):
+        """Publish Home Assistant MQTT auto-discovery config for all G12 entities."""
+        if not hasattr(self, 'max_engine_run_time_topic'):
+            return
+
+        has_cmd = hasattr(self, 'max_engine_run_time_set_topic')
+        origin = {'name': self.mqtt_support.get_bridge_ha_name()}
+        cmps = {}
+
+        # --- number entities ---
+        number_specs = [
+            ('max_engine_run_time',  self.max_engine_run_time_topic,
+             self.max_engine_run_time_set_topic if has_cmd else None,
+             'Max Engine Run Time', {'unit_of_measurement': 'min', 'min': 60, 'max': 115, 'step': 1, 'mode': 'auto'}),
+            ('time_at_start_volts',  self.time_at_start_volts_topic,
+             self.time_at_start_volts_set_topic if has_cmd else None,
+             'Time at Start Volts',  {'unit_of_measurement': 's',   'min': 10, 'max': 300, 'step': 10, 'mode': 'auto'}),
+            ('time_at_stop_volts',   self.time_at_stop_volts_topic,
+             self.time_at_stop_volts_set_topic if has_cmd else None,
+             'Time at Stop Volts',   {'unit_of_measurement': 's',   'min': 600, 'max': 3600, 'step': 300, 'mode': 'auto'}),
+            ('stop_at_voltage',      self.stop_at_voltage_topic,
+             self.stop_at_voltage_set_topic if has_cmd else None,
+             'Stop at Voltage',
+             {'unit_of_measurement': 'V', 'device_class': 'voltage', 'min': 50.0, 'max': 54.0, 'step': 0.1, 'mode': 'auto'}),
+            ('start_at_voltage',     self.start_at_voltage_topic,
+             self.start_at_voltage_set_topic if has_cmd else None,
+             'Start at Voltage',
+             {'unit_of_measurement': 'V', 'device_class': 'voltage', 'min': 52.0, 'max': 54.8, 'step': 0.1, 'mode': 'auto'}),
+            ('threshold_33_pct',     self.threshold_cc_topic,
+             self.threshold_cc_set_topic if has_cmd else None,
+             'Tank Threshold 33%',   {'unit_of_measurement': '',    'min': 0, 'max': 65535, 'step': 1, 'mode': 'auto'}),
+            ('threshold_66_pct',     self.threshold_cd_topic,
+             self.threshold_cd_set_topic if has_cmd else None,
+             'Tank Threshold 66%',   {'unit_of_measurement': '',    'min': 0, 'max': 65535, 'step': 1, 'mode': 'auto'}),
+            ('threshold_100_pct',    self.threshold_ce_topic,
+             self.threshold_ce_set_topic if has_cmd else None,
+             'Tank Threshold 100%',  {'unit_of_measurement': '',    'min': 0, 'max': 65535, 'step': 1, 'mode': 'auto'}),
+        ]
+        for sub_id, state_topic, cmd_topic, label, extra in number_specs:
+            cmp = {'p': 'number', 'name': label,
+                   'state_topic': state_topic,
+                   'unique_id': self.unique_device_id + '_' + sub_id}
+            cmp.update(extra)
+            if cmd_topic:
+                cmp['command_topic'] = cmd_topic
+            cmps[sub_id] = cmp
+
+        # --- text entities (quiet time) ---
+        text_specs = [
+            ('quiet_time_start', self.quiet_time_start_topic,
+             self.quiet_time_start_set_topic if has_cmd else None,
+             'Quiet Time Start'),
+            ('quiet_time_stop',  self.quiet_time_stop_topic,
+             self.quiet_time_stop_set_topic if has_cmd else None,
+             'Quiet Time Stop'),
+        ]
+        for sub_id, state_topic, cmd_topic, label in text_specs:
+            cmp = {'p': 'text', 'name': label,
+                   'state_topic': state_topic,
+                   'pattern': r'^([01]\d|2[0-3]):[0-5]\d$',
+                   'unique_id': self.unique_device_id + '_' + sub_id}
+            if cmd_topic:
+                cmp['command_topic'] = cmd_topic
+            cmps[sub_id] = cmp
+
+        # --- read-only sensors ---
+        cmps['product_id'] = {
+            'p': 'sensor', 'name': 'Product ID',
+            'state_topic': self.product_id_topic,
+            'enabled_by_default': False,
+            'unique_id': self.unique_device_id + '_product_id'}
+
+        cmps['fault_code'] = {
+            'p': 'sensor', 'name': 'Fault Code',
+            'state_topic': self.dm_rv_fault_code_topic,
+            'unique_id': self.unique_device_id + '_fault_code'}
+
+        cmps['fault_description'] = {
+            'p': 'sensor', 'name': 'Fault Description',
+            'state_topic': self.dm_rv_fault_description_topic,
+            'enabled_by_default': False,
+            'unique_id': self.unique_device_id + '_fault_description'}
+
+        cmps['fault_lamp'] = {
+            'p': 'binary_sensor', 'name': 'Fault Lamp',
+            'state_topic': self.dm_rv_lamp_topic,
+            'device_class': 'problem',
+            'payload_on': 'on', 'payload_off': 'off',
+            'unique_id': self.unique_device_id + '_fault_lamp'}
+
+        # --- input binary sensors (1–15, all disabled by default) ---
+        for n in range(1, 16):
+            cmps[f'input_{n}'] = {
+                'p': 'binary_sensor', 'name': f' Input {n}',
+                'state_topic': f'{self._input_topic_base}/inputs/{n}/active',
+                'payload_on': 'true', 'payload_off': 'false',
+                'enabled_by_default': False,
+                'unique_id': self.unique_device_id + f'_input_{n}'}
+
+        config = {'dev': self.device, 'o': origin, 'cmps': cmps, 'qos': 1}
+        config.update(self.get_availability_discovery_info_for_ha())
+        self.mqtt_support.client.publish(
+            self.mqtt_support.make_ha_auto_discovery_config_topic(self.unique_device_id, 'device'),
+            json.dumps(config),
+            retain=False)
+
+    def initialize(self):
+        self.publish_ha_discovery_config()

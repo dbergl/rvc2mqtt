@@ -70,6 +70,11 @@ class EntityPluginBaseClass(object):
         """
         pass
 
+    def teardown(self):
+        """Called before entity is removed (e.g., on floorplan reload).
+        Override in subclasses that need cleanup beyond MQTT unsubscription."""
+        pass
+
     def publish_ha_discovery_config(self):
         """Publish Home Assistant MQTT auto-discovery config.
         Override in subclasses that support HA discovery."""

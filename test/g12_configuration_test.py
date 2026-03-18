@@ -830,5 +830,135 @@ class Test_G12_Configuration(unittest.TestCase):
         g.mqtt_support.client.publish.assert_not_called()
 
 
+class Test_G12_ConfigurationHADiscovery(unittest.TestCase):
+
+    def _make_g12_for_discovery(self):
+        mock = MagicMock()
+        mock.make_device_topic_string.return_value = 'topic_string'
+        mock.make_ha_auto_discovery_config_topic.return_value = 'ha/config/topic'
+        mock.get_bridge_ha_name.return_value = 'rvc2mqtt_bridge'
+        mock.bridge_state_topic = 'rvc2mqtt/bridge/state'
+        mock.TOPIC_BASE = 'rvc2mqtt'
+        mock.client_id = 'bridge'
+        return G12_Configuration(
+            {'instance': 1, 'instance_name': 'Generator Controller',
+             'source_id': '9C',
+             'status_topic': 'g12/status', 'command_topic': 'g12/set'},
+            mock
+        )
+
+    def _make_g12_no_status_topic(self):
+        mock = MagicMock()
+        mock.make_device_topic_string.return_value = 'topic_string'
+        mock.make_ha_auto_discovery_config_topic.return_value = 'ha/config/topic'
+        mock.TOPIC_BASE = 'rvc2mqtt'
+        mock.client_id = 'bridge'
+        return G12_Configuration(
+            {'instance': 1, 'instance_name': 'Generator Controller', 'source_id': '9C'},
+            mock
+        )
+
+    def test_publish_ha_discovery_config_no_status_topic_skips(self):
+        g = self._make_g12_no_status_topic()
+        g.publish_ha_discovery_config()
+        g.mqtt_support.client.publish.assert_not_called()
+
+    def test_publish_ha_discovery_config_all_retain_false(self):
+        g = self._make_g12_for_discovery()
+        g.publish_ha_discovery_config()
+        for c in g.mqtt_support.client.publish.call_args_list:
+            self.assertFalse(c[1].get('retain', c[0][2] if len(c[0]) > 2 else False),
+                             f"Unexpected retain=True in call: {c}")
+
+    def _get_published_configs(self, g):
+        """Return list of component dicts from the single device config publish call."""
+        import json as _json
+        for c in g.mqtt_support.client.publish.call_args_list:
+            try:
+                payload = _json.loads(c[0][1])
+                if 'cmps' in payload:
+                    return list(payload['cmps'].values())
+            except Exception:
+                pass
+        return []
+
+    def test_publish_ha_discovery_config_publishes_number_for_max_engine_run_time(self):
+        import json as _json
+        g = self._make_g12_for_discovery()
+        g.publish_ha_discovery_config()
+        configs = self._get_published_configs(g)
+        matches = [c for c in configs
+                   if c.get('unit_of_measurement') == 'min'
+                   and 'state_topic' in c and 'command_topic' in c]
+        self.assertEqual(len(matches), 1)
+        self.assertIn('max_engine_run_time', matches[0]['unique_id'])
+
+    def test_publish_ha_discovery_config_publishes_number_for_stop_at_voltage(self):
+        g = self._make_g12_for_discovery()
+        g.publish_ha_discovery_config()
+        configs = self._get_published_configs(g)
+        matches = [c for c in configs
+                   if c.get('device_class') == 'voltage'
+                   and 'stop_at_voltage' in c.get('unique_id', '')]
+        self.assertEqual(len(matches), 1)
+
+    def test_publish_ha_discovery_config_publishes_text_for_quiet_time_start(self):
+        g = self._make_g12_for_discovery()
+        g.publish_ha_discovery_config()
+        configs = self._get_published_configs(g)
+        matches = [c for c in configs
+                   if 'pattern' in c
+                   and 'quiet_time_start' in c.get('unique_id', '')]
+        self.assertEqual(len(matches), 1)
+
+    def test_publish_ha_discovery_config_publishes_text_for_quiet_time_stop(self):
+        g = self._make_g12_for_discovery()
+        g.publish_ha_discovery_config()
+        configs = self._get_published_configs(g)
+        matches = [c for c in configs
+                   if 'pattern' in c
+                   and 'quiet_time_stop' in c.get('unique_id', '')]
+        self.assertEqual(len(matches), 1)
+
+    def test_publish_ha_discovery_config_publishes_binary_sensor_for_fault_lamp(self):
+        g = self._make_g12_for_discovery()
+        g.publish_ha_discovery_config()
+        configs = self._get_published_configs(g)
+        matches = [c for c in configs
+                   if c.get('device_class') == 'problem'
+                   and 'fault_lamp' in c.get('unique_id', '')]
+        self.assertEqual(len(matches), 1)
+
+    def test_publish_ha_discovery_config_publishes_sensor_for_fault_code(self):
+        g = self._make_g12_for_discovery()
+        g.publish_ha_discovery_config()
+        configs = self._get_published_configs(g)
+        matches = [c for c in configs if 'fault_code' in c.get('unique_id', '')]
+        self.assertEqual(len(matches), 1)
+
+    def test_publish_ha_discovery_config_publishes_sensor_for_product_id_disabled_by_default(self):
+        g = self._make_g12_for_discovery()
+        g.publish_ha_discovery_config()
+        configs = self._get_published_configs(g)
+        matches = [c for c in configs
+                   if 'product_id' in c.get('unique_id', '')
+                   and c.get('enabled_by_default') is False]
+        self.assertEqual(len(matches), 1)
+
+    def test_publish_ha_discovery_config_publishes_15_input_binary_sensors(self):
+        g = self._make_g12_for_discovery()
+        g.publish_ha_discovery_config()
+        configs = self._get_published_configs(g)
+        matches = [c for c in configs if '_input_' in c.get('unique_id', '')]
+        self.assertEqual(len(matches), 15)
+
+    def test_initialize_calls_publish_ha_discovery_config(self):
+        from unittest.mock import patch
+        g = self._make_g12_for_discovery()
+        with patch.object(g, 'publish_ha_discovery_config') as mock_pub:
+            g.initialize()
+            mock_pub.assert_called_once()
+
+
 if __name__ == '__main__':
     unittest.main()

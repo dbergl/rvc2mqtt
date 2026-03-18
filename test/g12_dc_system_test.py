@@ -61,6 +61,23 @@ class Test_G12DcSystem(unittest.TestCase):
         self.assertEqual(entity.dc_voltage, 13.5)
         self.assertEqual(entity.dc_current, -2.0)
 
+    def test_process_rvc_msg_na_current_not_published(self):
+        mock = _make_mock()
+        entity = G12DcSystem({'instance': 1, 'instance_name': "test G12 DC System"}, mock)
+        msg = {'name': 'DC_SOURCE_STATUS_G12', 'instance': 1, 'dc_voltage': 13.5, 'dc_current': 'n/a'}
+        entity.process_rvc_msg(msg)
+        self.assertIsNone(entity.dc_current)
+
+    def test_process_rvc_msg_all_zero_current_treated_as_na(self):
+        mock = _make_mock()
+        entity = G12DcSystem(
+            {'instance': 1, 'instance_name': "test G12 DC System", 'status_topic': 'g12/status'}, mock)
+        msg = {'name': 'DC_SOURCE_STATUS_G12', 'instance': 1, 'dc_voltage': 13.5, 'dc_current': -2000000.0}
+        entity.process_rvc_msg(msg)
+        self.assertIsNone(entity.dc_current)
+        published_topics = [c[0][0] for c in mock.client.publish.call_args_list]
+        self.assertNotIn('g12/status/current', published_topics)
+
     def test_process_rvc_msg_no_match(self):
         mock = _make_mock()
         entity = G12DcSystem({'instance': 1, 'instance_name': "test G12 DC System"}, mock)

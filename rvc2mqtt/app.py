@@ -28,6 +28,7 @@ import logging
 import logging.config
 import queue
 import signal
+import threading
 import time
 import os
 import sys
@@ -53,6 +54,11 @@ def signal_handler(signal, frame):
     exit(0)
 
 
+def sighup_handler(sig, frame):
+    global MyApp
+    MyApp._reload_requested.set()
+
+
 class app(object):
     def main(self, argsns: argparse.Namespace):
         """main function.  Sets up the app services, creates
@@ -63,6 +69,9 @@ class app(object):
 
         self.Logger = logging.getLogger("app")
         self.mqtt_client: MQTT_Support = None
+        self._reload_requested = threading.Event()
+        self._floorplan_path1 = argsns.floorplan
+        self._floorplan_path2 = argsns.floorplan2
 
         # make an receive queue of receive can bus messages
         self.rxQueue = queue.Queue()
@@ -102,6 +111,7 @@ class app(object):
         entity_factory_list = []
         self.PluginSupport.register_with_factory_the_entity_plugins(
             entity_factory_list)
+        self._entity_factory_list = entity_factory_list
 
         # setup entity list using
         self.entity_list = []
@@ -127,10 +137,84 @@ class app(object):
 
         # Our RVC message loop here
         while True:
+            if self._reload_requested.is_set():
+                self._do_reload()
             # process any received messages
             self.message_rx_loop()
             self.message_tx_loop()
             time.sleep(0.001)
+
+    def _do_reload(self):
+        self._reload_requested.clear()
+        self.Logger.info("Reloading floorplan...")
+
+        # 1. Unsubscribe all registered topics, then immediately re-register the HA
+        #    birth handler so no birth messages are missed during reload.
+        if self.mqtt_client:
+            self.mqtt_client.unregister_all()
+            self.mqtt_client.register(
+                f"{MQTT_Support.HA_AUTO_BASE}/status", self.on_ha_birth_message)
+
+        # 2. Snapshot discovery topics so we can remove only stale ones after reload.
+        old_discovery_topics = self.mqtt_client.get_discovery_topics() if self.mqtt_client else set()
+
+        # 3. Signal offline so HA marks entities unavailable during the reload window.
+        #    We intentionally do NOT clear retained state topics here: publishing empty
+        #    strings races with the offline signal and causes HA to record empty values
+        #    then fail pattern validation (text/climate entities) when we go back online.
+        #    Retained state topics keep their last good values; entities overwrite them
+        #    naturally when the CAN bus re-broadcasts after reload.
+        if self.mqtt_client:
+            self.mqtt_client.publish_bridge_offline()
+
+        # 4. Teardown old entities
+        for entity in self.entity_list:
+            entity.teardown()
+        self.entity_list = []
+
+        # 5. Reload floorplan files
+        new_fp = []
+        try:
+            if self._floorplan_path1 and os.path.isfile(self._floorplan_path1):
+                c = load_the_config(self._floorplan_path1)
+                if c and "floorplan" in c:
+                    new_fp.extend((item, self._floorplan_path1) for item in c["floorplan"])
+            if self._floorplan_path2 and os.path.isfile(self._floorplan_path2):
+                d = load_the_config(self._floorplan_path2)
+                if d and "floorplan" in d:
+                    new_fp.extend((item, self._floorplan_path2) for item in d["floorplan"])
+        except Exception as e:
+            self.Logger.error(f"Floorplan reload failure: {str(e)}")
+
+        if not new_fp:
+            self.Logger.error("Floorplan reload produced no entities — check floorplan files")
+
+        # 6. Recreate entities
+        for item, source_file in new_fp:
+            try:
+                obj = entity_factory(item, self.mqtt_client, self._entity_factory_list, source_file)
+            except Exception as e:
+                self.Logger.error(f"Unsupported entry in {source_file}: {str(e)}")
+                continue
+            if obj is not None:
+                for link in obj.entity_links:
+                    requested_entity = next(
+                        filter(lambda entry: entry.link_id == link, self.entity_list), None)
+                    if requested_entity is not None:
+                        obj.add_entity_link(requested_entity)
+                obj.set_rvc_send_queue(self.tx_RVC_Buffer)
+                obj.initialize()
+                self.entity_list.append(obj)
+
+        # 7. Remove discovery topics for entities that were not re-published (removed from floorplan)
+        if self.mqtt_client:
+            self.mqtt_client.clear_stale_discovery_topics(old_discovery_topics)
+
+        # 8. Signal online — re-publishes bridge availability so HA marks entities available again
+        if self.mqtt_client:
+            self.mqtt_client.publish_bridge_online()
+
+        self.Logger.info(f"Floorplan reload complete: {len(self.entity_list)} entities loaded")
 
     def on_ha_birth_message(self, topic, payload, properties=None):
         """Re-publish HA discovery configs when Home Assistant comes online."""
@@ -276,12 +360,12 @@ def main():
         if args.floorplan is not None:
             if os.path.isfile(args.floorplan):
                 c = load_the_config(args.floorplan)
-                if "floorplan" in c:
+                if c and "floorplan" in c:
                     args.fp.extend((item, args.floorplan) for item in c["floorplan"])
 
         if args.floorplan2 is not None:
             d = load_the_config(args.floorplan2)
-            if "floorplan" in d:
+            if d and "floorplan" in d:
                 args.fp.extend((item, args.floorplan2) for item in d["floorplan"])
     except Exception as e:
         logging.critical(f"Floorplan failure: {str(e)}")
@@ -290,6 +374,7 @@ def main():
     MyApp = app()
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGHUP, sighup_handler)
     MyApp.main(args)
 
 

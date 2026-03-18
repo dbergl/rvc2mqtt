@@ -142,5 +142,70 @@ class Test_HvacClimate(unittest.TestCase):
 
 
 
+    def test_hvac_modes_override(self):
+        mock = _make_mock()
+        entity = HvacClass(
+            {'instance': 1, 'instance_name': "test hvac",
+             'hvac_modes': ['cool', 'off']},
+            mock)
+        self.assertEqual(entity._hvac_modes, ['cool', 'off'])
+
+    def test_fan_modes_override(self):
+        mock = _make_mock()
+        entity = HvacClass(
+            {'instance': 1, 'instance_name': "test hvac",
+             'fan_modes': ['auto', 'high', 'low']},
+            mock)
+        self.assertEqual(entity._fan_modes, ['auto', 'high', 'low'])
+
+    def test_hvac_modes_default_when_not_specified(self):
+        mock = _make_mock()
+        entity = HvacClass({'instance': 1, 'instance_name': "test hvac"}, mock)
+        self.assertEqual(entity._hvac_modes, HvacClass.MQTT_SUPPORTED_MODES)
+
+    def test_fan_modes_default_when_not_specified(self):
+        mock = _make_mock()
+        entity = HvacClass({'instance': 1, 'instance_name': "test hvac"}, mock)
+        self.assertEqual(entity._fan_modes, HvacClass.MQTT_SUPPORTED_FAN_MODE)
+
+    def test_hvac_modes_invalid_values_ignored(self):
+        mock = _make_mock()
+        entity = HvacClass(
+            {'instance': 1, 'instance_name': "test hvac",
+             'hvac_modes': ['cool', 'off', 'invalid_mode']},
+            mock)
+        self.assertEqual(entity._hvac_modes, ['cool', 'off'])
+
+    def test_fan_modes_invalid_values_ignored(self):
+        mock = _make_mock()
+        entity = HvacClass(
+            {'instance': 1, 'instance_name': "test hvac",
+             'fan_modes': ['auto', 'high', 'low', 'turbo']},
+            mock)
+        self.assertEqual(entity._fan_modes, ['auto', 'high', 'low'])
+
+    def test_hvac_modes_used_in_discovery_config(self):
+        import json
+        mock = _make_mock()
+        entity = HvacClass(
+            {'instance': 1, 'instance_name': "test hvac",
+             'hvac_modes': ['cool', 'off']},
+            mock)
+        entity.publish_ha_discovery_config()
+        payload = json.loads(mock.client.publish.call_args[0][1])
+        self.assertEqual(payload['modes'], ['cool', 'off'])
+
+    def test_fan_modes_used_in_discovery_config(self):
+        import json
+        mock = _make_mock()
+        entity = HvacClass(
+            {'instance': 1, 'instance_name': "test hvac",
+             'fan_modes': ['auto', 'high', 'low']},
+            mock)
+        entity.publish_ha_discovery_config()
+        payload = json.loads(mock.client.publish.call_args[0][1])
+        self.assertEqual(payload['fan_modes'], ['auto', 'high', 'low'])
+
+
 if __name__ == '__main__':
     unittest.main()
