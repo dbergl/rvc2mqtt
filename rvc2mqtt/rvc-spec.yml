@@ -4838,14 +4838,26 @@ Z0005:
         "0C": time at start volts
         "0D": stop at voltage
         "0E": time at stop volts
+        "15": ags config (gen start retries / mode)
         "16": max engine run time
         "2B": quiet time start
         "2C": quiet time stop
+        "2F": ags low volts trigger
         "31": start at voltage
         "9B": involves aes enabled
         "CC": 0%-33% threshold
         "CD": 33%-67% threshold
         "CE": 67%-100% threshold
+        "D7": number of go power! controllers
+        "D8": number of batteries
+        "E3": cargo/bath light ch.25
+        "E5": bunk accent
+        "E6": progressive inverter
+        "E9": bath fan
+        "EC": black tank
+        "EF": generator/aes mode
+        "F5": selected floorplan
+        "F7": ags time between retries (sec)
   "16":
     - byte: 2-3
       name: minutes
@@ -4901,6 +4913,89 @@ Z0005:
       name: volts
       type: uint16
       unit: v
+  "15":
+    - byte: 2
+      name: gen start retries
+      type: uint8
+    - byte: 3
+      name: mode indicator
+      type: uint8
+      unit: hex
+  "2F":
+    - byte: 2
+      name: enabled
+      type: uint8
+      values:
+        0: "off"
+        1: "on"
+  "D7":
+    - byte: 2
+      name: controller count
+      type: uint8
+  "D8":
+    - byte: 2
+      name: battery count
+      type: uint8
+      values:
+        0: "1 battery"
+        1: "2 batteries"
+  "E3":
+    - byte: 2
+      name: enabled
+      type: uint8
+      values:
+        0: "off"
+        1: "on"
+  "E5":
+    - byte: 2
+      name: enabled
+      type: uint8
+      values:
+        0: "off"
+        1: "on"
+  "E6":
+    - byte: 2
+      name: enabled
+      type: uint8
+      values:
+        0: "off"
+        1: "on"
+  "E9":
+    - byte: 2
+      name: enabled
+      type: uint8
+      values:
+        0: "off"
+        1: "on"
+  "EC":
+    - byte: 2
+      name: enabled
+      type: uint8
+      values:
+        0: "off"
+        1: "on"
+  "EF":
+    - byte: 2
+      name: mode
+      type: uint8
+      values:
+        1: "AGS"
+        2: "AES"
+        3: "AES Single Output"
+  "F5":
+    - byte: 2
+      name: floorplan
+      type: uint8
+      values:
+        4: "SY"
+        7: "WA"
+        8: "WD"
+        9: "WT"
+  "F7":
+    - byte: 2
+      name: retry interval
+      type: uint8
+      unit: sec
 
 0EF70:
   comment: APS-500. likely J1939 message according to wakespeed

@@ -19,6 +19,7 @@ limitations under the License.
 """
 
 import unittest
+import unittest.mock
 from unittest.mock import MagicMock
 import context  # add rvc2mqtt package to the python path using local reference
 from rvc2mqtt.entity.g12_tank_level_sensor import TankLevelSensor_TANK_STATUS as G12TankLevel
@@ -56,7 +57,7 @@ class Test_G12TankLevel(unittest.TestCase):
         mock = _make_mock()
         data = {
             'instance': 1, 'instance_name': "test G12 Tank Level",
-            '33_trigger': 300, '66_trigger': 200, '100_trigger': 100
+            '33_custom_threshold': 300, '66_custom_threshold': 200, '100_custom_threshold': 100
         }
         entity = G12TankLevel(data, mock)
         self.assertTrue(entity.custom_triggers)
@@ -86,7 +87,7 @@ class Test_G12TankLevel(unittest.TestCase):
         mock = _make_mock()
         data = {
             'instance': 1, 'instance_name': "test G12 Tank Level",
-            '33_trigger': 300, '66_trigger': 200, '100_trigger': 100,
+            '33_custom_threshold': 300, '66_custom_threshold': 200, '100_custom_threshold': 100,
             'status_topic': 'rvc/tank/fresh'
         }
         entity = G12TankLevel(data, mock)
@@ -106,6 +107,151 @@ class Test_G12TankLevel(unittest.TestCase):
         msg['tank_level'] = 400
         entity.process_rvc_msg(msg)
         self.assertEqual(entity.tank_percent, 1)
+
+
+    def test_initialize_publishes_threshold_values(self):
+        mock = _make_mock()
+        data = {
+            'instance': 1, 'instance_name': "test G12 Tank Level",
+            '33_custom_threshold': 57400, '66_custom_threshold': 44400, '100_custom_threshold': 22000,
+            'status_topic': 'rvc/tank/fresh'
+        }
+        entity = G12TankLevel(data, mock)
+        entity.send_queue = MagicMock()
+        entity.initialize()
+        published_topics = [call[0][0] for call in mock.client.publish.call_args_list]
+        self.assertIn('rvc/tank/fresh/cust_threshold_33', published_topics)
+        self.assertIn('rvc/tank/fresh/cust_threshold_66', published_topics)
+        self.assertIn('rvc/tank/fresh/cust_threshold_100', published_topics)
+        # values must be retained
+        for call in mock.client.publish.call_args_list:
+            topic = call[0][0]
+            if 'threshold' in topic:
+                self.assertTrue(call[1].get('retain', False) or (len(call[0]) > 2 and call[0][2]),
+                                f"Threshold topic {topic} not published retained")
+
+    def test_initialize_registers_set_topics_from_command_topic(self):
+        mock = _make_mock()
+        data = {
+            'instance': 1, 'instance_name': "test G12 Tank Level",
+            '33_custom_threshold': 57400, '66_custom_threshold': 44400, '100_custom_threshold': 22000,
+            'status_topic': 'rvc/state/tanks/fresh',
+            'command_topic': 'rvc/set/tanks/fresh',
+        }
+        entity = G12TankLevel(data, mock)
+        entity.send_queue = MagicMock()
+        entity.initialize()
+        registered = [call[0][0] for call in mock.register.call_args_list]
+        self.assertIn('rvc/set/tanks/fresh/cust_threshold_33', registered)
+        self.assertIn('rvc/set/tanks/fresh/cust_threshold_66', registered)
+        self.assertIn('rvc/set/tanks/fresh/cust_threshold_100', registered)
+
+    def test_initialize_registers_set_topics_fallback_no_command_topic(self):
+        mock = _make_mock()
+        data = {
+            'instance': 1, 'instance_name': "test G12 Tank Level",
+            '33_custom_threshold': 57400, '66_custom_threshold': 44400, '100_custom_threshold': 22000,
+            'status_topic': 'rvc/state/tanks/fresh',
+        }
+        entity = G12TankLevel(data, mock)
+        entity.send_queue = MagicMock()
+        entity.initialize()
+        registered = [call[0][0] for call in mock.register.call_args_list]
+        self.assertIn('rvc/state/tanks/fresh/cust_threshold_33', registered)
+        self.assertIn('rvc/state/tanks/fresh/cust_threshold_66', registered)
+        self.assertIn('rvc/state/tanks/fresh/cust_threshold_100', registered)
+
+    def test_process_mqtt_msg_updates_cust_threshold_33(self):
+        mock = _make_mock()
+        data = {
+            'instance': 1, 'instance_name': "test G12 Tank Level",
+            '33_custom_threshold': 57400, '66_custom_threshold': 44400, '100_custom_threshold': 22000,
+            'status_topic': 'rvc/state/tanks/fresh', 'command_topic': 'rvc/set/tanks/fresh',
+        }
+        entity = G12TankLevel(data, mock)
+        entity.process_mqtt_msg('rvc/set/tanks/fresh/cust_threshold_33', '50000')
+        self.assertEqual(entity.thirtythree, 50000)
+        mock.client.publish.assert_called_with('rvc/state/tanks/fresh/cust_threshold_33', 50000, retain=True)
+
+    def test_process_mqtt_msg_updates_cust_threshold_66(self):
+        mock = _make_mock()
+        data = {
+            'instance': 1, 'instance_name': "test G12 Tank Level",
+            '33_custom_threshold': 57400, '66_custom_threshold': 44400, '100_custom_threshold': 22000,
+            'status_topic': 'rvc/state/tanks/fresh', 'command_topic': 'rvc/set/tanks/fresh',
+        }
+        entity = G12TankLevel(data, mock)
+        entity.process_mqtt_msg('rvc/set/tanks/fresh/cust_threshold_66', '40000')
+        self.assertEqual(entity.sixtysix, 40000)
+        mock.client.publish.assert_called_with('rvc/state/tanks/fresh/cust_threshold_66', 40000, retain=True)
+
+    def test_process_mqtt_msg_updates_cust_threshold_100(self):
+        mock = _make_mock()
+        data = {
+            'instance': 1, 'instance_name': "test G12 Tank Level",
+            '33_custom_threshold': 57400, '66_custom_threshold': 44400, '100_custom_threshold': 22000,
+            'status_topic': 'rvc/state/tanks/fresh', 'command_topic': 'rvc/set/tanks/fresh',
+        }
+        entity = G12TankLevel(data, mock)
+        entity.process_mqtt_msg('rvc/set/tanks/fresh/cust_threshold_100', '20000')
+        self.assertEqual(entity.onehundred, 20000)
+        mock.client.publish.assert_called_with('rvc/state/tanks/fresh/cust_threshold_100', 20000, retain=True)
+
+    def test_process_mqtt_msg_persists_threshold_33(self):
+        mock = _make_mock()
+        data = {
+            'instance': 1, 'instance_name': "test G12 Tank Level",
+            '33_custom_threshold': 57400, '66_custom_threshold': 44400, '100_custom_threshold': 22000,
+            'status_topic': 'rvc/state/tanks/fresh', 'command_topic': 'rvc/set/tanks/fresh',
+        }
+        entity = G12TankLevel(data, mock)
+        with unittest.mock.patch.object(entity, '_persist_override') as mock_persist:
+            entity.process_mqtt_msg('rvc/set/tanks/fresh/cust_threshold_33', '50000')
+            mock_persist.assert_called_once_with({'33_custom_threshold': 50000})
+
+    def test_process_mqtt_msg_persists_threshold_66(self):
+        mock = _make_mock()
+        data = {
+            'instance': 1, 'instance_name': "test G12 Tank Level",
+            '33_custom_threshold': 57400, '66_custom_threshold': 44400, '100_custom_threshold': 22000,
+            'status_topic': 'rvc/state/tanks/fresh', 'command_topic': 'rvc/set/tanks/fresh',
+        }
+        entity = G12TankLevel(data, mock)
+        with unittest.mock.patch.object(entity, '_persist_override') as mock_persist:
+            entity.process_mqtt_msg('rvc/set/tanks/fresh/cust_threshold_66', '40000')
+            mock_persist.assert_called_once_with({'66_custom_threshold': 40000})
+
+    def test_process_mqtt_msg_persists_threshold_100(self):
+        mock = _make_mock()
+        data = {
+            'instance': 1, 'instance_name': "test G12 Tank Level",
+            '33_custom_threshold': 57400, '66_custom_threshold': 44400, '100_custom_threshold': 22000,
+            'status_topic': 'rvc/state/tanks/fresh', 'command_topic': 'rvc/set/tanks/fresh',
+        }
+        entity = G12TankLevel(data, mock)
+        with unittest.mock.patch.object(entity, '_persist_override') as mock_persist:
+            entity.process_mqtt_msg('rvc/set/tanks/fresh/cust_threshold_100', '20000')
+            mock_persist.assert_called_once_with({'100_custom_threshold': 20000})
+
+    def test_process_mqtt_msg_invalid_payload_ignored(self):
+        mock = _make_mock()
+        data = {
+            'instance': 1, 'instance_name': "test G12 Tank Level",
+            '33_custom_threshold': 57400, '66_custom_threshold': 44400, '100_custom_threshold': 22000,
+            'status_topic': 'rvc/state/tanks/fresh', 'command_topic': 'rvc/set/tanks/fresh',
+        }
+        entity = G12TankLevel(data, mock)
+        entity.process_mqtt_msg('rvc/set/tanks/fresh/cust_threshold_33', 'notanumber')
+        self.assertEqual(entity.thirtythree, 57400)  # unchanged
+
+    def test_initialize_no_threshold_publish_without_custom_triggers(self):
+        mock = _make_mock()
+        data = {'instance': 1, 'instance_name': "test G12 Tank Level"}
+        entity = G12TankLevel(data, mock)
+        entity.send_queue = MagicMock()
+        entity.initialize()
+        published_topics = [call[0][0] for call in mock.client.publish.call_args_list]
+        self.assertFalse(any('threshold' in t for t in published_topics))
 
 
 if __name__ == '__main__':

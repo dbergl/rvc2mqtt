@@ -117,6 +117,7 @@ class app(object):
         self.entity_list = []
 
         # initialize objects from the floorplan
+        override_path = _get_override_path(argsns.floorplan)
         for item, source_file in argsns.fp:
             try:
                 obj = entity_factory(
@@ -131,6 +132,8 @@ class app(object):
                     if requested_entity is not None:
                         obj.add_entity_link(requested_entity)
 
+                if source_file == argsns.floorplan:
+                    obj.set_override_file(override_path)
                 obj.set_rvc_send_queue(self.tx_RVC_Buffer)
                 obj.initialize()
                 self.entity_list.append(obj)
@@ -178,7 +181,8 @@ class app(object):
             if self._floorplan_path1 and os.path.isfile(self._floorplan_path1):
                 c = load_the_config(self._floorplan_path1)
                 if c and "floorplan" in c:
-                    new_fp.extend((item, self._floorplan_path1) for item in c["floorplan"])
+                    entries = _apply_overrides(c["floorplan"], _get_override_path(self._floorplan_path1), self.Logger)
+                    new_fp.extend((item, self._floorplan_path1) for item in entries)
             if self._floorplan_path2 and os.path.isfile(self._floorplan_path2):
                 d = load_the_config(self._floorplan_path2)
                 if d and "floorplan" in d:
@@ -190,6 +194,7 @@ class app(object):
             self.Logger.error("Floorplan reload produced no entities — check floorplan files")
 
         # 6. Recreate entities
+        override_path = _get_override_path(self._floorplan_path1)
         for item, source_file in new_fp:
             try:
                 obj = entity_factory(item, self.mqtt_client, self._entity_factory_list, source_file)
@@ -202,6 +207,8 @@ class app(object):
                         filter(lambda entry: entry.link_id == link, self.entity_list), None)
                     if requested_entity is not None:
                         obj.add_entity_link(requested_entity)
+                if source_file == self._floorplan_path1:
+                    obj.set_override_file(override_path)
                 obj.set_rvc_send_queue(self.tx_RVC_Buffer)
                 obj.initialize()
                 self.entity_list.append(obj)
@@ -227,6 +234,14 @@ class app(object):
         """Shutdown the app and any threads"""
         if self.receiver:
             self.receiver.kill_received = True
+            self.receiver.join(timeout=2.0)
+        # Drain queues so any retained objects are released
+        for q in (self.rxQueue, self.tx_RVC_Buffer, self.txQueue):
+            while not q.empty():
+                try:
+                    q.get_nowait()
+                except queue.Empty:
+                    break
         if self.mqtt_client is not None:
             self.mqtt_client.shutdown()
             self.mqtt_client.client.loop_stop()
@@ -306,6 +321,50 @@ def load_the_config(config_file_path: Optional[os.PathLike]):
             return yaml.load(content.read())
 
 
+def _get_override_path(floorplan_path: Optional[os.PathLike]) -> Optional[str]:
+    if floorplan_path is None:
+        return None
+    stem, ext = os.path.splitext(floorplan_path)
+    return stem + ".override" + ext
+
+
+def _apply_overrides(base_entries: list, override_path: Optional[str], logger: logging.Logger) -> list:
+    if override_path is None or not os.path.isfile(override_path):
+        return base_entries
+    try:
+        raw = load_the_config(override_path)
+    except Exception as e:
+        logger.warning(f"Override file {override_path!r} could not be loaded: {e} — ignoring overrides")
+        return base_entries
+    if not raw or "overrides" not in raw:
+        return base_entries
+    override_list = raw["overrides"]
+    if not isinstance(override_list, list):
+        logger.warning(f"Override file {override_path!r}: 'overrides' key is not a list — ignoring overrides")
+        return base_entries
+
+    result = [dict(e) for e in base_entries]
+    for ovr in override_list:
+        name = ovr.get("name")
+        type_ = ovr.get("type")
+        instance = ovr.get("instance", None)
+        match_idx = next(
+            (i for i, e in enumerate(result)
+             if e.get("name") == name and e.get("type") == type_ and e.get("instance", None) == instance),
+            -1,
+        )
+        if ovr.get("_remove", False):
+            if match_idx >= 0:
+                del result[match_idx]
+        else:
+            update = {k: v for k, v in ovr.items() if k != "_remove"}
+            if match_idx >= 0:
+                result[match_idx].update(update)
+            else:
+                result.append(dict(update))
+    return result
+
+
 def main():
     """Entrypoint.
     Get the config and run the app
@@ -361,7 +420,8 @@ def main():
             if os.path.isfile(args.floorplan):
                 c = load_the_config(args.floorplan)
                 if c and "floorplan" in c:
-                    args.fp.extend((item, args.floorplan) for item in c["floorplan"])
+                    entries = _apply_overrides(c["floorplan"], _get_override_path(args.floorplan), logging.getLogger("app"))
+                    args.fp.extend((item, args.floorplan) for item in entries)
 
         if args.floorplan2 is not None:
             d = load_the_config(args.floorplan2)

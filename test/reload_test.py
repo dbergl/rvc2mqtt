@@ -421,6 +421,41 @@ class TestAppDoReload:
         # Either parse error logged or no entities created — either way no crash
         assert a.entity_list == []
 
+    def test_do_reload_source_file_is_floorplan1_not_override_path(self, tmp_path):
+        """entity_factory must receive source_file = floorplan1 path, never the override path."""
+        fp1 = tmp_path / "floorplan.yaml"
+        fp1.write_text(
+            "floorplan:\n"
+            "  - name: DC_LOAD_STATUS\n"
+            "    instance: 1\n"
+            "    type: light_switch\n"
+            "    instance_name: Bedroom Light\n"
+        )
+        override = tmp_path / "floorplan.override.yaml"
+        override.write_text(
+            "overrides:\n"
+            "  - name: DC_LOAD_STATUS\n"
+            "    type: light_switch\n"
+            "    instance: 1\n"
+            "    instance_name: Master Bedroom\n"
+        )
+
+        a, mqtt, e1, e2 = self._make_app()
+        a._floorplan_path1 = str(fp1)
+        a.entity_list = []
+
+        mock_entity = MagicMock()
+        mock_entity.entity_links = []
+
+        with patch("rvc2mqtt.app.entity_factory", return_value=mock_entity) as mock_factory:
+            a._do_reload()
+
+        mock_factory.assert_called_once()
+        _, call_kwargs = mock_factory.call_args
+        source_file_arg = mock_factory.call_args[0][3] if len(mock_factory.call_args[0]) > 3 else call_kwargs.get("source_file")
+        assert source_file_arg == str(fp1)
+        assert source_file_arg != str(override)
+
     def test_do_reload_entity_factory_exception_does_not_stop_remaining(self, tmp_path):
         """A bad entity entry should be skipped; subsequent entries still load."""
         fp_file = tmp_path / "floorplan.yaml"

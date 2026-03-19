@@ -19,7 +19,10 @@ limitations under the License.
 
 """
 import logging
+import os
 import queue
+import threading
+import ruyaml
 from rvc2mqtt.mqtt import MQTT_Support
 
 class EntityPluginBaseClass(object):
@@ -50,6 +53,15 @@ class EntityPluginBaseClass(object):
         if "entity_links" in data:
             self.entity_links.extend(data["entity_links"])
 
+        # Override-file persistence (populated by app.py for floorplan1 entities only)
+        self._override_file: str = None
+        self._override_name = data.get('name')
+        self._override_type = data.get('type')
+        self._override_instance = data.get('instance', None)
+        self._pending_override_updates: dict = {}
+        self._override_timer: threading.Timer = None
+        self._override_lock = threading.Lock()
+
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming rvc message and determine if it
@@ -72,8 +84,77 @@ class EntityPluginBaseClass(object):
 
     def teardown(self):
         """Called before entity is removed (e.g., on floorplan reload).
-        Override in subclasses that need cleanup beyond MQTT unsubscription."""
-        pass
+        Flushes any pending override writes and cancels the debounce timer.
+        Override in subclasses that need additional cleanup."""
+        with self._override_lock:
+            if self._override_timer is not None:
+                self._override_timer.cancel()
+                self._override_timer = None
+        if self._pending_override_updates:
+            self._write_override()
+
+    def set_override_file(self, path: str):
+        """Set the override file path. Called by app.py for floorplan1 entities only."""
+        self._override_file = path
+
+    def _persist_override(self, updates: dict, debounce: float = 2.0):
+        """Schedule a debounced write of updates to the override file.
+        Multiple calls within the debounce window are merged into a single write."""
+        if self._override_file is None:
+            return
+        with self._override_lock:
+            self._pending_override_updates.update(updates)
+            if self._override_timer is not None:
+                self._override_timer.cancel()
+            self._override_timer = threading.Timer(debounce, self._write_override)
+            self._override_timer.daemon = True
+            self._override_timer.start()
+
+    def _write_override(self):
+        """Write pending override updates to the override YAML file using round-trip
+        parsing to preserve existing formatting and comments."""
+        with self._override_lock:
+            self._override_timer = None
+            updates = dict(self._pending_override_updates)
+            self._pending_override_updates.clear()
+        if not updates:
+            return
+        try:
+            yaml = ruyaml.YAML()
+            yaml.preserve_quotes = True
+            override_file = self._override_file
+            if os.path.isfile(override_file):
+                with open(override_file, 'r') as f:
+                    data = yaml.load(f)
+                if data is None:
+                    data = ruyaml.CommentedMap()
+            else:
+                data = ruyaml.CommentedMap()
+            if 'overrides' not in data or data['overrides'] is None:
+                data['overrides'] = ruyaml.CommentedSeq()
+            overrides = data['overrides']
+            match_idx = next(
+                (i for i, e in enumerate(overrides)
+                 if e.get('name') == self._override_name
+                 and e.get('type') == self._override_type
+                 and e.get('instance', None) == self._override_instance),
+                -1,
+            )
+            if match_idx >= 0:
+                overrides[match_idx].update(updates)
+            else:
+                entry = ruyaml.CommentedMap()
+                entry['name'] = self._override_name
+                entry['type'] = self._override_type
+                if self._override_instance is not None:
+                    entry['instance'] = self._override_instance
+                entry.update(updates)
+                overrides.append(entry)
+            with open(override_file, 'w') as f:
+                yaml.dump(data, f)
+            self.Logger.info(f"Persisted override to {override_file!r}: {updates}")
+        except Exception as e:
+            self.Logger.error(f"Failed to write override file {self._override_file!r}: {e}")
 
     def publish_ha_discovery_config(self):
         """Publish Home Assistant MQTT auto-discovery config.

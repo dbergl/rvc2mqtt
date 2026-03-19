@@ -57,17 +57,32 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
         """ These will be None if they are not set in the floorplan file.
             Only return a tank level % if all 3 are set
         """
-        self.thirtythree = data.get('33_trigger')
-        self.sixtysix = data.get('66_trigger')
-        self.onehundred = data.get('100_trigger')
+        self.thirtythree = data.get('33_custom_threshold')
+        self.sixtysix = data.get('66_custom_threshold')
+        self.onehundred = data.get('100_custom_threshold')
         if self.thirtythree is not None and self.sixtysix is not None and self.onehundred is not None:
             self.custom_triggers = True
 
             if 'status_topic' in data:
                 topic_base = str(data['status_topic'])
                 self.status_tank_percent_topic = str(f"{topic_base}/custlvl")
+                self.cust_threshold_33_topic = str(f"{topic_base}/cust_threshold_33")
+                self.cust_threshold_66_topic = str(f"{topic_base}/cust_threshold_66")
+                self.cust_threshold_100_topic = str(f"{topic_base}/cust_threshold_100")
             else:
                 self.status_tank_percent_topic = mqtt_support.make_device_topic_string(self.id, "tank_percent", True)
+                self.cust_threshold_33_topic = mqtt_support.make_device_topic_string(self.id, "cust_threshold_33", True)
+                self.cust_threshold_66_topic = mqtt_support.make_device_topic_string(self.id, "cust_threshold_66", True)
+                self.cust_threshold_100_topic = mqtt_support.make_device_topic_string(self.id, "cust_threshold_100", True)
+
+            if 'command_topic' in data:
+                cmd_base = str(data['command_topic'])
+            else:
+                cmd_base = self.cust_threshold_33_topic.rsplit('/', 1)[0]
+
+            self.cust_threshold_33_set_topic = str(f"{cmd_base}/cust_threshold_33")
+            self.cust_threshold_66_set_topic = str(f"{cmd_base}/cust_threshold_66")
+            self.cust_threshold_100_set_topic = str(f"{cmd_base}/cust_threshold_100")
 
         # produce the HA MQTT discovery device config json
         self.device = {"mf": "RV-C",
@@ -112,6 +127,27 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
             return True
         return False
 
+    def process_mqtt_msg(self, topic, payload, properties=None):
+        """Handle a threshold set message from MQTT."""
+        try:
+            value = int(payload)
+        except (ValueError, TypeError):
+            self.Logger.warning(f"Invalid threshold value on {topic}: {payload!r}")
+            return
+
+        if topic == self.cust_threshold_33_set_topic:
+            self.thirtythree = value
+            self.mqtt_support.client.publish(self.cust_threshold_33_topic, value, retain=True)
+            self._persist_override({'33_custom_threshold': value})
+        elif topic == self.cust_threshold_66_set_topic:
+            self.sixtysix = value
+            self.mqtt_support.client.publish(self.cust_threshold_66_topic, value, retain=True)
+            self._persist_override({'66_custom_threshold': value})
+        elif topic == self.cust_threshold_100_set_topic:
+            self.onehundred = value
+            self.mqtt_support.client.publish(self.cust_threshold_100_topic, value, retain=True)
+            self._persist_override({'100_custom_threshold': value})
+
     def publish_ha_discovery_config(self):
         # produce the HA MQTT discovery config json
         origin = {'name': self.mqtt_support.get_bridge_ha_name()}
@@ -129,10 +165,28 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
                            'unit_of_measurement': '%',
                            'state_topic': self.status_tank_percent_topic,
                            'unique_id': self.unique_device_id + 'pct'}
+            cust_threshold_33 = {'p': 'number',
+                            'name': 'threshold 33%',
+                            'state_topic': self.cust_threshold_33_topic,
+                            'command_topic': self.cust_threshold_33_set_topic,
+                            'unique_id': self.unique_device_id + 'thr33'}
+            cust_threshold_66 = {'p': 'number',
+                            'name': 'threshold 66%',
+                            'state_topic': self.cust_threshold_66_topic,
+                            'command_topic': self.cust_threshold_66_set_topic,
+                            'unique_id': self.unique_device_id + 'thr66'}
+            cust_threshold_100 = {'p': 'number',
+                             'name': 'threshold 100%',
+                             'state_topic': self.cust_threshold_100_topic,
+                             'command_topic': self.cust_threshold_100_set_topic,
+                             'unique_id': self.unique_device_id + 'thr100'}
 
         components = {'lvl': levelcmp}
         if self.custom_triggers:
             components['lvlpct'] = customlevel
+            components['thr33'] = cust_threshold_33
+            components['thr66'] = cust_threshold_66
+            components['thr100'] = cust_threshold_100
 
         config = {'dev': self.device,
                   'o': origin,
@@ -165,5 +219,13 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
         data = struct.pack("<BBBBBBBB", int("0xC1", 0), int(
             "0xBF", 0), 0, self.instance, 0, 0, 0, 0)
         self.send_queue.put({"dgn": "0EAFF", "data": data})
+
+        if self.custom_triggers:
+            self.mqtt_support.register(self.cust_threshold_33_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.cust_threshold_66_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.cust_threshold_100_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.client.publish(self.cust_threshold_33_topic, self.thirtythree, retain=True)
+            self.mqtt_support.client.publish(self.cust_threshold_66_topic, self.sixtysix, retain=True)
+            self.mqtt_support.client.publish(self.cust_threshold_100_topic, self.onehundred, retain=True)
 
         self.publish_ha_discovery_config()
