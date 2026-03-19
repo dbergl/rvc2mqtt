@@ -114,6 +114,22 @@ class G12_Configuration(EntityPluginBaseClass):
         self._threshold_cd = "unknown"
         self._threshold_ce = "unknown"
 
+        # Newly discovered settings (from log analysis)
+        self._ags_low_volts_trigger  = "unknown"  # 0x2F
+        self._ags_gen_start_retries  = "unknown"  # 0x15 byte 2
+        self._ags_config_mode        = "unknown"  # 0x15 byte 3
+        self._go_power_controllers   = "unknown"  # 0xD7
+        self._num_batteries          = "unknown"  # 0xD8
+        self._cargo_bath_light       = "unknown"  # 0xE3
+        self._bunk_accent            = "unknown"  # 0xE5
+        self._progressive_inverter   = "unknown"  # 0xE6
+        self._bath_fan               = "unknown"  # 0xE9
+        self._black_tank_setting     = "unknown"  # 0xEC
+        self._gen_aes_mode           = "unknown"  # 0xEF
+        self._selected_floorplan     = "unknown"  # 0xF5
+        self._ags_retry_interval     = "unknown"  # 0xF7
+        self._aes_enabled            = "unknown"  # 0x9B (on/off)
+
         if 'status_topic' in data:
             topic_base = str(data['status_topic'])
             self.max_engine_run_time_topic   = str(f"{topic_base}/aes/max_engine_run_time")
@@ -131,6 +147,21 @@ class G12_Configuration(EntityPluginBaseClass):
             self.dm_rv_fault_description_topic = str(f"{topic_base}/fault/description")
             self.dm_rv_lamp_topic            = str(f"{topic_base}/fault/lamp")
             self._input_topic_base           = topic_base
+            # Newly discovered settings
+            self.ags_low_volts_trigger_topic = str(f"{topic_base}/ags/low_volts_trigger")
+            self.ags_gen_start_retries_topic = str(f"{topic_base}/ags/gen_start_retries")
+            self.ags_config_mode_topic       = str(f"{topic_base}/ags/config_mode")
+            self.go_power_controllers_topic  = str(f"{topic_base}/go_power/controller_count")
+            self.num_batteries_topic         = str(f"{topic_base}/batteries/count")
+            self.cargo_bath_light_topic      = str(f"{topic_base}/lights/cargo_bath_ch25")
+            self.bunk_accent_topic           = str(f"{topic_base}/lights/bunk_accent")
+            self.progressive_inverter_topic  = str(f"{topic_base}/inverter/progressive")
+            self.bath_fan_topic              = str(f"{topic_base}/fans/bath")
+            self.black_tank_setting_topic    = str(f"{topic_base}/tanks/black_setting")
+            self.gen_aes_mode_topic          = str(f"{topic_base}/gen/mode")
+            self.selected_floorplan_topic    = str(f"{topic_base}/floorplan")
+            self.ags_retry_interval_topic    = str(f"{topic_base}/ags/retry_interval")
+            self.aes_enabled_topic           = str(f"{topic_base}/aes/enabled")
 
         if 'command_topic' in data:
             topic_base = str(data['command_topic'])
@@ -144,6 +175,19 @@ class G12_Configuration(EntityPluginBaseClass):
             self.threshold_cc_set_topic          = str(f"{topic_base}/tanks/threshold_33_pct")
             self.threshold_cd_set_topic          = str(f"{topic_base}/tanks/threshold_66_pct")
             self.threshold_ce_set_topic          = str(f"{topic_base}/tanks/threshold_100_pct")
+            # Newly discovered settings
+            self.ags_low_volts_trigger_set_topic = str(f"{topic_base}/ags/low_volts_trigger")
+            self.cargo_bath_light_set_topic      = str(f"{topic_base}/lights/cargo_bath_ch25")
+            self.bunk_accent_set_topic           = str(f"{topic_base}/lights/bunk_accent")
+            self.progressive_inverter_set_topic  = str(f"{topic_base}/inverter/progressive")
+            self.bath_fan_set_topic              = str(f"{topic_base}/fans/bath")
+            self.black_tank_setting_set_topic    = str(f"{topic_base}/tanks/black_setting")
+            self.gen_aes_mode_set_topic          = str(f"{topic_base}/gen/mode")
+            self.selected_floorplan_set_topic    = str(f"{topic_base}/floorplan")
+            self.num_batteries_set_topic         = str(f"{topic_base}/batteries/count")
+            self.go_power_controllers_set_topic  = str(f"{topic_base}/go_power/controller_count")
+            self.ags_retry_interval_set_topic    = str(f"{topic_base}/ags/retry_interval")
+            self.aes_enabled_set_topic           = str(f"{topic_base}/aes/enabled")
 
             self.mqtt_support.register(self.max_engine_run_time_set_topic, self.process_mqtt_msg)
             self.mqtt_support.register(self.time_at_start_volts_set_topic, self.process_mqtt_msg)
@@ -155,6 +199,18 @@ class G12_Configuration(EntityPluginBaseClass):
             self.mqtt_support.register(self.threshold_cc_set_topic, self.process_mqtt_msg)
             self.mqtt_support.register(self.threshold_cd_set_topic, self.process_mqtt_msg)
             self.mqtt_support.register(self.threshold_ce_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.ags_low_volts_trigger_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.cargo_bath_light_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.bunk_accent_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.progressive_inverter_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.bath_fan_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.black_tank_setting_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.gen_aes_mode_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.selected_floorplan_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.num_batteries_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.go_power_controllers_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.ags_retry_interval_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.aes_enabled_set_topic, self.process_mqtt_msg)
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming RVC message and determine if it is of interest.
@@ -182,6 +238,15 @@ class G12_Configuration(EntityPluginBaseClass):
             packet_num = new_message["packet_number"]
             if packet_num in self._mp_packets:
                 self.Logger.warning(f"Duplicate DATA_PACKET #{packet_num}, ignoring")
+                return True
+            # Guard against unbounded growth from malformed/stray packets
+            if len(self._mp_packets) >= self._mp_expected_count:
+                self.Logger.warning(
+                    f"DATA_PACKET overflow: received more packets than expected "
+                    f"({self._mp_expected_count}), resetting assembly buffer"
+                )
+                self._mp_packets = {}
+                self._mp_expected_count = 0
                 return True
             data_bytes = int(new_message["data"]).to_bytes(7, 'little')
             self._mp_packets[packet_num] = data_bytes
@@ -369,6 +434,14 @@ class G12_Configuration(EntityPluginBaseClass):
                         if hasattr(self, 'threshold_ce_topic'):
                             self.mqtt_support.client.publish(
                                 self.threshold_ce_topic, val, retain=True)
+                elif selector == 0x9B:
+                    # AES enable/disable command — byte 4 is 0x01=enabled, 0x00=disabled
+                    val = "on" if raw[4] == 0x01 else "off"
+                    if val != self._aes_enabled:
+                        self._aes_enabled = val
+                        if hasattr(self, 'aes_enabled_topic'):
+                            self.mqtt_support.client.publish(
+                                self.aes_enabled_topic, val, retain=True)
             return True
 
         if not self._is_entry_match(self.rvc_match_g12_config, new_message):
@@ -378,8 +451,19 @@ class G12_Configuration(EntityPluginBaseClass):
         msg_type = new_message.get("message_type", "")
 
         if msg_type in ("1", "3", "5", "9B"):
-            # AES-related messages - no decoded parameters, just acknowledge
+            # AES-related messages — type 9B carries the enabled state in byte 4
             self.Logger.debug(f"G12 AES message type {msg_type}: {str(new_message)}")
+            if msg_type == "9B":
+                try:
+                    raw_data = bytes.fromhex(new_message["data"])
+                    val = "on" if raw_data[4] == 0x01 else "off"
+                    if val != self._aes_enabled:
+                        self._aes_enabled = val
+                        if hasattr(self, 'aes_enabled_topic'):
+                            self.mqtt_support.client.publish(
+                                self.aes_enabled_topic, val, retain=True)
+                except Exception:
+                    pass
 
         elif msg_type == "16":  # 0x16 - max engine run time
             val = new_message.get("minutes")
@@ -471,6 +555,108 @@ class G12_Configuration(EntityPluginBaseClass):
                     self.mqtt_support.client.publish(
                         self.threshold_ce_topic, val, retain=True)
 
+        elif msg_type == "15":  # 0x15 - AGS config (gen start retries / mode)
+            retries = new_message.get("gen_start_retries")
+            mode    = new_message.get("mode_indicator_definition", new_message.get("mode_indicator"))
+            if retries is not None and retries != self._ags_gen_start_retries:
+                self._ags_gen_start_retries = retries
+                if hasattr(self, 'ags_gen_start_retries_topic'):
+                    self.mqtt_support.client.publish(
+                        self.ags_gen_start_retries_topic, retries, retain=True)
+            if mode is not None and mode != self._ags_config_mode:
+                self._ags_config_mode = mode
+                if hasattr(self, 'ags_config_mode_topic'):
+                    self.mqtt_support.client.publish(
+                        self.ags_config_mode_topic, mode, retain=True)
+
+        elif msg_type == "2F":  # 0x2F - AGS low volts trigger
+            val = new_message.get("enabled_definition", new_message.get("enabled"))
+            if val is not None and val != self._ags_low_volts_trigger:
+                self._ags_low_volts_trigger = val
+                if hasattr(self, 'ags_low_volts_trigger_topic'):
+                    self.mqtt_support.client.publish(
+                        self.ags_low_volts_trigger_topic, val, retain=True)
+
+        elif msg_type == "D7":  # 0xD7 - number of Go Power! controllers
+            val = new_message.get("controller_count")
+            if val is not None and val != self._go_power_controllers:
+                self._go_power_controllers = val
+                if hasattr(self, 'go_power_controllers_topic'):
+                    self.mqtt_support.client.publish(
+                        self.go_power_controllers_topic, val, retain=True)
+
+        elif msg_type == "D8":  # 0xD8 - number of batteries
+            val = new_message.get("battery_count_definition", new_message.get("battery_count"))
+            if val is not None and val != self._num_batteries:
+                self._num_batteries = val
+                if hasattr(self, 'num_batteries_topic'):
+                    self.mqtt_support.client.publish(
+                        self.num_batteries_topic, val, retain=True)
+
+        elif msg_type == "E3":  # 0xE3 - cargo/bath light ch.25
+            val = new_message.get("enabled_definition", new_message.get("enabled"))
+            if val is not None and val != self._cargo_bath_light:
+                self._cargo_bath_light = val
+                if hasattr(self, 'cargo_bath_light_topic'):
+                    self.mqtt_support.client.publish(
+                        self.cargo_bath_light_topic, val, retain=True)
+
+        elif msg_type == "E5":  # 0xE5 - bunk accent
+            val = new_message.get("enabled_definition", new_message.get("enabled"))
+            if val is not None and val != self._bunk_accent:
+                self._bunk_accent = val
+                if hasattr(self, 'bunk_accent_topic'):
+                    self.mqtt_support.client.publish(
+                        self.bunk_accent_topic, val, retain=True)
+
+        elif msg_type == "E6":  # 0xE6 - progressive inverter
+            val = new_message.get("enabled_definition", new_message.get("enabled"))
+            if val is not None and val != self._progressive_inverter:
+                self._progressive_inverter = val
+                if hasattr(self, 'progressive_inverter_topic'):
+                    self.mqtt_support.client.publish(
+                        self.progressive_inverter_topic, val, retain=True)
+
+        elif msg_type == "E9":  # 0xE9 - bath fan
+            val = new_message.get("enabled_definition", new_message.get("enabled"))
+            if val is not None and val != self._bath_fan:
+                self._bath_fan = val
+                if hasattr(self, 'bath_fan_topic'):
+                    self.mqtt_support.client.publish(
+                        self.bath_fan_topic, val, retain=True)
+
+        elif msg_type == "EC":  # 0xEC - black tank
+            val = new_message.get("enabled_definition", new_message.get("enabled"))
+            if val is not None and val != self._black_tank_setting:
+                self._black_tank_setting = val
+                if hasattr(self, 'black_tank_setting_topic'):
+                    self.mqtt_support.client.publish(
+                        self.black_tank_setting_topic, val, retain=True)
+
+        elif msg_type == "EF":  # 0xEF - generator/AES mode
+            val = new_message.get("mode_definition", new_message.get("mode"))
+            if val is not None and val != self._gen_aes_mode:
+                self._gen_aes_mode = val
+                if hasattr(self, 'gen_aes_mode_topic'):
+                    self.mqtt_support.client.publish(
+                        self.gen_aes_mode_topic, val, retain=True)
+
+        elif msg_type == "F5":  # 0xF5 - selected floorplan
+            val = new_message.get("floorplan_definition", new_message.get("floorplan"))
+            if val is not None and val != self._selected_floorplan:
+                self._selected_floorplan = val
+                if hasattr(self, 'selected_floorplan_topic'):
+                    self.mqtt_support.client.publish(
+                        self.selected_floorplan_topic, val, retain=True)
+
+        elif msg_type == "F7":  # 0xF7 - AGS time between retries
+            val = new_message.get("retry_interval")
+            if val is not None and val != self._ags_retry_interval:
+                self._ags_retry_interval = val
+                if hasattr(self, 'ags_retry_interval_topic'):
+                    self.mqtt_support.client.publish(
+                        self.ags_retry_interval_topic, val, retain=True)
+
         else:
             self.Logger.debug(f"G12_CONFIGURATION unhandled message type {msg_type}: {str(new_message)}")
 
@@ -534,6 +720,101 @@ class G12_Configuration(EntityPluginBaseClass):
             elif topic == self.threshold_ce_set_topic:
                 raw_value = round(float(payload))
                 frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xCE, 0x0F, raw_value, 0xD1, 0xEA)
+
+            elif topic == self.ags_low_volts_trigger_set_topic:
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0x2F, 0x0F,
+                                    1 if payload.lower() == 'on' else 0, 0xD1, 0xEA)
+
+            elif topic == self.cargo_bath_light_set_topic:
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xE3, 0x0F,
+                                    1 if payload.lower() == 'on' else 0, 0xD1, 0xEA)
+
+            elif topic == self.bunk_accent_set_topic:
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xE5, 0x0F,
+                                    1 if payload.lower() == 'on' else 0, 0xD1, 0xEA)
+
+            elif topic == self.progressive_inverter_set_topic:
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xE6, 0x0F,
+                                    1 if payload.lower() == 'on' else 0, 0xD1, 0xEA)
+
+            elif topic == self.bath_fan_set_topic:
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xE9, 0x0F,
+                                    1 if payload.lower() == 'on' else 0, 0xD1, 0xEA)
+
+            elif topic == self.black_tank_setting_set_topic:
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xEC, 0x0F,
+                                    1 if payload.lower() == 'on' else 0, 0xD1, 0xEA)
+
+            elif topic == self.gen_aes_mode_set_topic:
+                mode_map = {'ags': 1, 'aes': 2, 'aes single output': 3}
+                val = mode_map.get(payload.lower())
+                if val is None:
+                    self.Logger.warning(f"Unknown gen/aes mode: {payload}")
+                    return
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xEF, 0x0F, val, 0xD1, 0xEA)
+
+            elif topic == self.selected_floorplan_set_topic:
+                fp_map = {'sy': 4, 'wa': 7, 'wd': 8, 'wt': 9}
+                val = fp_map.get(payload.lower())
+                if val is None:
+                    self.Logger.warning(f"Unknown floorplan: {payload}")
+                    return
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xF5, 0x0F, val, 0xD1, 0xEA)
+
+            elif topic == self.num_batteries_set_topic:
+                battery_map = {'1 battery': 0, '2 batteries': 1}
+                val = battery_map.get(payload.lower())
+                if val is None:
+                    try:
+                        val = int(payload)
+                    except ValueError:
+                        self.Logger.warning(f"Unknown battery count: {payload}")
+                        return
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xD8, 0x0F, val, 0xD1, 0xEA)
+
+            elif topic == self.go_power_controllers_set_topic:
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xD7, 0x0F,
+                                    round(float(payload)), 0xD1, 0xEA)
+
+            elif topic == self.ags_retry_interval_set_topic:
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xF7, 0x0F,
+                                    round(float(payload)), 0xD1, 0xEA)
+
+            elif topic == self.aes_enabled_set_topic:
+                enable = payload.lower() == 'on'
+                if enable:
+                    frames = [
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x00, 0x0F, 0x01, 0x00, 0xD1, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x2F, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x2E, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x33, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x2B, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x2C, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x31, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x0C, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x0D, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x0E, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x0F, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x16, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x15, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x01, 0x0F, 0x01, 0x00, 0xD1, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x01, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x9B, 0x0F, 0x01, 0x00, 0xD1, 0xFF),
+                    ]
+                else:
+                    frames = [
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x01, 0x0F, 0x00, 0x00, 0xD1, 0xEA),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x06, 0x0F, 0x00, 0x00, 0xD1, 0xEA),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x58, 0x0F, 0x00, 0x00, 0xD1, 0xEA),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x58, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x4F, 0x0F, 0x00, 0x00, 0xD1, 0xEA),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0xB8, 0x0F, 0x00, 0x00, 0xD1, 0xEA),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x01, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x9B, 0x0F, 0x00, 0x00, 0xD1, 0xFF),
+                    ]
+                for f in frames:
+                    self.send_queue.put({"dgn": "1FED9", "data": bytearray(f)})
+                return
 
             else:
                 self.Logger.warning(f"Unhandled set topic: {topic}")
@@ -642,6 +923,107 @@ class G12_Configuration(EntityPluginBaseClass):
                 'payload_on': 'true', 'payload_off': 'false',
                 'enabled_by_default': False,
                 'unique_id': self.unique_device_id + f'_input_{n}'}
+
+        has_new_cmd = hasattr(self, 'ags_low_volts_trigger_set_topic')
+
+        # --- AES enabled switch ---
+        if hasattr(self, 'aes_enabled_topic'):
+            aes_cmp = {
+                'name': 'AES Enabled',
+                'state_topic': self.aes_enabled_topic,
+                'payload_on': 'on', 'payload_off': 'off',
+                'unique_id': self.unique_device_id + '_aes_enabled',
+            }
+            if hasattr(self, 'aes_enabled_set_topic'):
+                aes_cmp['p'] = 'switch'
+                aes_cmp['command_topic'] = self.aes_enabled_set_topic
+            else:
+                aes_cmp['p'] = 'binary_sensor'
+            cmps['aes_enabled'] = aes_cmp
+
+        # --- newly discovered on/off settings (switch when writable) ---
+        onoff_specs = [
+            ('ags_low_volts_trigger', self.ags_low_volts_trigger_topic,
+             self.ags_low_volts_trigger_set_topic if has_new_cmd else None, 'AGS Low Volts Trigger'),
+            ('cargo_bath_light',      self.cargo_bath_light_topic,
+             self.cargo_bath_light_set_topic if has_new_cmd else None,      'Cargo/Bath Light (CH.25)'),
+            ('bunk_accent',           self.bunk_accent_topic,
+             self.bunk_accent_set_topic if has_new_cmd else None,           'Bunk Accent'),
+            ('progressive_inverter',  self.progressive_inverter_topic,
+             self.progressive_inverter_set_topic if has_new_cmd else None,  'Progressive Inverter'),
+            ('bath_fan',              self.bath_fan_topic,
+             self.bath_fan_set_topic if has_new_cmd else None,              'Bath Fan'),
+            ('black_tank_setting',    self.black_tank_setting_topic,
+             self.black_tank_setting_set_topic if has_new_cmd else None,    'Black Tank'),
+        ]
+        for sub_id, state_topic, cmd_topic, label in onoff_specs:
+            cmp = {'name': label, 'state_topic': state_topic,
+                   'payload_on': 'on', 'payload_off': 'off',
+                   'unique_id': self.unique_device_id + '_' + sub_id}
+            if cmd_topic:
+                cmp['p'] = 'switch'
+                cmp['command_topic'] = cmd_topic
+            else:
+                cmp['p'] = 'binary_sensor'
+            cmps[sub_id] = cmp
+
+        # --- newly discovered numeric settings ---
+        cmps['ags_gen_start_retries'] = {
+            'p': 'sensor', 'name': 'AGS Gen Start Retries',
+            'state_topic': self.ags_gen_start_retries_topic,
+            'unique_id': self.unique_device_id + '_ags_gen_start_retries'}
+
+        cmps['go_power_controllers'] = {
+            'p': 'number' if has_new_cmd else 'sensor',
+            'name': 'Go Power! Controllers',
+            'state_topic': self.go_power_controllers_topic,
+            'min': 0, 'max': 5, 'step': 1, 'mode': 'auto',
+            'unique_id': self.unique_device_id + '_go_power_controllers'}
+        if has_new_cmd:
+            cmps['go_power_controllers']['command_topic'] = self.go_power_controllers_set_topic
+
+        cmps['ags_retry_interval'] = {
+            'p': 'number' if has_new_cmd else 'sensor',
+            'name': 'AGS Retry Interval',
+            'state_topic': self.ags_retry_interval_topic,
+            'unit_of_measurement': 's',
+            'min': 25, 'max': 65, 'step': 5, 'mode': 'auto',
+            'unique_id': self.unique_device_id + '_ags_retry_interval'}
+        if has_new_cmd:
+            cmps['ags_retry_interval']['command_topic'] = self.ags_retry_interval_set_topic
+
+        # --- newly discovered text/enum settings ---
+        cmps['num_batteries'] = {
+            'p': 'select' if has_new_cmd else 'sensor',
+            'name': 'Number of Batteries',
+            'state_topic': self.num_batteries_topic,
+            'options': ['1 battery', '2 batteries'],
+            'unique_id': self.unique_device_id + '_num_batteries'}
+        if has_new_cmd:
+            cmps['num_batteries']['command_topic'] = self.num_batteries_set_topic
+
+        cmps['ags_config_mode'] = {
+            'p': 'sensor', 'name': 'AGS Config Mode',
+            'state_topic': self.ags_config_mode_topic,
+            'unique_id': self.unique_device_id + '_ags_config_mode'}
+
+        cmps['gen_aes_mode'] = {
+            'p': 'select' if has_new_cmd else 'sensor',
+            'name': 'Generator/AES Mode',
+            'state_topic': self.gen_aes_mode_topic,
+            'options': ['AGS', 'AES', 'AES Single Output'],
+            'unique_id': self.unique_device_id + '_gen_aes_mode'}
+        if has_new_cmd:
+            cmps['gen_aes_mode']['command_topic'] = self.gen_aes_mode_set_topic
+
+        cmps['selected_floorplan'] = {
+            'p': 'select' if has_new_cmd else 'sensor',
+            'name': 'Selected Floorplan',
+            'state_topic': self.selected_floorplan_topic,
+            'options': ['SY', 'WA', 'WD', 'WT'],
+            'unique_id': self.unique_device_id + '_selected_floorplan'}
+        if has_new_cmd:
+            cmps['selected_floorplan']['command_topic'] = self.selected_floorplan_set_topic
 
         config = {'dev': self.device, 'o': origin, 'cmps': cmps, 'qos': 1}
         config.update(self.get_availability_discovery_info_for_ha())
