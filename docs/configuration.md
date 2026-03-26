@@ -37,6 +37,9 @@ Reads raw sensor counts broadcast by the Firefly G12 controller (`G12_TANK_LEVEL
 sensor value.  It also publishes the threshold values themselves as retained topics and
 exposes them as editable `number` entities in Home Assistant.
 
+Threshold values sent via MQTT command topics are **persisted automatically** to the
+floorplan override file so they survive container restarts and reloads.
+
 **Threshold topics** (when `command_topic: rvc/set/tanks/fresh` is set):
 
 | Topic | Direction | Description |
@@ -64,6 +67,117 @@ floorplan:
     33_custom_threshold: 57400
     66_custom_threshold: 44400
     100_custom_threshold: 22000
+```
+
+### G12 controller (`g12_configuration`)
+
+Monitors and controls the Firefly G12 controller (source_id `9C`).  Decodes
+`G12_CONFIGURATION` messages (AES settings, voltages, quiet time, tank thresholds,
+floorplan selection, etc.) and assembles product identification from multi-packet
+transport messages.
+
+`source_id` is required so that only frames from the G12 node are matched.
+`command_topic` is optional — omit it if you only want to monitor.
+
+**Status topics** (relative to `status_topic`):
+
+| Sub-topic | Description |
+|-----------|-------------|
+| `/aes/enabled` | AES on/off |
+| `/aes/max_engine_run_time` | Max generator run time (minutes) |
+| `/aes/time_at_start_volts` | Time at start voltage (seconds) |
+| `/aes/stop_at_voltage` | Stop voltage (V) |
+| `/aes/time_at_stop_volts` | Time at stop voltage (seconds) |
+| `/aes/quiet_time_start` | Quiet time start (HH:MM) |
+| `/aes/quiet_time_stop` | Quiet time stop (HH:MM) |
+| `/aes/start_at_voltage` | Start voltage (V) |
+| `/ags/low_volts_trigger` | AGS low voltage trigger |
+| `/ags/gen_start_retries` | AGS start retry count |
+| `/ags/config_mode` | AGS configuration mode |
+| `/ags/retry_interval` | AGS retry interval |
+| `/tanks/threshold_33_pct` | Global 33% tank threshold |
+| `/tanks/threshold_66_pct` | Global 66% tank threshold |
+| `/tanks/threshold_100_pct` | Global 100% tank threshold |
+| `/tanks/black_setting` | Black tank setting |
+| `/gen/mode` | Generator AES mode |
+| `/floorplan` | Selected floorplan number |
+| `/batteries/count` | Number of batteries |
+| `/go_power/controller_count` | Go Power controller count |
+| `/inverter/progressive` | Progressive inverter setting |
+| `/fans/bath` | Bath fan setting |
+| `/lights/cargo_bath_ch25` | Cargo/bath light channel 25 |
+| `/lights/bunk_accent` | Bunk accent light setting |
+| `/engine/running` | Engine relay state (on/off) |
+| `/fault/code` | DM_RV fault code |
+| `/fault/description` | DM_RV fault description |
+| `/fault/lamp` | DM_RV lamp state |
+| `/product_id` | Product identification string |
+| `/input/<n>/active` | G12 input n active state |
+
+**Command topics** (relative to `command_topic`):
+
+| Sub-topic | Description |
+|-----------|-------------|
+| `/aes/enabled` | Enable/disable AES (`on`/`off`) |
+| `/aes/max_engine_run_time` | Set max engine run time |
+| `/aes/time_at_start_volts` | Set time at start voltage |
+| `/aes/stop_at_voltage` | Set stop voltage |
+| `/aes/time_at_stop_volts` | Set time at stop voltage |
+| `/aes/quiet_time_start` | Set quiet time start |
+| `/aes/quiet_time_stop` | Set quiet time stop |
+| `/aes/start_at_voltage` | Set start voltage |
+| `/ags/low_volts_trigger` | Set AGS low voltage trigger |
+| `/tanks/threshold_33_pct` | Set global 33% threshold |
+| `/tanks/threshold_66_pct` | Set global 66% threshold |
+| `/tanks/threshold_100_pct` | Set global 100% threshold |
+| `/tanks/black_setting` | Set black tank setting |
+| `/gen/mode` | Set generator AES mode |
+| `/floorplan` | Set selected floorplan |
+| `/batteries/count` | Set battery count |
+| `/go_power/controller_count` | Set Go Power controller count |
+| `/inverter/progressive` | Set progressive inverter |
+| `/fans/bath` | Set bath fan |
+| `/lights/cargo_bath_ch25` | Set cargo/bath light channel |
+| `/lights/bunk_accent` | Set bunk accent light |
+| `/ags/retry_interval` | Set AGS retry interval |
+| `/engine/start` | Start/stop engine |
+
+**Floorplan entry example:**
+
+```yaml
+floorplan:
+  - name: G12
+    type: g12_configuration
+    source_id: '9C'
+    instance_name: Generator Controller
+    status_topic: rvc/state/g12
+    command_topic: rvc/set/g12
+```
+
+### G12 DC system (`dc_system` / `DC_SOURCE_STATUS_G12`)
+
+Reads voltage and current from the Firefly G12's proprietary `DC_SOURCE_STATUS_G12`
+DGN (functionally equivalent to the standard `DC_SOURCE_STATUS_1`).
+
+**Status topics:**
+
+| Sub-topic | Description |
+|-----------|-------------|
+| `/voltage` | DC voltage (V, 2 decimal places) |
+| `/current` | DC current (A) |
+
+Both sensors are exposed as Home Assistant sensor entities with device class
+`voltage` / `current`.
+
+**Floorplan entry example:**
+
+```yaml
+floorplan:
+  - name: DC_SOURCE_STATUS_G12
+    type: dc_system
+    instance: 1
+    instance_name: G12 Battery
+    status_topic: rvc/state/g12/battery
 ```
 
 ### Example
