@@ -211,8 +211,9 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
             config['on_command_type'] = 'brightness'
         config.update(self.get_availability_discovery_info_for_ha())
         config_json = json.dumps(config)
+        ha_component = "light" if self.dimmable else "switch"
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
-            self.unique_device_id, "light")
+            self.unique_device_id, ha_component)
         self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
 
     def initialize(self):
