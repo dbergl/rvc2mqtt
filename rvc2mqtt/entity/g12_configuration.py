@@ -350,8 +350,7 @@ class G12_Configuration(EntityPluginBaseClass):
         if self._is_entry_match(self.rvc_match_engine_status, new_message):
             # DC_DIMMER_STATUS_3 instance 18 = engine relay state
             if int(new_message.get("instance", -1)) == 18:
-                load = new_message.get("load_status", "")
-                val = "on" if load == "01" else "off"
+                val = "on" if new_message.get("operating_status_brightness", 0) > 0 else "off"
                 if val != self._engine_running:
                     self._engine_running = val
                     if hasattr(self, 'engine_running_topic'):

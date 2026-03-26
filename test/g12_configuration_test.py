@@ -226,6 +226,53 @@ class Test_G12_Configuration(unittest.TestCase):
                            if 'fault/code' in c[0][0]]
         self.assertEqual(len(fault_publishes), 1)
 
+    # --- Engine relay (DC_DIMMER_STATUS_3 instance 18) tests ---
+
+    def _make_engine_relay_msg(self, source_id='9C', instance=18, brightness=100.0):
+        return {
+            'name': 'DC_DIMMER_STATUS_3',
+            'source_id': source_id,
+            'instance': instance,
+            'operating_status_brightness': brightness,
+        }
+
+    def test_engine_relay_on_when_brightness_nonzero(self):
+        g = self._make_g12()
+        result = g.process_rvc_msg(self._make_engine_relay_msg(brightness=100.0))
+        self.assertTrue(result)
+        publish_calls = {c[0][0]: c[0][1]
+                         for c in g.mqtt_support.client.publish.call_args_list}
+        self.assertEqual(publish_calls.get('g12/status/engine/running'), 'on')
+
+    def test_engine_relay_off_when_brightness_zero(self):
+        g = self._make_g12()
+        result = g.process_rvc_msg(self._make_engine_relay_msg(brightness=0))
+        self.assertTrue(result)
+        publish_calls = {c[0][0]: c[0][1]
+                         for c in g.mqtt_support.client.publish.call_args_list}
+        self.assertEqual(publish_calls.get('g12/status/engine/running'), 'off')
+
+    def test_engine_relay_wrong_instance_ignored(self):
+        g = self._make_g12()
+        g.process_rvc_msg(self._make_engine_relay_msg(instance=1, brightness=100.0))
+        publish_calls = {c[0][0]: c[0][1]
+                         for c in g.mqtt_support.client.publish.call_args_list}
+        self.assertNotIn('g12/status/engine/running', publish_calls)
+
+    def test_engine_relay_wrong_source_id_ignored(self):
+        g = self._make_g12()
+        result = g.process_rvc_msg(self._make_engine_relay_msg(source_id='FF', brightness=100.0))
+        self.assertFalse(result)
+
+    def test_engine_relay_no_publish_when_state_unchanged(self):
+        g = self._make_g12()
+        g.process_rvc_msg(self._make_engine_relay_msg(brightness=100.0))
+        g.mqtt_support.client.publish.reset_mock()
+        g.process_rvc_msg(self._make_engine_relay_msg(brightness=50.0))  # still on
+        publish_calls = {c[0][0]: c[0][1]
+                         for c in g.mqtt_support.client.publish.call_args_list}
+        self.assertNotIn('g12/status/engine/running', publish_calls)
+
     # --- INITIAL_PACKET / DATA_PACKET / product_id tests ---
 
     def _make_data_packets(self, product_str, count):
