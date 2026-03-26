@@ -78,6 +78,67 @@ class Test_Dimmer(unittest.TestCase):
                          for c in d.mqtt_support.client.publish.call_args_list}
         self.assertEqual(publish_calls.get('rvc/state/dimmer/brightness'), 50)
 
+    def test_dimmable_false_uses_switch_ha_component(self):
+        mock = _make_mock()
+        mock.make_ha_auto_discovery_config_topic.return_value = 'homeassistant/switch/test/config'
+        d = Dimmer({'instance': 1, 'instance_name': "relay",
+                    'status_topic': 'rvc/state/relay', 'command_topic': 'rvc/set/relay',
+                    'dimmable': False}, mock)
+        d.publish_ha_discovery_config()
+        mock.make_ha_auto_discovery_config_topic.assert_called_with(
+            d.unique_device_id, 'switch')
+
+    def test_rvc_set_brightness_frame_encoding(self):
+        import queue as qmod
+        d = self._make_dimmer()
+        q = qmod.Queue()
+        d.set_rvc_send_queue(q)
+        d._rvc_set_brightness(50)
+        self.assertFalse(q.empty())
+        msg = q.get_nowait()
+        self.assertEqual(msg['dgn'], '1FEDB')
+        data = msg['data']
+        self.assertEqual(data[0], 1)     # instance
+        self.assertEqual(data[1], 0xFF)  # group all
+        self.assertEqual(data[2], 100)   # 50% × 2 = 100 wire format
+        self.assertEqual(data[3], 0)     # command = set brightness
+
+    def test_brightness_command_valid_payload(self):
+        import queue as qmod
+        d = self._make_dimmer()
+        q = qmod.Queue()
+        d.set_rvc_send_queue(q)
+        d.process_mqtt_msg('rvc/set/dimmer/brightness', '75')
+        self.assertFalse(q.empty())
+        msg = q.get_nowait()
+        self.assertEqual(msg['data'][2], 150)  # 75% × 2
+
+    def test_brightness_command_clamped_above_100(self):
+        import queue as qmod
+        d = self._make_dimmer()
+        q = qmod.Queue()
+        d.set_rvc_send_queue(q)
+        d.process_mqtt_msg('rvc/set/dimmer/brightness', '150')
+        msg = q.get_nowait()
+        self.assertEqual(msg['data'][2], 200)  # clamped to 100% × 2
+
+    def test_brightness_command_clamped_below_0(self):
+        import queue as qmod
+        d = self._make_dimmer()
+        d.brightness = 50  # set away from 0 so the clamped value triggers a send
+        q = qmod.Queue()
+        d.set_rvc_send_queue(q)
+        d.process_mqtt_msg('rvc/set/dimmer/brightness', '-10')
+        msg = q.get_nowait()
+        self.assertEqual(msg['data'][2], 0)  # clamped to 0
+
+    def test_brightness_command_invalid_payload_does_not_crash(self):
+        d = self._make_dimmer()
+        try:
+            d.process_mqtt_msg('rvc/set/dimmer/brightness', 'not_a_number')
+        except (ValueError, TypeError) as e:
+            self.fail(f"process_mqtt_msg raised {type(e).__name__} on invalid brightness: {e}")
+
     def test_brightness_na_does_not_crash(self):
         """operating_status_brightness of 'n/a' (raw byte 0xFF) must not raise."""
         d = self._make_dimmer()

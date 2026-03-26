@@ -137,6 +137,18 @@ class Test_Touchscreen(unittest.TestCase):
                  if c[0][0] == 'touchscreen/status/product_id']
         self.assertEqual(len(calls), 2)
 
+    def test_data_packet_overflow_does_not_crash(self):
+        """data value too large for 7 bytes must not raise OverflowError."""
+        t = self._make_ts()
+        t.process_rvc_msg({'name': 'INITIAL_PACKET', 'source_id': '9F',
+                           'packet_count': 1, 'message_length': 7})
+        overflow_data = 2 ** 56  # one bit too many for 7 bytes
+        try:
+            t.process_rvc_msg({'name': 'DATA_PACKET', 'source_id': '9F',
+                               'packet_number': 1, 'data': overflow_data})
+        except OverflowError as e:
+            self.fail(f"process_rvc_msg raised OverflowError on oversized data: {e}")
+
     def test_data_packet_invalid_bytes_logs_error(self):
         t = self._make_ts()
         t.process_rvc_msg({'name': 'INITIAL_PACKET', 'source_id': '9F',

@@ -97,7 +97,12 @@ class Touchscreen(EntityPluginBaseClass):
             if packet_num in self._mp_packets:
                 self.Logger.warning(f"Duplicate DATA_PACKET #{packet_num}, ignoring")
                 return True
-            data_bytes = int(new_message["data"]).to_bytes(7, 'little')
+            try:
+                data_bytes = int(new_message["data"]).to_bytes(7, 'little')
+            except OverflowError:
+                self.Logger.warning(
+                    f"DATA_PACKET #{packet_num}: data value too large, discarding packet")
+                return True
             self._mp_packets[packet_num] = data_bytes
             self.Logger.debug(
                 f"DATA_PACKET #{packet_num}: "
