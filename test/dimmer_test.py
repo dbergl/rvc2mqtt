@@ -54,5 +54,38 @@ class Test_Dimmer(unittest.TestCase):
             self.assertFalse(kwargs.get('retain', False),
                              f"Discovery config published with retain=True: {call}")
 
+    def _make_dimmer(self, dimmable=True):
+        mock = _make_mock()
+        return Dimmer(
+            {'instance': 1, 'instance_name': "test dimmer",
+             'status_topic': 'rvc/state/dimmer', 'command_topic': 'rvc/set/dimmer',
+             'dimmable': dimmable},
+            mock
+        )
+
+    def _make_status_msg(self, brightness):
+        return {
+            'name': 'DC_DIMMER_STATUS_3',
+            'instance': 1,
+            'messagestate': 'on',
+            'operating_status_brightness': brightness,
+        }
+
+    def test_brightness_published_on_status_msg(self):
+        d = self._make_dimmer()
+        d.process_rvc_msg(self._make_status_msg(brightness=50.0))
+        publish_calls = {c[0][0]: c[0][1]
+                         for c in d.mqtt_support.client.publish.call_args_list}
+        self.assertEqual(publish_calls.get('rvc/state/dimmer/brightness'), 50)
+
+    def test_brightness_na_does_not_crash(self):
+        """operating_status_brightness of 'n/a' (raw byte 0xFF) must not raise."""
+        d = self._make_dimmer()
+        try:
+            d.process_rvc_msg(self._make_status_msg(brightness='n/a'))
+        except (ValueError, TypeError) as e:
+            self.fail(f"process_rvc_msg raised {type(e).__name__} on n/a brightness: {e}")
+
+
 if __name__ == '__main__':
     unittest.main()

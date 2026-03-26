@@ -109,7 +109,10 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
                 self.state = self.messagestate
 
             if self.dimmable:
-                new_brightness = int(new_message["operating_status_brightness"])
+                raw_brightness = new_message["operating_status_brightness"]
+                if raw_brightness == "n/a":
+                    return True
+                new_brightness = int(raw_brightness)
                 if new_brightness != self.brightness:
                     self.mqtt_support.client.publish(
                         self.brightness_status_topic, new_brightness, retain=True)
