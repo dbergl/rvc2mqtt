@@ -31,11 +31,7 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
     FACTORY_MATCH_ATTRIBUTES = {"name": "DC_DIMMER_STATUS_3", "type": "dimmer_switch"}
     """
     Dimmer switch that is tied to RVC DGN of DC_DIMMER_STATUS_3 and DC_DIMMER_COMMAND_2
-    Supports ON/OFF
-
-    TODO: support setting brightness
-
-
+    Supports ON/OFF and brightness (0-100%)
     """
     LIGHT_ON = "on"
     LIGHT_OFF = "off"
@@ -57,6 +53,12 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         if 'status_topic' in data:
             self.status_topic = str(data['status_topic'])
 
+        self.dimmable = data.get('dimmable', True)
+        if self.dimmable:
+            self.brightness_status_topic = self.status_topic + "/brightness"
+            self.brightness_command_topic = self.command_topic + "/brightness"
+            self.mqtt_support.register(self.brightness_command_topic, self.process_mqtt_msg)
+
 
         # RVC message must match the following to be this device
         self.rvc_match_status = { "name": "DC_DIMMER_STATUS_3", "instance": data['instance']}
@@ -72,6 +74,7 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         self.name = data['instance_name']
         self.state = "unknown"
         self.messagestate = "unknown"
+        self.brightness = 0
 
         self.device = {'mf': 'RV-C',
                        'ids': self.unique_device_id,
@@ -104,6 +107,14 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
                 self.mqtt_support.client.publish(
                     self.status_topic, self.messagestate, retain=True)
                 self.state = self.messagestate
+
+            if self.dimmable:
+                new_brightness = int(new_message["operating_status_brightness"])
+                if new_brightness != self.brightness:
+                    self.mqtt_support.client.publish(
+                        self.brightness_status_topic, new_brightness, retain=True)
+                    self.brightness = new_brightness
+
             return True
 
         elif self._is_entry_match(self.rvc_match_command, new_message):
@@ -127,6 +138,15 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
             else:
                 self.Logger.warning(
                     f"Invalid payload {payload} for topic {topic}")
+        elif self.dimmable and topic == self.brightness_command_topic:
+            try:
+                level = int(float(payload))
+                level = max(0, min(100, level))
+                if level != self.brightness:
+                    self._rvc_set_brightness(level)
+            except ValueError:
+                self.Logger.warning(
+                    f"Invalid brightness payload {payload} for topic {topic}")
 
     """
     On:
@@ -135,6 +155,21 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
     Off:
     2024-09-10 22:00:39 {'arbitration_id': '0x19fedbfd', 'data': '20FFFA05FF00FFFF', 'priority': '6', 'dgn_h': '1FE', 'dgn_l': 'DB', 'dgn': '1FEDB', 'source_id': 'FD', 'name': 'DC_DIMMER_COMMAND_2', 'instance': 32, 'group': '11111111', 'desired_level': 125.0, 'command': 5, 'command_definition': 'toggle', 'delay_duration': 255, 'interlock': '00', 'interlock_definition': 'no interlock active'}
     """
+
+    def _rvc_set_brightness(self, level: int):
+        """Send DC_DIMMER_COMMAND_2 with command=0 (set brightness), level 0-100%"""
+        msg_bytes = bytearray(8)
+        desired_level = int(level * 2)  # 0-100% → 0-200 wire format
+        struct.pack_into("<BBBBBBBB", msg_bytes, 0,
+                         self.rvc_instance,
+                         int(self.rvc_group, 2),
+                         desired_level,
+                         0,     # command = set brightness
+                         0xFF,  # delay/duration = immediate
+                         0,     # interlock = none
+                         0xFF,  # ramp_time = immediate
+                         0xFF)
+        self.send_queue.put({"dgn": "1FEDB", "data": msg_bytes})
 
     def _rvc_light_off(self):
         # 01 00 FA 00 03 FF 0000
@@ -169,6 +204,11 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
                   'payload_off': DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_OFF,
                   'unique_id': self.unique_device_id,
                   'dev': self.device}
+        if self.dimmable:
+            config['brightness_state_topic'] = self.brightness_status_topic
+            config['brightness_command_topic'] = self.brightness_command_topic
+            config['brightness_scale'] = 100
+            config['on_command_type'] = 'brightness'
         config.update(self.get_availability_discovery_info_for_ha())
         config_json = json.dumps(config)
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
@@ -186,6 +226,8 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         """
         self.publish_ha_discovery_config()
         self.mqtt_support.client.publish(self.status_topic, self.state, retain=True)
+        if self.dimmable:
+            self.mqtt_support.client.publish(self.brightness_status_topic, self.brightness, retain=True)
 
         # request dgn report - this should trigger that dimmer to report
         # dgn = 1FEDA which is actually  DA FE 01 <instance> FF 00 00 00

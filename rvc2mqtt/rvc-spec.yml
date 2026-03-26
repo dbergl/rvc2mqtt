@@ -4834,7 +4834,7 @@ Z0005:
       values:
         "01": involves aes enabled
         "03": involves aes enabled
-        "05": involves aes enabled
+        "05": aes state machine
         "0C": time at start volts
         "0D": stop at voltage
         "0E": time at stop volts
@@ -4858,6 +4858,16 @@ Z0005:
         "EF": generator/aes mode
         "F5": selected floorplan
         "F7": ags time between retries (sec)
+  "05":
+    - byte: 2
+      name: aes state
+      type: uint8
+      unit: hex
+      values:
+        64: "monitoring"
+        1: "triggered"
+        3: "cranking"
+        131: "running"
   "16":
     - byte: 2-3
       name: minutes

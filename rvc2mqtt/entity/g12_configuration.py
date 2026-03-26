@@ -81,6 +81,8 @@ class G12_Configuration(EntityPluginBaseClass):
         self.rvc_match_input_status   = {"name": "G12_INPUT_STATUS", "source_id": self.source_id}
         # 1FED9 comes from touchscreen (0x9F), not G12 (0x9C) — no source_id filter
         self.rvc_match_g12_indicator  = {"name": "GENERIC_INDICATOR_COMMAND"}
+        # DC_DIMMER_STATUS_3 (1FEDA) from G12 — instance 18 = engine relay
+        self.rvc_match_engine_status  = {"name": "DC_DIMMER_STATUS_3", "source_id": self.source_id}
 
         # DM_RV
         self._fault_code = "unknown"
@@ -129,6 +131,7 @@ class G12_Configuration(EntityPluginBaseClass):
         self._selected_floorplan     = "unknown"  # 0xF5
         self._ags_retry_interval     = "unknown"  # 0xF7
         self._aes_enabled            = "unknown"  # 0x9B (on/off)
+        self._engine_running         = "unknown"  # engine on/off (from DC_DIMMER_STATUS_3 instance 18)
 
         if 'status_topic' in data:
             topic_base = str(data['status_topic'])
@@ -162,6 +165,7 @@ class G12_Configuration(EntityPluginBaseClass):
             self.selected_floorplan_topic    = str(f"{topic_base}/floorplan")
             self.ags_retry_interval_topic    = str(f"{topic_base}/ags/retry_interval")
             self.aes_enabled_topic           = str(f"{topic_base}/aes/enabled")
+            self.engine_running_topic        = str(f"{topic_base}/engine/running")
 
         if 'command_topic' in data:
             topic_base = str(data['command_topic'])
@@ -188,6 +192,7 @@ class G12_Configuration(EntityPluginBaseClass):
             self.go_power_controllers_set_topic  = str(f"{topic_base}/go_power/controller_count")
             self.ags_retry_interval_set_topic    = str(f"{topic_base}/ags/retry_interval")
             self.aes_enabled_set_topic           = str(f"{topic_base}/aes/enabled")
+            self.engine_start_set_topic          = str(f"{topic_base}/engine/start")
 
             self.mqtt_support.register(self.max_engine_run_time_set_topic, self.process_mqtt_msg)
             self.mqtt_support.register(self.time_at_start_volts_set_topic, self.process_mqtt_msg)
@@ -211,6 +216,7 @@ class G12_Configuration(EntityPluginBaseClass):
             self.mqtt_support.register(self.go_power_controllers_set_topic, self.process_mqtt_msg)
             self.mqtt_support.register(self.ags_retry_interval_set_topic, self.process_mqtt_msg)
             self.mqtt_support.register(self.aes_enabled_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.engine_start_set_topic, self.process_mqtt_msg)
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming RVC message and determine if it is of interest.
@@ -339,6 +345,18 @@ class G12_Configuration(EntityPluginBaseClass):
                     if new_input != 0:
                         self.mqtt_support.client.publish(
                             f"{self._input_topic_base}/inputs/{new_input}/active", "true", retain=True)
+            return True
+
+        if self._is_entry_match(self.rvc_match_engine_status, new_message):
+            # DC_DIMMER_STATUS_3 instance 18 = engine relay state
+            if int(new_message.get("instance", -1)) == 18:
+                load = new_message.get("load_status", "")
+                val = "on" if load == "01" else "off"
+                if val != self._engine_running:
+                    self._engine_running = val
+                    if hasattr(self, 'engine_running_topic'):
+                        self.mqtt_support.client.publish(
+                            self.engine_running_topic, val, retain=True)
             return True
 
         if self._is_entry_match(self.rvc_match_g12_indicator, new_message):
@@ -816,6 +834,16 @@ class G12_Configuration(EntityPluginBaseClass):
                     self.send_queue.put({"dgn": "1FED9", "data": bytearray(f)})
                 return
 
+            elif topic == self.engine_start_set_topic:
+                if payload.lower() == 'on':
+                    # Start engine: DC_DIMMER_COMMAND_2 instance=18, level=100%, command=on_duration
+                    frame = struct.pack("<BBBBBBBB", 0x12, 0xFF, 0xC8, 0x01, 0xFF, 0x00, 0xFF, 0xFF)
+                else:
+                    # Stop engine: DC_DIMMER_COMMAND_2 instance=18, level=0%, command=off
+                    frame = struct.pack("<BBBBBBBB", 0x12, 0xFF, 0x00, 0x03, 0xFF, 0x00, 0xFF, 0xFF)
+                self.send_queue.put({"dgn": "1FEDB", "data": bytearray(frame)})
+                return
+
             else:
                 self.Logger.warning(f"Unhandled set topic: {topic}")
                 return
@@ -848,7 +876,7 @@ class G12_Configuration(EntityPluginBaseClass):
             ('stop_at_voltage',      self.stop_at_voltage_topic,
              self.stop_at_voltage_set_topic if has_cmd else None,
              'Stop at Voltage',
-             {'unit_of_measurement': 'V', 'device_class': 'voltage', 'min': 50.0, 'max': 54.0, 'step': 0.1, 'mode': 'auto'}),
+             {'unit_of_measurement': 'V', 'device_class': 'voltage', 'min': 50.0, 'max': 58.8, 'step': 0.1, 'mode': 'auto'}),
             ('start_at_voltage',     self.start_at_voltage_topic,
              self.start_at_voltage_set_topic if has_cmd else None,
              'Start at Voltage',
@@ -925,6 +953,31 @@ class G12_Configuration(EntityPluginBaseClass):
                 'unique_id': self.unique_device_id + f'_input_{n}'}
 
         has_new_cmd = hasattr(self, 'ags_low_volts_trigger_set_topic')
+
+        # --- engine start/stop buttons + status sensor ---
+        if hasattr(self, 'engine_running_topic'):
+            cmps['engine_status'] = {
+                'p': 'binary_sensor',
+                'name': 'Engine Starting Status',
+                'state_topic': self.engine_running_topic,
+                'payload_on': 'on', 'payload_off': 'off',
+                'unique_id': self.unique_device_id + '_engine_status',
+            }
+        if hasattr(self, 'engine_start_set_topic'):
+            cmps['engine_start'] = {
+                'p': 'button',
+                'name': 'Start Engine',
+                'command_topic': self.engine_start_set_topic,
+                'payload_press': 'on',
+                'unique_id': self.unique_device_id + '_engine_start',
+            }
+            cmps['engine_stop'] = {
+                'p': 'button',
+                'name': 'Stop Engine',
+                'command_topic': self.engine_start_set_topic,
+                'payload_press': 'off',
+                'unique_id': self.unique_device_id + '_engine_stop',
+            }
 
         # --- AES enabled switch ---
         if hasattr(self, 'aes_enabled_topic'):
