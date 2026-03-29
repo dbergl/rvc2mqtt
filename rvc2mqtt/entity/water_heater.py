@@ -293,9 +293,11 @@ class WaterHeaterClass(EntityPluginBaseClass):
                 Turn Gas On/Off
                 Turn AC element On/Off
                 Set Water Temp Set point
-                
+
         """
-        
+        if not payload:
+            return
+
         self.Logger.debug(f"MQTT Msg Received on topic {topic} with payload {payload}")
 
         if topic == self.command_ac_topic:
@@ -361,8 +363,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
         self.send_queue.put({"dgn": "1FFF6", "data": msg_bytes})
 
     def _rvc_change_set_point(self, temp: float):
-        self.Logger.debug(f"Set hotwater set point to {temp}")
-        raise NotImplementedError()
+        self.Logger.warning("Set point temperature control is not implemented for this water heater")
 
     def publish_ha_discovery_config(self):
         # Gas switch - produce the HA MQTT discovery config json for

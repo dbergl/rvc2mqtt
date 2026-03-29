@@ -108,13 +108,11 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
                 self.tank_level = new_message['tank_level']
                 if self.custom_triggers:
                     new_percent = 0
-                    if self.tank_level > self.thirtythree:
-                        new_percent = 1
-                    if self.thirtythree > self.tank_level > self.sixtysix:
+                    if self.tank_level >= self.thirtythree:
                         new_percent = 33
-                    if self.sixtysix > self.tank_level > self.onehundred:
+                    if self.tank_level >= self.sixtysix:
                         new_percent = 66
-                    if self.onehundred > self.tank_level:
+                    if self.tank_level >= self.onehundred:
                         new_percent = 100
 
                     if new_percent != self.tank_percent:

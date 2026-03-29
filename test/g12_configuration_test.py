@@ -820,15 +820,25 @@ class Test_G12_Configuration(unittest.TestCase):
         self.assertEqual(calls.get('g12/status/inputs/1/active'), 'false')
         self.assertNotIn('g12/status/inputs/0/active', calls)
 
-    def test_input_status_switch_inputs_publishes_false_then_true(self):
-        # Input 1 active, then input 2 active: publish false on 1, true on 2
+    def test_input_status_two_gnd_inputs_simultaneously_active(self):
+        # Two GND inputs seen without an idle frame between them — both are active.
+        g = self._make_g12()
+        g.process_rvc_msg(self._make_input_status(0xA1))
+        g.process_rvc_msg(self._make_input_status(0xA2))
+        calls = {c[0][0]: c[0][1] for c in g.mqtt_support.client.publish.call_args_list}
+        self.assertEqual(calls.get('g12/status/inputs/1/active'), 'true')
+        self.assertEqual(calls.get('g12/status/inputs/2/active'), 'true')
+        # Neither is deactivated yet
+        self.assertNotEqual(calls.get('g12/status/inputs/1/active'), 'false')
+
+    def test_input_status_gnd_input_deactivates_on_idle(self):
+        # GND input deactivates when an idle (FB00) frame appears with aux=0.
         g = self._make_g12()
         g.process_rvc_msg(self._make_input_status(0xA1))
         g.mqtt_support.client.publish.reset_mock()
-        g.process_rvc_msg(self._make_input_status(0xA2))
+        g.process_rvc_msg(self._make_input_status(0xFB, aux_12v_active=0))
         calls = {c[0][0]: c[0][1] for c in g.mqtt_support.client.publish.call_args_list}
         self.assertEqual(calls.get('g12/status/inputs/1/active'), 'false')
-        self.assertEqual(calls.get('g12/status/inputs/2/active'), 'true')
 
     def test_input_status_no_publish_when_unchanged(self):
         g = self._make_g12()
@@ -868,6 +878,8 @@ class Test_G12_Configuration(unittest.TestCase):
 
     def test_input_status_deactivation_sequence_fb00_then_aa00(self):
         # Observed sequence: FB00 publishes false, subsequent AA00 must be a no-op.
+        # _known_12v_codes persists after FB00 so the trailing AA00 is still recognised
+        # as a 12V deactivation frame (was_active=False → no publish).
         g = self._make_g12()
         g.process_rvc_msg(self._make_input_status(0xAA, aux_12v_active=1))  # input 10 active
         g.process_rvc_msg(self._make_input_status(0xFB, aux_12v_active=1))  # heartbeat, skipped
@@ -875,6 +887,49 @@ class Test_G12_Configuration(unittest.TestCase):
         g.mqtt_support.client.publish.reset_mock()
         g.process_rvc_msg(self._make_input_status(0xAA, aux_12v_active=0))  # trailing AA00, no-op
         g.mqtt_support.client.publish.assert_not_called()
+
+    def test_input_status_simultaneous_inputs_12v_and_gnd(self):
+        # Observed real-world scenario: ignition (input 10, 12V-type) held while a GND
+        # light switch (input 4) is briefly pressed.
+        # Sequence: AA01 → A401 → FB01 → AA01 → A400
+        # Expected: input 10 stays active throughout; input 4 activates then deactivates.
+        g = self._make_g12()
+        g.process_rvc_msg(self._make_input_status(0xAA, aux_12v_active=1))   # input 10 active
+        g.process_rvc_msg(self._make_input_status(0xFB, aux_12v_active=1))   # heartbeat, skipped
+        g.mqtt_support.client.publish.reset_mock()
+
+        g.process_rvc_msg(self._make_input_status(0xA4, aux_12v_active=1))   # input 4 pressed
+        calls_after_press = {c[0][0]: c[0][1] for c in g.mqtt_support.client.publish.call_args_list}
+        self.assertEqual(calls_after_press.get('g12/status/inputs/4/active'), 'true')
+        # Input 10 must NOT be deactivated when input 4 appears
+        self.assertNotIn('g12/status/inputs/10/active', calls_after_press)
+
+        g.mqtt_support.client.publish.reset_mock()
+        g.process_rvc_msg(self._make_input_status(0xFB, aux_12v_active=1))   # heartbeat (both held)
+        g.process_rvc_msg(self._make_input_status(0xAA, aux_12v_active=1))   # input 10 still active
+
+        g.mqtt_support.client.publish.reset_mock()
+        g.process_rvc_msg(self._make_input_status(0xA4, aux_12v_active=0))   # input 4 released
+        calls_after_release = {c[0][0]: c[0][1] for c in g.mqtt_support.client.publish.call_args_list}
+        self.assertEqual(calls_after_release.get('g12/status/inputs/4/active'), 'false')
+        # Input 10 must still NOT be affected
+        self.assertNotIn('g12/status/inputs/10/active', calls_after_release)
+
+        # Input 10 is still active
+        self.assertIn(10, g._active_inputs)
+
+    def test_input_status_12v_input_stays_active_across_gnd_cycle(self):
+        # After the GND input releases, the 12V input's heartbeat continues unaffected.
+        g = self._make_g12()
+        g.process_rvc_msg(self._make_input_status(0xAA, aux_12v_active=1))   # input 10 active
+        g.process_rvc_msg(self._make_input_status(0xA4, aux_12v_active=1))   # input 4 pressed
+        g.process_rvc_msg(self._make_input_status(0xA4, aux_12v_active=0))   # input 4 released
+        g.mqtt_support.client.publish.reset_mock()
+        # Continued heartbeat for input 10 must be suppressed (no publish)
+        g.process_rvc_msg(self._make_input_status(0xFB, aux_12v_active=1))
+        g.mqtt_support.client.publish.assert_not_called()
+        # And input 10 remains active
+        self.assertIn(10, g._active_inputs)
 
 
 class Test_G12_ConfigurationHADiscovery(unittest.TestCase):

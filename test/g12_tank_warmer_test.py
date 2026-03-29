@@ -18,6 +18,7 @@ limitations under the License.
 
 """
 
+import queue
 import unittest
 from unittest.mock import MagicMock
 import context  # add rvc2mqtt package to the python path using local reference
@@ -33,6 +34,14 @@ def _make_mock():
     mock.bridge_state_topic = 'rvc2mqtt/bridge/state'
     mock.make_ha_auto_discovery_config_topic.return_value = 'homeassistant/switch/test/config'
     return mock
+
+
+def _make_warmer(status_topic='rvc/state/tank', command_topic='rvc/set/tank'):
+    mock = _make_mock()
+    data = {'instance': 1, 'instance_name': "test G12 Tank Warmer",
+            'status_topic': status_topic, 'command_topic': command_topic}
+    entity = G12TankWarmer(data, mock)
+    return entity, mock
 
 
 class Test_G12TankWarmer(unittest.TestCase):
@@ -52,6 +61,8 @@ class Test_G12TankWarmer(unittest.TestCase):
             self.assertFalse(kwargs.get('retain', False),
                              f"Discovery config published with retain=True: {call}")
 
+    # --- process_rvc_msg ---
+
     def test_process_rvc_msg_on(self):
         mock = _make_mock()
         entity = G12TankWarmer({'instance': 1, 'instance_name': "test G12 Tank Warmer"}, mock)
@@ -68,6 +79,23 @@ class Test_G12TankWarmer(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(entity.state, G12TankWarmer.HEATER_OFF)
 
+    def test_process_rvc_msg_no_publish_if_state_unchanged(self):
+        entity, mock = _make_warmer()
+        entity.state = G12TankWarmer.HEATER_ON
+        mock.client.publish.reset_mock()
+        msg = {'name': 'DC_DIMMER_STATUS_3', 'instance': 1, 'operating_status_brightness': 100.0}
+        entity.process_rvc_msg(msg)
+        # state didn't change — no publish
+        mock.client.publish.assert_not_called()
+
+    def test_process_rvc_msg_publishes_on_state_change(self):
+        entity, mock = _make_warmer()
+        entity.state = G12TankWarmer.HEATER_OFF
+        mock.client.publish.reset_mock()
+        msg = {'name': 'DC_DIMMER_STATUS_3', 'instance': 1, 'operating_status_brightness': 50.0}
+        entity.process_rvc_msg(msg)
+        mock.client.publish.assert_called_once_with(entity.status_topic, G12TankWarmer.HEATER_ON, retain=True)
+
     def test_process_rvc_msg_command_eaten(self):
         mock = _make_mock()
         entity = G12TankWarmer({'instance': 1, 'instance_name': "test G12 Tank Warmer"}, mock)
@@ -81,6 +109,93 @@ class Test_G12TankWarmer(unittest.TestCase):
         msg = {'name': 'SOME_OTHER_MSG', 'instance': 1}
         result = entity.process_rvc_msg(msg)
         self.assertFalse(result)
+
+    # --- process_mqtt_msg ---
+
+    def test_process_mqtt_msg_empty_payload_ignored(self):
+        entity, mock = _make_warmer()
+        q = queue.Queue()
+        entity.set_rvc_send_queue(q)
+        entity.process_mqtt_msg(entity.command_topic, '')
+        self.assertTrue(q.empty())
+
+    def test_process_mqtt_msg_none_payload_ignored(self):
+        entity, mock = _make_warmer()
+        q = queue.Queue()
+        entity.set_rvc_send_queue(q)
+        entity.process_mqtt_msg(entity.command_topic, None)
+        self.assertTrue(q.empty())
+
+    def test_process_mqtt_msg_turn_on_sends_toggle(self):
+        entity, mock = _make_warmer()
+        entity.state = G12TankWarmer.HEATER_OFF
+        q = queue.Queue()
+        entity.set_rvc_send_queue(q)
+        entity.process_mqtt_msg(entity.command_topic, 'on')
+        self.assertFalse(q.empty())
+        msg = q.get_nowait()
+        self.assertEqual(msg['dgn'], '1FEDB')
+        self.assertEqual(msg['data'][3], 5)  # command = toggle
+
+    def test_process_mqtt_msg_turn_off_sends_toggle(self):
+        entity, mock = _make_warmer()
+        entity.state = G12TankWarmer.HEATER_ON
+        q = queue.Queue()
+        entity.set_rvc_send_queue(q)
+        entity.process_mqtt_msg(entity.command_topic, 'off')
+        self.assertFalse(q.empty())
+        msg = q.get_nowait()
+        self.assertEqual(msg['dgn'], '1FEDB')
+
+    def test_process_mqtt_msg_no_op_already_on(self):
+        entity, mock = _make_warmer()
+        entity.state = G12TankWarmer.HEATER_ON
+        q = queue.Queue()
+        entity.set_rvc_send_queue(q)
+        entity.process_mqtt_msg(entity.command_topic, 'on')
+        self.assertTrue(q.empty())
+
+    def test_process_mqtt_msg_no_op_already_off(self):
+        entity, mock = _make_warmer()
+        entity.state = G12TankWarmer.HEATER_OFF
+        q = queue.Queue()
+        entity.set_rvc_send_queue(q)
+        entity.process_mqtt_msg(entity.command_topic, 'off')
+        self.assertTrue(q.empty())
+
+    def test_process_mqtt_msg_invalid_payload(self):
+        entity, mock = _make_warmer()
+        q = queue.Queue()
+        entity.set_rvc_send_queue(q)
+        entity.process_mqtt_msg(entity.command_topic, 'invalid')
+        self.assertTrue(q.empty())
+
+    # --- RVC frame encoding ---
+
+    def test_rvc_heater_toggle_frame(self):
+        entity, mock = _make_warmer()
+        q = queue.Queue()
+        entity.set_rvc_send_queue(q)
+        entity._rvc_heater_toggle()
+        msg = q.get_nowait()
+        self.assertEqual(msg['dgn'], '1FEDB')
+        self.assertEqual(msg['data'][0], 1)   # instance
+        self.assertEqual(msg['data'][2], 250) # desired_level 0xFA
+        self.assertEqual(msg['data'][3], 5)   # command = toggle
+
+    # --- initialize ---
+
+    def test_initialize_publishes_ha_config_and_state(self):
+        entity, mock = _make_warmer()
+        q = queue.Queue()
+        entity.set_rvc_send_queue(q)
+        entity.initialize()
+        published_topics = [call[0][0] for call in mock.client.publish.call_args_list]
+        self.assertIn(entity.status_topic, published_topics)
+        # DGN request queued
+        self.assertFalse(q.empty())
+        dgn_msg = q.get_nowait()
+        self.assertEqual(dgn_msg['dgn'], '0EAFF')
 
 
 if __name__ == '__main__':

@@ -778,6 +778,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
         return processed
 
     def process_mqtt_msg(self, topic, payload, properties = None):
+        if not payload:
+            return
+
         self.Logger.info(
             f'MQTT Msg Received on topic {topic} with payload {payload}')
         match topic:

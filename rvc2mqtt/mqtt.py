@@ -76,9 +76,20 @@ class MQTT_Support(object):
         self.registered_mqtt_devices = {}
 
 
-    def register(self, topic, func):
-        self.registered_mqtt_devices[topic] = func
+    def register(self, topic, func, retain_ok=False):
+        """Register a topic handler.
+
+        retain_ok=False (default): retained messages delivered on subscribe are
+        silently dropped.  Use this for command/set topics so that a previously
+        retained command is never re-executed when the bridge restarts.
+
+        retain_ok=True: retained messages are passed through.  Use this when
+        subscribing to a state topic purely to pre-seed local state on startup.
+        """
+        self.registered_mqtt_devices[topic] = (func, retain_ok)
         if self._connected:
+            if not retain_ok:
+                self.client.publish(topic, "", retain=True)
             self.client.subscribe(topic, options=SubscribeOptions(qos=0), properties=Properties(PacketTypes.SUBSCRIBE))
 
     def set_client(self, client: mqc):
@@ -110,6 +121,7 @@ class MQTT_Support(object):
             self.client.unsubscribe(topics)
         self.registered_mqtt_devices = {}
 
+
     def on_connect(self, client, userdata, flags, reason_code, properties):
         """ callback function for when it has been connected.
         Should subscribe to topics
@@ -120,6 +132,11 @@ class MQTT_Support(object):
             self.client.publish(self.bridge_state_topic, "online", retain=True)
             
             self._connected = True
+            # Clear stale retained messages on command/set topics BEFORE subscribing
+            # so the broker drops the retained message before it can be delivered to us.
+            for topic, (_, retain_ok) in self.registered_mqtt_devices.items():
+                if not retain_ok:
+                    self.client.publish(topic, "", retain=True)
             topic_tuple_list = [(x, 0) for x in self.registered_mqtt_devices.keys()]
             if len(topic_tuple_list) > 0:
                 self.client.subscribe(topic_tuple_list)
@@ -132,7 +149,10 @@ class MQTT_Support(object):
 
     def on_message(self, client, userdata, msg, properties=None):
         if msg.topic in self.registered_mqtt_devices:
-            func = self.registered_mqtt_devices[msg.topic]
+            func, retain_ok = self.registered_mqtt_devices[msg.topic]
+            if msg.retain and not retain_ok:
+                self.Logger.debug(f"Dropping retained message on topic '{msg.topic}' (retain_ok=False)")
+                return
             func(msg.topic, msg.payload.decode('utf-8'), msg.properties)
         else:
             self.Logger.warning("Received mqtt message without a device registered '" + str(msg.payload) + "' on topic '" + msg.topic + "' with QoS " + str(msg.qos))

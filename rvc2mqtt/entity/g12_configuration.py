@@ -95,14 +95,14 @@ class G12_Configuration(EntityPluginBaseClass):
         self._mp_packets = {}
         self._product_id = None
 
-        # G12_INPUT_STATUS (1FBDA) — None=uninitialized, 0=idle, n=input n active
-        self._active_input_num = None
-        # aux_12v_active from the last active-input frame; used to suppress the G12's
-        # normal FB/idle heartbeat that fires while a 12V input is held.
-        self._last_aux_12v = 0
-        # input number last confirmed as a 12V type (seen with aux_12v_active=1);
-        # used to recognise the AA00 deactivation frame for 12V inputs.
-        self._12v_input_num = None
+        # G12_INPUT_STATUS (1FBDA) — set of input numbers currently active (empty = idle)
+        self._active_inputs = set()
+        # Inputs currently active that were seen with aux_12v_active=1.  These need an
+        # explicit aux=0 deactivation frame rather than disappearing from the cycle.
+        self._12v_inputs = set()
+        # Input numbers ever confirmed as 12V-type (persists across deactivations so that
+        # trailing AA00 frames after FB00 are still recognised as deactivation, not activation).
+        self._known_12v_codes = set()
 
         # Internal state - initialized to "unknown" so first received value always publishes
         self._max_engine_run_time = "unknown"
@@ -314,37 +314,57 @@ class G12_Configuration(EntityPluginBaseClass):
             aux = int(new_message.get("aux_12v_active", 0))
 
             if 0xA1 <= code <= 0xAF:
-                new_input = code & 0x0F
+                n = code & 0x0F
                 if aux:
-                    # Confirmed 12V input active; record which input is the 12V type.
-                    self._last_aux_12v = 1
-                    self._12v_input_num = new_input
-                elif new_input == self._12v_input_num:
-                    # Known 12V input but aux_12v_active dropped — it is deactivating.
-                    self._last_aux_12v = 0
-                    new_input = 0
-                # else: GND input (aux=0 is normal), treat as active
+                    # aux_12v_active=1: the 12V line is energized — either by this input
+                    # itself OR by another simultaneously-held 12V input (e.g. ignition).
+                    # Record it as a known-12V code so the matching aux=0 frame is later
+                    # recognised as deactivation rather than a GND-type activation.
+                    self._known_12v_codes.add(n)
+                    if n not in self._active_inputs:
+                        self._active_inputs.add(n)
+                        self._12v_inputs.add(n)
+                        if hasattr(self, '_input_topic_base'):
+                            self.mqtt_support.client.publish(
+                                f"{self._input_topic_base}/inputs/{n}/active", "true", retain=True)
+                    # Already active — repeated heartbeat frame, ignore.
+                else:
+                    if n in self._known_12v_codes:
+                        # Known 12V-type input with aux dropped — deactivation frame.
+                        # Publish false only if it was actually still marked active (avoids
+                        # double-publish when FB00 already cleared it before AA00 arrives).
+                        was_active = n in self._active_inputs
+                        self._active_inputs.discard(n)
+                        self._12v_inputs.discard(n)
+                        if was_active and hasattr(self, '_input_topic_base'):
+                            self.mqtt_support.client.publish(
+                                f"{self._input_topic_base}/inputs/{n}/active", "false", retain=True)
+                    else:
+                        # GND-type input (aux=0 is normal while active) — mark as active.
+                        if n not in self._active_inputs:
+                            self._active_inputs.add(n)
+                            if hasattr(self, '_input_topic_base'):
+                                self.mqtt_support.client.publish(
+                                    f"{self._input_topic_base}/inputs/{n}/active", "true", retain=True)
             else:
-                # Idle or unknown code.  When aux_12v_active is still set AND the last
-                # active-input frame also had aux_12v_active set, this is the G12's normal
-                # heartbeat alternation while a 12V input is held — skip it.
-                if aux and self._last_aux_12v:
+                # Idle or unknown code.
+                if aux and self._12v_inputs:
+                    # At least one 12V input is still held — this is the G12's normal
+                    # heartbeat alternation.  Suppress until the 12V input sends its
+                    # own aux=0 deactivation frame.
                     return True
-                self._last_aux_12v = 0
                 if code != 0xFB:
                     self.Logger.debug(f"G12_INPUT_STATUS code {hex(code)}, treating as idle")
-                new_input = 0
-
-            if new_input != self._active_input_num:
-                prev = self._active_input_num
-                self._active_input_num = new_input
+                # All inputs released — clear everything active.
                 if hasattr(self, '_input_topic_base'):
-                    if prev is not None and prev != 0:
+                    for prev in self._active_inputs:
                         self.mqtt_support.client.publish(
                             f"{self._input_topic_base}/inputs/{prev}/active", "false", retain=True)
-                    if new_input != 0:
-                        self.mqtt_support.client.publish(
-                            f"{self._input_topic_base}/inputs/{new_input}/active", "true", retain=True)
+                self._active_inputs.clear()
+                self._12v_inputs.clear()
+                # _known_12v_codes is intentionally preserved so that any trailing AA00
+                # frames that arrive after FB00 are still recognised as deactivation
+                # (not mistakenly treated as a new GND-type activation).
             return True
 
         if self._is_entry_match(self.rvc_match_engine_status, new_message):
@@ -681,6 +701,9 @@ class G12_Configuration(EntityPluginBaseClass):
 
     def process_mqtt_msg(self, topic, payload, properties=None):
         """ Handle an inbound MQTT set message by sending a 1FED9 G12 config command. """
+        if not payload:
+            return
+
         self.Logger.info(f"MQTT set received: topic={topic} payload={payload}")
 
         if not hasattr(self, 'send_queue'):

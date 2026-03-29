@@ -128,6 +128,9 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         return False
 
     def process_mqtt_msg(self, topic, payload, properties = None):
+        if not payload:
+            return
+
         self.Logger.info(
             f"MQTT Msg Received on topic {topic} with payload {payload}")
 
@@ -219,6 +222,19 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
             self.unique_device_id, ha_component)
         self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
 
+    def _on_state_topic(self, topic, payload, properties=None):
+        """Pre-seed local state from the retained MQTT value on startup.
+        Prevents re-publishing unchanged state after a bridge restart."""
+        if payload in (self.LIGHT_ON, self.LIGHT_OFF):
+            self.state = payload
+
+    def _on_brightness_topic(self, topic, payload, properties=None):
+        """Pre-seed local brightness from the retained MQTT value on startup."""
+        try:
+            self.brightness = int(payload)
+        except ValueError:
+            pass
+
     def initialize(self):
         """ Optional function
         Will get called once when the object is loaded.
@@ -229,9 +245,14 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
 
         """
         self.publish_ha_discovery_config()
-        self.mqtt_support.client.publish(self.status_topic, self.state, retain=True)
+
+        # Subscribe to our own status topics so that any retained values are
+        # delivered back to us before the DGN response arrives.  This pre-seeds
+        # self.state / self.brightness so process_rvc_msg sees "no change" and
+        # skips the publish when the device reports the same state as before.
+        self.mqtt_support.register(self.status_topic, self._on_state_topic, retain_ok=True)
         if self.dimmable:
-            self.mqtt_support.client.publish(self.brightness_status_topic, self.brightness, retain=True)
+            self.mqtt_support.register(self.brightness_status_topic, self._on_brightness_topic, retain_ok=True)
 
         # request dgn report - this should trigger that dimmer to report
         # dgn = 1FEDA which is actually  DA FE 01 <instance> FF 00 00 00

@@ -423,6 +423,9 @@ class HvacClass(EntityPluginBaseClass):
             queue it
 
         """
+        if not payload:
+            return
+
         self.Logger.debug(f"MQTT Msg Received on topic {topic} with payload {payload}")
 
         if topic == self.command_mode_topic:
