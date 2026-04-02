@@ -902,7 +902,7 @@ class G12_Configuration(EntityPluginBaseClass):
             ('start_at_voltage',     self.start_at_voltage_topic,
              self.start_at_voltage_set_topic if has_cmd else None,
              'Start at Voltage',
-             {'unit_of_measurement': 'V', 'device_class': 'voltage', 'min': 52.0, 'max': 54.8, 'step': 0.1, 'mode': 'auto'}),
+             {'unit_of_measurement': 'V', 'device_class': 'voltage', 'min': 51.0, 'max': 54.8, 'step': 0.1, 'mode': 'auto'}),
             ('threshold_33_pct',     self.threshold_cc_topic,
              self.threshold_cc_set_topic if has_cmd else None,
              'Tank Threshold 33%',   {'unit_of_measurement': '',    'min': 0, 'max': 65535, 'step': 1, 'mode': 'auto'}),
