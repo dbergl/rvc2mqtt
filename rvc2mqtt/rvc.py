@@ -318,7 +318,9 @@ class RVC_Decoder(object):
             new_value = hex(input_num).upper()[2:]
 
         elif mu == "j1939rpm":
-            new_value = round(input_num * 0.5, 2)
+            new_value = "n/a"
+            if input_num != (1 << 16) - 1:
+                new_value = round(input_num * 0.5, 2)
 
         return new_value
 

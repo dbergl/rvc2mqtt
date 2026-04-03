@@ -350,6 +350,12 @@ class Test_APS500_AlternatorInformation(unittest.TestCase):
         l.process_rvc_msg(self._make_msg(alternator_speed=2000.0))
         self.assertEqual(l.mqtt_support.client.publish.call_count, count + 1)
 
+    def test_na_not_published(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._make_msg(alternator_speed="n/a"))
+        topics = [c[0][0] for c in l.mqtt_support.client.publish.call_args_list]
+        self.assertNotIn('aps500/status/alternator_speed', topics)
+
 
 if __name__ == '__main__':
     unittest.main()

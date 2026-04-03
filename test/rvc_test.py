@@ -217,6 +217,14 @@ class Test_RVC_Decoder(unittest.TestCase):
         with self.assertRaises(Exception) as cm:
             rvc._get_bits(0xff, "4-8-0")
 
+    def test_j1939rpm_converts_correctly(self):
+        rvc = RVC_Decoder()
+        self.assertEqual(rvc._convert_unit(2000, "j1939rpm", "uint16"), 1000.0)
+
+    def test_j1939rpm_ffff_is_na(self):
+        rvc = RVC_Decoder()
+        self.assertEqual(rvc._convert_unit(0xFFFF, "j1939rpm", "uint16"), "n/a")
+
 
 if __name__ == '__main__':
     unittest.main()
