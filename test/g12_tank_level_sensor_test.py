@@ -346,6 +346,22 @@ class Test_G12TankLevel(unittest.TestCase):
         # should use make_device_topic_string fallback
         self.assertTrue(mock.make_device_topic_string.called)
 
+    def test_tank_status_resolution_frozen_after_first_message(self):
+        """Resolution captured from first message is used for all subsequent calculations."""
+        mock = _make_mock()
+        entity = G12TankLevel({'instance': 1, 'instance_name': "test",
+                               'status_topic': 'rvc/tank/fresh'}, mock)
+        # First message: resolution=4, level=2 → 50%
+        msg1 = {'name': 'TANK_STATUS', 'instance': 1, 'relative_level': 2, 'resolution': 4}
+        entity.process_rvc_msg(msg1)
+        self.assertEqual(entity.tank_status_level, 50)
+
+        # Second message reports a different resolution — should be ignored
+        msg2 = {'name': 'TANK_STATUS', 'instance': 1, 'relative_level': 4, 'resolution': 8}
+        entity.process_rvc_msg(msg2)
+        # Still using resolution=4: round(4*100/4) = 100
+        self.assertEqual(entity.tank_status_level, 100)
+
 
 if __name__ == '__main__':
     unittest.main()
