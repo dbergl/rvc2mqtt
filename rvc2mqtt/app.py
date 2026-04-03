@@ -227,6 +227,12 @@ class app(object):
         if self.mqtt_client:
             self.mqtt_client.publish_bridge_online()
 
+        # 9. Request product identification from all devices on the network
+        self.tx_RVC_Buffer.put({
+            "dgn": "EA00",
+            "data": bytes([0xEB, 0xFE, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]),
+        })
+
         self.Logger.info(f"Floorplan reload complete: {len(self.entity_list)} entities loaded")
 
     def on_ha_birth_message(self, topic, payload, properties=None):
