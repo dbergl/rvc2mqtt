@@ -109,6 +109,41 @@ class Test_G12TankLevel(unittest.TestCase):
         self.assertEqual(entity.tank_percent, 100)
 
 
+    def test_process_rvc_msg_custom_triggers_descending(self):
+        """Test custlvl with descending thresholds (lower raw value = more full, e.g. G12 resistive sensor)."""
+        mock = _make_mock()
+        data = {
+            'instance': 1, 'instance_name': "test G12 Tank Level",
+            '33_custom_threshold': 57400, '66_custom_threshold': 44400, '100_custom_threshold': 22000,
+            'status_topic': 'rvc/tank/fresh'
+        }
+        entity = G12TankLevel(data, mock)
+        self.assertTrue(entity.thresholds_descending)
+        # level above 33_threshold → 0% (empty)
+        msg = {'name': 'G12_TANK_LEVEL_SENSOR', 'instance': 1, 'tank_level': 60000}
+        entity.process_rvc_msg(msg)
+        self.assertEqual(entity.tank_percent, 0)
+        # level at 33_threshold → 33%
+        msg['tank_level'] = 57400
+        entity.process_rvc_msg(msg)
+        self.assertEqual(entity.tank_percent, 33)
+        # level between 33 and 66 thresholds → 33%
+        msg['tank_level'] = 50000
+        entity.process_rvc_msg(msg)
+        self.assertEqual(entity.tank_percent, 33)
+        # level between 66 and 100 thresholds → 66%
+        msg['tank_level'] = 40000
+        entity.process_rvc_msg(msg)
+        self.assertEqual(entity.tank_percent, 66)
+        # level at 100_threshold → 100% (full)
+        msg['tank_level'] = 22000
+        entity.process_rvc_msg(msg)
+        self.assertEqual(entity.tank_percent, 100)
+        # level below 100_threshold → 100% (full)
+        msg['tank_level'] = 10000
+        entity.process_rvc_msg(msg)
+        self.assertEqual(entity.tank_percent, 100)
+
     def test_initialize_publishes_threshold_values(self):
         mock = _make_mock()
         data = {

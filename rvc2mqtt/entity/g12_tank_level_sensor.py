@@ -62,6 +62,8 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
         self.onehundred = data.get('100_custom_threshold')
         if self.thirtythree is not None and self.sixtysix is not None and self.onehundred is not None:
             self.custom_triggers = True
+            # Detect if thresholds are descending (lower raw value = more full, e.g. resistive float sensor)
+            self.thresholds_descending = (self.thirtythree > self.sixtysix > self.onehundred)
 
             if 'status_topic' in data:
                 topic_base = str(data['status_topic'])
@@ -108,12 +110,20 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
                 self.tank_level = new_message['tank_level']
                 if self.custom_triggers:
                     new_percent = 0
-                    if self.tank_level >= self.thirtythree:
-                        new_percent = 33
-                    if self.tank_level >= self.sixtysix:
-                        new_percent = 66
-                    if self.tank_level >= self.onehundred:
-                        new_percent = 100
+                    if self.thresholds_descending:
+                        if self.tank_level <= self.thirtythree:
+                            new_percent = 33
+                        if self.tank_level <= self.sixtysix:
+                            new_percent = 66
+                        if self.tank_level <= self.onehundred:
+                            new_percent = 100
+                    else:
+                        if self.tank_level >= self.thirtythree:
+                            new_percent = 33
+                        if self.tank_level >= self.sixtysix:
+                            new_percent = 66
+                        if self.tank_level >= self.onehundred:
+                            new_percent = 100
 
                     if new_percent != self.tank_percent:
                         self.tank_percent = new_percent
