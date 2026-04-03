@@ -324,7 +324,7 @@ class Test_APS500_AlternatorInformation(unittest.TestCase):
         l.process_rvc_msg(self._make_msg(alternator_speed=2830.0))
         l.mqtt_support.client.publish.assert_called_with(
             'aps500/status/alternator_speed',
-            '{"alt": 2830.0, "engine": 1000.0}',
+            '{"alt": 2830, "engine": 1000}',
             retain=True)
 
     def test_engine_rpm_is_alt_divided_by_2_83(self):
@@ -332,7 +332,9 @@ class Test_APS500_AlternatorInformation(unittest.TestCase):
         l.process_rvc_msg(self._make_msg(alternator_speed=1415.0))
         import json as _json
         payload = _json.loads(l.mqtt_support.client.publish.call_args[0][1])
-        self.assertAlmostEqual(payload['engine'], round(1415.0 / 2.83, 1))
+        self.assertEqual(payload['engine'], round(1415.0 / 2.83))
+        self.assertIsInstance(payload['alt'], int)
+        self.assertIsInstance(payload['engine'], int)
 
     def test_no_publish_when_unchanged(self):
         l = self._make_aps()

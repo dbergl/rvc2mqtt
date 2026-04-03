@@ -555,7 +555,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             alt_rpm = new_message["alternator_speed"]
             if alt_rpm != self._alternator_speed:
                 self._alternator_speed = alt_rpm
-                payload = json.dumps({"alt": alt_rpm, "engine": round(alt_rpm / 2.83, 1)})
+                payload = json.dumps({"alt": round(alt_rpm), "engine": round(alt_rpm / 2.83)})
                 self.mqtt_support.client.publish(self.alternator_speed_topic, payload, retain=True)
             return True
 
