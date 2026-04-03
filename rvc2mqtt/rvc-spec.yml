@@ -75,7 +75,46 @@ API_VERSION: 0
       unit: hex
 
 0EE00:
-  name: ADDRESS_CLAIMED
+  name: ADDRESS_CLAIM
+  parameters:
+    - byte: 0
+      name: serial number-lsb
+    - byte: 1
+      name: serial number
+    - byte: 2
+      bit: 0-4
+      name: serial number-msb
+    - byte: 2
+      bit: 5-7
+      name: manufacturer code-lsb
+    - byte: 3
+      name: manufacturer code
+    - byte: 4
+      bit: 0-2
+      name: node instance
+    - byte: 4
+      bit: 3-7
+      name: function instance
+    - byte: 5
+      name: compatibility field 0
+    - byte: 6
+      bit: 0
+      name: reserved
+    - byte: 6
+      bit: 1-7 
+      name: compatibility field 1
+    - byte: 7
+      bit: 0-3 
+      name: compatibility field 2
+    - byte: 7
+      bit: 4-6 
+      name: compatibility field 3
+    - byte: 7
+      bit: 7 
+      name: arbitrary address capable
+      values:
+        00: node supports address claiming
+        01: node uses fixed source address
 
 17F:
   name: GENERAL_RESET
@@ -5016,8 +5055,25 @@ Z0005:
   name: RENOGY_BMS_RESPONSE
 
 0FED5:
-  comment: APS-500. likely J1939 message according to wakespeed
-  name: UNKNOWN-0FED5
+  comment: Broadcast by APS-500. J1939 Alternator Information 1
+  name: J1939_ALTERNATOR_INFORMATION_1
+  parameters:
+    - byte: 0-1
+      name: alternator current
+      type: uint16
+      unit: a
+    - byte: 3
+      name: alternator voltage
+      type: uint8
+      unit: v
+    - byte: 4-5
+      name: alternator rpms
+      type: uint16
+    - byte: 6
+      name: alternator temperature
+      type: uint8
+      unit: deg c
+
 
 0FC08:
   comment: Broadcast by APS-500 v2.6.1
@@ -5097,8 +5153,9 @@ Z0005:
   comment: usually broadcast as part of 0ECFF and 0EBFF
 
 0EEFF:
-  comment: Broadcast by APS-500 in Ethos 20DL
-  name: UNKNOWN-0EEFF
+  comment: non-standard DGN for address claim
+  name: ADDRESS_CLAIM
+  alias: 0EEFF
 
 0FF01:
   comment: Broadcast in Ethos 20DL

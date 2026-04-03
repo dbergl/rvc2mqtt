@@ -40,9 +40,13 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
 
         # RVC message must match the following to be this device
         self.rvc_match_status = {"name": "G12_TANK_LEVEL_SENSOR", "instance": data['instance']}
+        tank_status_instance = data.get('tank_status_instance', data['instance'])
+        self.rvc_match_tank_status = {"name": "TANK_STATUS", "instance": tank_status_instance}
         self.tank_level = 999999
         self.tank_percent = 0
         self.custom_triggers = False
+        self.tank_status_level = -1
+        self.waiting_for_first_tank_status_msg = True
         self.Logger.debug(f"Must match: {str(self.rvc_match_status)}")
 
         self.name = data['instance_name']
@@ -53,6 +57,9 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
         if 'status_topic' in data:
             topic_base = str(data['status_topic'])
             self.status_topic = str(f"{topic_base}/sensorlvl")
+            self.tank_status_level_topic = str(f"{topic_base}/lvl")
+        else:
+            self.tank_status_level_topic = mqtt_support.make_device_topic_string(self.id, "tank_status_pct", True)
 
         """ These will be None if they are not set in the floorplan file.
             Only return a tank level % if all 3 are set
@@ -133,6 +140,19 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
                 self.mqtt_support.client.publish(
                         self.status_topic, self.tank_level, retain=True)
             return True
+
+        if self._is_entry_match(self.rvc_match_tank_status, new_message):
+            self.Logger.debug(f"Msg Match TANK_STATUS: {str(new_message)}")
+            if self.waiting_for_first_tank_status_msg:
+                self.resolution = new_message['resolution']
+                self.waiting_for_first_tank_status_msg = False
+            new_level = round((new_message["relative_level"] * 100) / self.resolution)
+            if new_level != self.tank_status_level:
+                self.tank_status_level = new_level
+                self.mqtt_support.client.publish(
+                    self.tank_status_level_topic, self.tank_status_level, retain=True)
+            return True
+
         return False
 
     def process_mqtt_msg(self, topic, payload, properties=None):
@@ -166,6 +186,13 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
                     'state_topic': self.status_topic,
                     'unique_id': self.unique_device_id + 'l'}
 
+        tank_status_levelcmp = {'p': 'sensor',
+                    'name': 'standard level',
+                    'value_template': '{{value}}',
+                    'unit_of_measurement': '%',
+                    'state_topic': self.tank_status_level_topic,
+                    'unique_id': self.unique_device_id + 'tstpct'}
+
         if self.custom_triggers:
             customlevel = {'p': 'sensor',
                            'name': 'level',
@@ -192,7 +219,7 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
                              'min': 0, 'max': 65535, 'step': 1, 'mode': 'auto',
                              'unique_id': self.unique_device_id + 'thr100'}
 
-        components = {'lvl': levelcmp}
+        components = {'lvl': levelcmp, 'tstpct': tank_status_levelcmp}
         if self.custom_triggers:
             components['lvlpct'] = customlevel
             components['thr33'] = cust_threshold_33
@@ -224,11 +251,16 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
 
         This can be a good place to request data
         """
-        # request dgn report - this should trigger the tanks to report
+        # request dgn report - this should trigger the G12 tanks to report
         # dgn = 0BFC1 which is actually  C1 BF 00 <instance> 00 00 00 00
         self.Logger.debug("Sending Request for DGN")
         data = struct.pack("<BBBBBBBB", int("0xC1", 0), int(
             "0xBF", 0), 0, self.instance, 0, 0, 0, 0)
+        self.send_queue.put({"dgn": "0EAFF", "data": data})
+
+        # also request standard TANK_STATUS (dgn = 1FFB7)
+        data = struct.pack("<BBBBBBBB", int("0xB7", 0), int(
+            "0xFF", 0), 1, self.instance, 0, 0, 0, 0)
         self.send_queue.put({"dgn": "0EAFF", "data": data})
 
         if self.custom_triggers:

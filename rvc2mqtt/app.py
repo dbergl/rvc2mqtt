@@ -138,6 +138,12 @@ class app(object):
                 obj.initialize()
                 self.entity_list.append(obj)
 
+        # Request product identification from all devices on the network
+        self.tx_RVC_Buffer.put({
+            "dgn": "EA00",
+            "data": bytes([0xEB, 0xFE, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]),
+        })
+
         # Our RVC message loop here
         while True:
             if self._reload_requested.is_set():

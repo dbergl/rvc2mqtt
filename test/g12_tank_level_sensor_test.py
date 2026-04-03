@@ -288,6 +288,64 @@ class Test_G12TankLevel(unittest.TestCase):
         published_topics = [call[0][0] for call in mock.client.publish.call_args_list]
         self.assertFalse(any('threshold' in t for t in published_topics))
 
+    def test_initialize_sends_tank_status_dgn_request(self):
+        mock = _make_mock()
+        data = {'instance': 2, 'instance_name': "test G12 Tank Level"}
+        entity = G12TankLevel(data, mock)
+        entity.send_queue = MagicMock()
+        entity.initialize()
+        dgns = [call[0][0]['dgn'] for call in entity.send_queue.put.call_args_list]
+        self.assertIn("0EAFF", dgns)
+        # should have at least 2 requests (G12 DGN and TANK_STATUS DGN)
+        self.assertGreaterEqual(len(dgns), 2)
+
+    def test_process_rvc_msg_tank_status_match(self):
+        mock = _make_mock()
+        entity = G12TankLevel({'instance': 1, 'instance_name': "test G12 Tank Level",
+                               'status_topic': 'rvc/tank/fresh'}, mock)
+        msg = {'name': 'TANK_STATUS', 'instance': 1, 'relative_level': 2, 'resolution': 4}
+        result = entity.process_rvc_msg(msg)
+        self.assertTrue(result)
+        self.assertEqual(entity.tank_status_level, 50)
+        mock.client.publish.assert_called_with('rvc/tank/fresh/lvl', 50, retain=True)
+
+    def test_process_rvc_msg_tank_status_no_publish_when_unchanged(self):
+        mock = _make_mock()
+        entity = G12TankLevel({'instance': 1, 'instance_name': "test G12 Tank Level",
+                               'status_topic': 'rvc/tank/fresh'}, mock)
+        msg = {'name': 'TANK_STATUS', 'instance': 1, 'relative_level': 2, 'resolution': 4}
+        entity.process_rvc_msg(msg)
+        publish_count = mock.client.publish.call_count
+        entity.process_rvc_msg(msg)
+        self.assertEqual(mock.client.publish.call_count, publish_count)
+
+    def test_process_rvc_msg_tank_status_wrong_instance(self):
+        mock = _make_mock()
+        entity = G12TankLevel({'instance': 1, 'instance_name': "test G12 Tank Level"}, mock)
+        msg = {'name': 'TANK_STATUS', 'instance': 2, 'relative_level': 2, 'resolution': 4}
+        result = entity.process_rvc_msg(msg)
+        self.assertFalse(result)
+
+    def test_process_rvc_msg_tank_status_full(self):
+        mock = _make_mock()
+        entity = G12TankLevel({'instance': 0, 'instance_name': "test G12 Tank Level",
+                               'status_topic': 'rvc/tank/fresh'}, mock)
+        msg = {'name': 'TANK_STATUS', 'instance': 0, 'relative_level': 4, 'resolution': 4}
+        entity.process_rvc_msg(msg)
+        self.assertEqual(entity.tank_status_level, 100)
+
+    def test_tank_status_level_topic_with_status_topic(self):
+        mock = _make_mock()
+        entity = G12TankLevel({'instance': 1, 'instance_name': "test",
+                               'status_topic': 'rvc/tank/fresh'}, mock)
+        self.assertEqual(entity.tank_status_level_topic, 'rvc/tank/fresh/lvl')
+
+    def test_tank_status_level_topic_without_status_topic(self):
+        mock = _make_mock()
+        entity = G12TankLevel({'instance': 1, 'instance_name': "test"}, mock)
+        # should use make_device_topic_string fallback
+        self.assertTrue(mock.make_device_topic_string.called)
+
 
 if __name__ == '__main__':
     unittest.main()
