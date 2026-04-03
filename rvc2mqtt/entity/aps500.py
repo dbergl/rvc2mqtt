@@ -116,7 +116,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         # or can come in out of order.
         self.rvc_match_0ef80 = {'name': 'RENOGY_BMS_RESPONSE'} # ignore id since it is the response from the BMS
         self.rvc_match_0ef70 = {'name': 'WAKESPEED_BMS_QUERY', 'source_id': str(data['source_id'])}
-        self.rvc_match_0fed5 = {'name': 'UNKNOWN-0FED5', 'source_id': str(data['source_id'])}
+        self.rvc_match_0fed5 = {'name': 'J1939_ALTERNATOR_INFORMATION_1', 'source_id': str(data['source_id'])}
 
         self.Logger.debug(f"Must match: {str(self.rvc_match_source_status_1)}")
 
@@ -155,6 +155,9 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         #CHARGER_EQUALIZATION_STATUS
         self._equalization_time_remaining       = "unknown"
         self._equalization_pre_charging_status  = "unknown"
+
+        #J1939_ALTERNATOR_INFORMATION_1
+        self._alternator_speed       = "unknown"
 
         #DM_RV
         self._fault_code             = "unknown"
@@ -242,6 +245,9 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             self.log_status_topic                = str(f"{topic_base}/log")
             self.terminal_status_topic           = str(f"{topic_base}/danger/terminal_message")
             self.product_id_topic                = str(f"{topic_base}/product_id")
+
+            # J1939_ALTERNATOR_INFORMATION_1
+            self.alternator_speed_topic          = str(f"{topic_base}/alternator_speed")
 
 
         else:
@@ -545,7 +551,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             # likely J1939 message so do nothing
             return True
         if self._is_entry_match(self.rvc_match_0fed5, new_message):
-            # likely J1939 message so do nothing
+            self.Logger.debug(f"Msg Match J1939_ALTERNATOR_INFORMATION_1: {str(new_message)}")
+            alt_rpm = new_message["alternator_speed"]
+            if alt_rpm != self._alternator_speed:
+                self._alternator_speed = alt_rpm
+                payload = json.dumps({"alt": alt_rpm, "engine": round(alt_rpm / 2.83, 1)})
+                self.mqtt_support.client.publish(self.alternator_speed_topic, payload, retain=True)
             return True
 
         return False
@@ -955,6 +966,22 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 'value_template': '{{value}}',
                 'state_topic': self.request_last_fault_status_topic,
                 'unique_id': self.unique_device_id + '_rlf_resp'
+            },
+            'alternator_rpm': {
+                'p': 'sensor',
+                'name': 'Alternator RPM',
+                'unit_of_measurement': 'RPM',
+                'value_template': '{{value_json.alt}}',
+                'state_topic': self.alternator_speed_topic,
+                'unique_id': self.unique_device_id + '_alt_rpm'
+            },
+            'engine_rpm': {
+                'p': 'sensor',
+                'name': 'Engine RPM',
+                'unit_of_measurement': 'RPM',
+                'value_template': '{{value_json.engine}}',
+                'state_topic': self.alternator_speed_topic,
+                'unique_id': self.unique_device_id + '_eng_rpm'
             },
         }
         config = {'dev': self.device, 'o': origin, 'cmps': components, 'qos': 1}

@@ -300,5 +300,54 @@ class Test_APS500_ChargerEqualizationStatus(unittest.TestCase):
             retain=True)
 
 
+class Test_APS500_AlternatorInformation(unittest.TestCase):
+
+    def _make_aps(self):
+        mock = _make_mock()
+        return Aps500(_APS_DATA, mock)
+
+    def _make_msg(self, alternator_speed=1000.0):
+        return {'name': 'J1939_ALTERNATOR_INFORMATION_1', 'source_id': '80',
+                'alternator_speed': alternator_speed}
+
+    def test_returns_true(self):
+        l = self._make_aps()
+        self.assertTrue(l.process_rvc_msg(self._make_msg()))
+
+    def test_wrong_source_id_not_processed(self):
+        l = self._make_aps()
+        result = l.process_rvc_msg({**self._make_msg(), 'source_id': '99'})
+        self.assertFalse(result)
+
+    def test_publishes_json_on_change(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._make_msg(alternator_speed=2830.0))
+        l.mqtt_support.client.publish.assert_called_with(
+            'aps500/status/alternator_speed',
+            '{"alt": 2830.0, "engine": 1000.0}',
+            retain=True)
+
+    def test_engine_rpm_is_alt_divided_by_2_83(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._make_msg(alternator_speed=1415.0))
+        import json as _json
+        payload = _json.loads(l.mqtt_support.client.publish.call_args[0][1])
+        self.assertAlmostEqual(payload['engine'], round(1415.0 / 2.83, 1))
+
+    def test_no_publish_when_unchanged(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._make_msg(alternator_speed=1000.0))
+        count = l.mqtt_support.client.publish.call_count
+        l.process_rvc_msg(self._make_msg(alternator_speed=1000.0))
+        self.assertEqual(l.mqtt_support.client.publish.call_count, count)
+
+    def test_republishes_on_change(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._make_msg(alternator_speed=1000.0))
+        count = l.mqtt_support.client.publish.call_count
+        l.process_rvc_msg(self._make_msg(alternator_speed=2000.0))
+        self.assertEqual(l.mqtt_support.client.publish.call_count, count + 1)
+
+
 if __name__ == '__main__':
     unittest.main()
