@@ -5059,21 +5059,12 @@ Z0005:
   name: J1939_ALTERNATOR_INFORMATION_1
   parameters:
     - byte: 0-1
-      name: alternator current
+      name: alternator speed
       type: uint16
-      unit: a
-    - byte: 3
-      name: alternator voltage
+      unit: j1939rpm
+    - byte: 2
+      name: alternator 1 status
       type: uint8
-      unit: v
-    - byte: 4-5
-      name: alternator rpms
-      type: uint16
-    - byte: 6
-      name: alternator temperature
-      type: uint8
-      unit: deg c
-
 
 0FC08:
   comment: Broadcast by APS-500 v2.6.1
