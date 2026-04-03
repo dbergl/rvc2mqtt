@@ -140,7 +140,7 @@ class app(object):
 
         # Request product identification from all devices on the network
         self.tx_RVC_Buffer.put({
-            "dgn": "EA00",
+            "dgn": "0EAFF",
             "data": bytes([0xEB, 0xFE, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]),
         })
 
@@ -229,7 +229,7 @@ class app(object):
 
         # 9. Request product identification from all devices on the network
         self.tx_RVC_Buffer.put({
-            "dgn": "EA00",
+            "dgn": "0EAFF",
             "data": bytes([0xEB, 0xFE, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]),
         })
 
