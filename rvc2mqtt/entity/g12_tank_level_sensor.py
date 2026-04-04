@@ -195,7 +195,7 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
 
         if self.custom_triggers:
             customlevel = {'p': 'sensor',
-                           'name': 'level',
+                           'name': 'custom level',
                            'value_template': '{{value}}',
                            'unit_of_measurement': '%',
                            'state_topic': self.status_tank_percent_topic,
@@ -221,7 +221,7 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
 
         components = {'lvl': levelcmp, 'tstpct': tank_status_levelcmp}
         if self.custom_triggers:
-            components['lvlpct'] = customlevel
+            components['custlvl'] = customlevel
             components['thr33'] = cust_threshold_33
             components['thr66'] = cust_threshold_66
             components['thr100'] = cust_threshold_100
