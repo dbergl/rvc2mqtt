@@ -158,6 +158,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         #J1939_ALTERNATOR_INFORMATION_1
         self._alternator_speed       = "unknown"
+        self._engine_running         = None
 
         #DM_RV
         self._fault_code             = "unknown"
@@ -248,6 +249,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
             # J1939_ALTERNATOR_INFORMATION_1
             self.alternator_speed_topic          = str(f"{topic_base}/alternator_speed")
+            self.engine_running_topic            = str(f"{topic_base}/engine_running")
 
 
         else:
@@ -558,6 +560,11 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 if alt_rpm != "n/a":
                     payload = json.dumps({"alt": round(alt_rpm), "engine": round(alt_rpm / 2.83)})
                     self.mqtt_support.client.publish(self.alternator_speed_topic, payload, retain=True)
+            engine_running = alt_rpm != "n/a" and alt_rpm > 500
+            if engine_running != self._engine_running:
+                self._engine_running = engine_running
+                self.mqtt_support.client.publish(
+                    self.engine_running_topic, "true" if engine_running else "false", retain=True)
             return True
 
         return False
@@ -983,6 +990,15 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 'value_template': '{{value_json.engine}}',
                 'state_topic': self.alternator_speed_topic,
                 'unique_id': self.unique_device_id + '_eng_rpm'
+            },
+            'engine_running': {
+                'p': 'binary_sensor',
+                'name': 'Engine Running',
+                'device_class': 'running',
+                'payload_on': 'true',
+                'payload_off': 'false',
+                'state_topic': self.engine_running_topic,
+                'unique_id': self.unique_device_id + '_eng_run'
             },
         }
         config = {'dev': self.device, 'o': origin, 'cmps': components, 'qos': 1}

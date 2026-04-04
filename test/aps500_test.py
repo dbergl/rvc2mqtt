@@ -322,7 +322,7 @@ class Test_APS500_AlternatorInformation(unittest.TestCase):
     def test_publishes_json_on_change(self):
         l = self._make_aps()
         l.process_rvc_msg(self._make_msg(alternator_speed=2830.0))
-        l.mqtt_support.client.publish.assert_called_with(
+        l.mqtt_support.client.publish.assert_any_call(
             'aps500/status/alternator_speed',
             '{"alt": 2830, "engine": 1000}',
             retain=True)
@@ -331,7 +331,10 @@ class Test_APS500_AlternatorInformation(unittest.TestCase):
         l = self._make_aps()
         l.process_rvc_msg(self._make_msg(alternator_speed=1415.0))
         import json as _json
-        payload = _json.loads(l.mqtt_support.client.publish.call_args[0][1])
+        alt_speed_calls = [c for c in l.mqtt_support.client.publish.call_args_list
+                           if c[0][0] == 'aps500/status/alternator_speed']
+        self.assertTrue(alt_speed_calls, "No publish call to alternator_speed topic")
+        payload = _json.loads(alt_speed_calls[-1][0][1])
         self.assertEqual(payload['engine'], round(1415.0 / 2.83))
         self.assertIsInstance(payload['alt'], int)
         self.assertIsInstance(payload['engine'], int)
@@ -355,6 +358,34 @@ class Test_APS500_AlternatorInformation(unittest.TestCase):
         l.process_rvc_msg(self._make_msg(alternator_speed="n/a"))
         topics = [c[0][0] for c in l.mqtt_support.client.publish.call_args_list]
         self.assertNotIn('aps500/status/alternator_speed', topics)
+
+    def test_engine_running_true_above_500(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._make_msg(alternator_speed=501.0))
+        l.mqtt_support.client.publish.assert_any_call(
+            'aps500/status/engine_running', 'true', retain=True)
+
+    def test_engine_running_false_at_or_below_500(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._make_msg(alternator_speed=500.0))
+        l.mqtt_support.client.publish.assert_any_call(
+            'aps500/status/engine_running', 'false', retain=True)
+
+    def test_engine_running_false_for_na(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._make_msg(alternator_speed="n/a"))
+        l.mqtt_support.client.publish.assert_any_call(
+            'aps500/status/engine_running', 'false', retain=True)
+
+    def test_engine_running_no_repeat_publish(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._make_msg(alternator_speed=1000.0))
+        count = l.mqtt_support.client.publish.call_count
+        l.process_rvc_msg(self._make_msg(alternator_speed=2000.0))
+        # engine_running unchanged (still True), so only alternator_speed republishes
+        engine_calls = [c for c in l.mqtt_support.client.publish.call_args_list
+                        if c[0][0] == 'aps500/status/engine_running']
+        self.assertEqual(sum(1 for c in engine_calls if c[0][1] == 'true'), 1)
 
 
 if __name__ == '__main__':
