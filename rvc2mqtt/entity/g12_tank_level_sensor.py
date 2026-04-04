@@ -187,7 +187,7 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
                     'unique_id': self.unique_device_id + 'l'}
 
         tank_status_levelcmp = {'p': 'sensor',
-                    'name': 'standard level',
+                    'name': 'firefly level',
                     'value_template': '{{value}}',
                     'unit_of_measurement': '%',
                     'state_topic': self.tank_status_level_topic,
