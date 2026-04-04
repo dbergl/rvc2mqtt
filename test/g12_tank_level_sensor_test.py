@@ -83,6 +83,24 @@ class Test_G12TankLevel(unittest.TestCase):
         result = entity.process_rvc_msg(msg)
         self.assertFalse(result)
 
+    def test_custlvl_publishes_on_first_reading_even_at_zero_percent(self):
+        """Regression: tank_percent initializes to None so first reading always publishes, even 0%."""
+        mock = _make_mock()
+        data = {
+            'instance': 1, 'instance_name': "test G12 Tank Level",
+            '33_custom_threshold': 100, '66_custom_threshold': 200, '100_custom_threshold': 300,
+            'status_topic': 'rvc/tank/fresh'
+        }
+        entity = G12TankLevel(data, mock)
+        self.assertIsNone(entity.tank_percent)
+        msg = {'name': 'G12_TANK_LEVEL_SENSOR', 'instance': 1, 'tank_level': 50}  # below 33% threshold → 0%
+        entity.process_rvc_msg(msg)
+        self.assertEqual(entity.tank_percent, 0)
+        custlvl_publishes = [c for c in mock.client.publish.call_args_list
+                             if c[0][0] == 'rvc/tank/fresh/custlvl']
+        self.assertEqual(len(custlvl_publishes), 1)
+        self.assertEqual(custlvl_publishes[0][0][1], 0)
+
     def test_process_rvc_msg_custom_triggers(self):
         mock = _make_mock()
         data = {

@@ -43,7 +43,7 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
         tank_status_instance = data.get('tank_status_instance', data['instance'])
         self.rvc_match_tank_status = {"name": "TANK_STATUS", "instance": tank_status_instance}
         self.tank_level = 999999
-        self.tank_percent = 0
+        self.tank_percent = None
         self.custom_triggers = False
         self.tank_status_level = -1
         self.waiting_for_first_tank_status_msg = True
