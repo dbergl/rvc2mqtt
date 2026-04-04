@@ -201,19 +201,19 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
                            'state_topic': self.status_tank_percent_topic,
                            'unique_id': self.unique_device_id + 'pct'}
             cust_threshold_33 = {'p': 'number',
-                            'name': 'threshold 33%',
+                            'name': 'custom threshold 33%',
                             'state_topic': self.cust_threshold_33_topic,
                             'command_topic': self.cust_threshold_33_set_topic,
                             'min': 0, 'max': 65535, 'step': 1, 'mode': 'auto',
                             'unique_id': self.unique_device_id + 'thr33'}
             cust_threshold_66 = {'p': 'number',
-                            'name': 'threshold 66%',
+                            'name': 'custom threshold 66%',
                             'state_topic': self.cust_threshold_66_topic,
                             'command_topic': self.cust_threshold_66_set_topic,
                             'min': 0, 'max': 65535, 'step': 1, 'mode': 'auto',
                             'unique_id': self.unique_device_id + 'thr66'}
             cust_threshold_100 = {'p': 'number',
-                             'name': 'threshold 100%',
+                             'name': 'custom threshold 100%',
                              'state_topic': self.cust_threshold_100_topic,
                              'command_topic': self.cust_threshold_100_set_topic,
                              'min': 0, 'max': 65535, 'step': 1, 'mode': 'auto',
