@@ -402,14 +402,14 @@ class G12_Configuration(EntityPluginBaseClass):
 
             if function in (0xD1, 0xD2):
                 if selector == 0x2B:
-                    val = f"{raw[5]:02d}:{raw[4]:02d}"
+                    val = f"{raw[5]:02d}:{raw[4]:02d}:00"
                     if val != self._quiet_time_start:
                         self._quiet_time_start = val
                         if hasattr(self, 'quiet_time_start_topic'):
                             self.mqtt_support.client.publish(
                                 self.quiet_time_start_topic, val, retain=True)
                 elif selector == 0x2C:
-                    val = f"{raw[5]:02d}:{raw[4]:02d}"
+                    val = f"{raw[5]:02d}:{raw[4]:02d}:00"
                     if val != self._quiet_time_stop:
                         self._quiet_time_stop = val
                         if hasattr(self, 'quiet_time_stop_topic'):
@@ -542,7 +542,7 @@ class G12_Configuration(EntityPluginBaseClass):
             hours = new_message.get("hours")
             minutes = new_message.get("minutes")
             if hours is not None and minutes is not None:
-                val = f"{int(hours):02d}:{int(minutes):02d}"
+                val = f"{int(hours):02d}:{int(minutes):02d}:00"
                 if val != self._quiet_time_start:
                     self._quiet_time_start = val
                     if hasattr(self, 'quiet_time_start_topic'):
@@ -553,7 +553,7 @@ class G12_Configuration(EntityPluginBaseClass):
             hours = new_message.get("hours")
             minutes = new_message.get("minutes")
             if hours is not None and minutes is not None:
-                val = f"{int(hours):02d}:{int(minutes):02d}"
+                val = f"{int(hours):02d}:{int(minutes):02d}:00"
                 if val != self._quiet_time_stop:
                     self._quiet_time_stop = val
                     if hasattr(self, 'quiet_time_stop_topic'):
@@ -922,8 +922,8 @@ class G12_Configuration(EntityPluginBaseClass):
                 cmp['command_topic'] = cmd_topic
             cmps[sub_id] = cmp
 
-        # --- text entities (quiet time) ---
-        text_specs = [
+        # --- time entities (quiet time) ---
+        time_specs = [
             ('quiet_time_start', self.quiet_time_start_topic,
              self.quiet_time_start_set_topic if has_cmd else None,
              'Quiet Time Start'),
@@ -931,10 +931,9 @@ class G12_Configuration(EntityPluginBaseClass):
              self.quiet_time_stop_set_topic if has_cmd else None,
              'Quiet Time Stop'),
         ]
-        for sub_id, state_topic, cmd_topic, label in text_specs:
-            cmp = {'p': 'text', 'name': label,
+        for sub_id, state_topic, cmd_topic, label in time_specs:
+            cmp = {'p': 'time', 'name': label,
                    'state_topic': state_topic,
-                   'pattern': r'^([01]\d|2[0-3]):[0-5]\d$',
                    'unique_id': self.unique_device_id + '_' + sub_id}
             if cmd_topic:
                 cmp['command_topic'] = cmd_topic

@@ -105,7 +105,7 @@ class Test_G12_Configuration(unittest.TestCase):
         result = g.process_rvc_msg(msg)
         self.assertTrue(result)
         g.mqtt_support.client.publish.assert_called_once_with(
-            'g12/status/aes/quiet_time_start', '22:30', retain=True)
+            'g12/status/aes/quiet_time_start', '22:30:00', retain=True)
 
     def test_msg_type_2c_publishes_quiet_time_stop(self):
         g = self._make_g12()
@@ -114,7 +114,7 @@ class Test_G12_Configuration(unittest.TestCase):
         result = g.process_rvc_msg(msg)
         self.assertTrue(result)
         g.mqtt_support.client.publish.assert_called_once_with(
-            'g12/status/aes/quiet_time_stop', '07:00', retain=True)
+            'g12/status/aes/quiet_time_stop', '07:00:00', retain=True)
 
     def test_msg_type_cc_publishes_threshold(self):
         g = self._make_g12()
@@ -428,7 +428,7 @@ class Test_G12_Configuration(unittest.TestCase):
         result = g.process_rvc_msg(msg)
         self.assertTrue(result)
         g.mqtt_support.client.publish.assert_called_once_with(
-            'g12/status/aes/quiet_time_start', '22:30', retain=True)
+            'g12/status/aes/quiet_time_start', '22:30:00', retain=True)
 
     def test_1fed9_query_ignored(self):
         g = self._make_g12()
@@ -693,7 +693,7 @@ class Test_G12_Configuration(unittest.TestCase):
         result = g.process_rvc_msg(msg)
         self.assertTrue(result)
         g.mqtt_support.client.publish.assert_called_once_with(
-            'g12/status/aes/quiet_time_stop', '07:00', retain=True)
+            'g12/status/aes/quiet_time_stop', '07:00:00', retain=True)
 
     def test_1fed9_invalid_group_string_returns_false(self):
         # group field that can't be parsed as base-2 → returns False
@@ -1004,21 +1004,21 @@ class Test_G12_ConfigurationHADiscovery(unittest.TestCase):
                    and 'stop_at_voltage' in c.get('unique_id', '')]
         self.assertEqual(len(matches), 1)
 
-    def test_publish_ha_discovery_config_publishes_text_for_quiet_time_start(self):
+    def test_publish_ha_discovery_config_publishes_time_for_quiet_time_start(self):
         g = self._make_g12_for_discovery()
         g.publish_ha_discovery_config()
         configs = self._get_published_configs(g)
         matches = [c for c in configs
-                   if 'pattern' in c
+                   if c.get('p') == 'time'
                    and 'quiet_time_start' in c.get('unique_id', '')]
         self.assertEqual(len(matches), 1)
 
-    def test_publish_ha_discovery_config_publishes_text_for_quiet_time_stop(self):
+    def test_publish_ha_discovery_config_publishes_time_for_quiet_time_stop(self):
         g = self._make_g12_for_discovery()
         g.publish_ha_discovery_config()
         configs = self._get_published_configs(g)
         matches = [c for c in configs
-                   if 'pattern' in c
+                   if c.get('p') == 'time'
                    and 'quiet_time_stop' in c.get('unique_id', '')]
         self.assertEqual(len(matches), 1)
 
