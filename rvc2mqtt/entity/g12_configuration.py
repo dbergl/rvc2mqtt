@@ -922,8 +922,8 @@ class G12_Configuration(EntityPluginBaseClass):
                 cmp['command_topic'] = cmd_topic
             cmps[sub_id] = cmp
 
-        # --- time entities (quiet time) ---
-        time_specs = [
+        # --- text entities (quiet time, HH:MM:SS) ---
+        text_specs = [
             ('quiet_time_start', self.quiet_time_start_topic,
              self.quiet_time_start_set_topic if has_cmd else None,
              'Quiet Time Start'),
@@ -931,9 +931,10 @@ class G12_Configuration(EntityPluginBaseClass):
              self.quiet_time_stop_set_topic if has_cmd else None,
              'Quiet Time Stop'),
         ]
-        for sub_id, state_topic, cmd_topic, label in time_specs:
-            cmp = {'p': 'time', 'name': label,
+        for sub_id, state_topic, cmd_topic, label in text_specs:
+            cmp = {'p': 'text', 'name': label,
                    'state_topic': state_topic,
+                   'pattern': r'^([01]\d|2[0-3]):[0-5]\d:[0-5]\d$',
                    'unique_id': self.unique_device_id + '_' + sub_id}
             if cmd_topic:
                 cmp['command_topic'] = cmd_topic
