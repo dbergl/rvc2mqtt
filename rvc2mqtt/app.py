@@ -321,8 +321,9 @@ def configure_logging(verbosity: int, config_file: Optional[os.PathLike]):
                     "Review https://docs.python.org/3/library/logging.config.html#logging-config-dictschema for details")
 
     log_format = "%(levelname)s %(asctime)s - %(message)s"
-    logging.basicConfig(stream=sys.stdout,
-                        format=log_format, level=logging.ERROR)
+    levels = [logging.ERROR, logging.WARNING, logging.INFO, logging.DEBUG]
+    level = levels[min(verbosity, len(levels) - 1)]
+    logging.basicConfig(stream=sys.stdout, format=log_format, level=level)
 
 
 def load_the_config(config_file_path: Optional[os.PathLike]):
