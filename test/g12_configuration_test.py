@@ -1004,21 +1004,21 @@ class Test_G12_ConfigurationHADiscovery(unittest.TestCase):
                    and 'stop_at_voltage' in c.get('unique_id', '')]
         self.assertEqual(len(matches), 1)
 
-    def test_publish_ha_discovery_config_publishes_text_for_quiet_time_start(self):
+    def test_publish_ha_discovery_config_publishes_time_for_quiet_time_start(self):
         g = self._make_g12_for_discovery()
         g.publish_ha_discovery_config()
         configs = self._get_published_configs(g)
         matches = [c for c in configs
-                   if 'pattern' in c
+                   if c.get('p') == 'time'
                    and 'quiet_time_start' in c.get('unique_id', '')]
         self.assertEqual(len(matches), 1)
 
-    def test_publish_ha_discovery_config_publishes_text_for_quiet_time_stop(self):
+    def test_publish_ha_discovery_config_publishes_time_for_quiet_time_stop(self):
         g = self._make_g12_for_discovery()
         g.publish_ha_discovery_config()
         configs = self._get_published_configs(g)
         matches = [c for c in configs
-                   if 'pattern' in c
+                   if c.get('p') == 'time'
                    and 'quiet_time_stop' in c.get('unique_id', '')]
         self.assertEqual(len(matches), 1)
 

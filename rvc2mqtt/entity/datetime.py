@@ -65,6 +65,13 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         self.name = data['instance_name']
         self.state = "unknown"
 
+        self.device = {"manufacturer": "RV-C",
+                       "via_device": self.mqtt_support.get_bridge_ha_name(),
+                       "identifiers": self.unique_device_id,
+                       "name": self.name,
+                       "model": "RV-C System Clock from DATE_TIME_STATUS"
+                       }
+
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
         is of interest to this object.
@@ -104,7 +111,7 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
             second = new_message["second"]
 
             date = f"{year}-{month:0>2}-{day:0>2}"
-            time = f"{hour:0>2}:{minute:0>2}"
+            time = f"{hour:0>2}:{minute:0>2}:{second:0>2}"
 
             state = f"{date}T{time}"
 
@@ -176,6 +183,23 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
             self.Logger.warning(
             f"Invalid payload {payload} for topic {topic}")
 
+    def publish_ha_discovery_config(self):
+        """ Publish HA MQTT auto-discovery as a `datetime` platform entity.
+        State is the RV-C clock as ISO 8601 (no offset); HA's local timezone
+        is applied so the state reflects the user's wall-clock time. """
+        config = {"name": self.name,
+                  "state_topic": self.status_topic,
+                  "command_topic": self.command_topic,
+                  "qos": 1, "retain": False,
+                  "unique_id": self.unique_device_id + "_datetime",
+                  "device": self.device}
+        config.update(self.get_availability_discovery_info_for_ha())
+
+        self.mqtt_support.client.publish(
+            self.mqtt_support.make_ha_auto_discovery_config_topic(
+                self.unique_device_id, "datetime"),
+            json.dumps(config), retain=False)
+
     def initialize(self):
         """ Optional function
         Will get called once when the object is loaded.
@@ -185,6 +209,8 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         This can be a good place to request data
 
         """
+
+        self.publish_ha_discovery_config()
 
         # publish info to mqtt
         self.mqtt_support.client.publish(
