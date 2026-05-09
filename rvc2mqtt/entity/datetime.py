@@ -104,16 +104,19 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
             '''
 
             year = int(new_message["year"])+2000
-            month = new_message["month"]
-            day = new_message["date"]
-            hour = new_message["hour"]
-            minute = new_message["minute"]
-            second = new_message["second"]
+            month = int(new_message["month"])
+            day = int(new_message["date"])
+            hour = int(new_message["hour"])
+            minute = int(new_message["minute"])
+            second = int(new_message["second"])
 
-            date = f"{year}-{month:0>2}-{day:0>2}"
-            time = f"{hour:0>2}:{minute:0>2}:{second:0>2}"
-
-            state = f"{date}T{time}"
+            try:
+                dt = datetime(year, month, day, hour, minute, second).astimezone()
+                state = dt.isoformat(timespec='seconds')
+            except ValueError:
+                self.Logger.warning(
+                    f"Invalid DATE_TIME_STATUS: {year}-{month}-{day} {hour}:{minute}:{second}")
+                return True
 
             #only publish if the time or date has changed. This should be once a minute
             if self.state != state:
@@ -174,7 +177,11 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
 
         if topic == self.command_topic:
             try:
-                dt = datetime.fromisoformat(payload)
+                # HA's mqtt.datetime publishes ISO format in UTC by default.
+                # fromisoformat in Python <3.11 doesn't accept the 'Z' suffix.
+                dt = datetime.fromisoformat(payload.replace('Z', '+00:00'))
+                if dt.tzinfo is not None:
+                    dt = dt.astimezone().replace(tzinfo=None)
                 pl = self._make_rvc_payload(dt)
                 self.send_queue.put({"dgn": "1FFFE", "data": pl})
             except Exception as e:
