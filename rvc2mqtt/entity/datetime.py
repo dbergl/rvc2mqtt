@@ -54,7 +54,11 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         if 'status_topic' in data:
             self.status_topic = str(data['status_topic'])
 
+        self.timezone_topic = f"{self.status_topic}/tz"
+        self.timezone_set_topic = f"{self.command_topic}/tz"
+
         self.mqtt_support.register(self.command_topic, self.process_mqtt_msg)
+        self.mqtt_support.register(self.timezone_set_topic, self.process_mqtt_msg)
 
         # RVC message must match the following to be this device
         self.rvc_match_status = { "name": "DATE_TIME_STATUS" }
@@ -206,9 +210,33 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
                 self.send_queue.put({"dgn": "1FFFE", "data": pl})
             except Exception as e:
                 self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+        elif topic == self.timezone_set_topic:
+            self._handle_timezone_set(payload)
         else:
             self.Logger.warning(
             f"Invalid payload {payload} for topic {topic}")
+
+    def _handle_timezone_set(self, payload: str):
+        """ Update the configured IANA timezone, persist to the floorplan
+        override, and republish discovery so HA picks up the new value. """
+        new_name = payload.strip()
+        if not new_name:
+            self.tz = None
+            self.tz_name = None
+        else:
+            try:
+                self.tz = ZoneInfo(new_name)
+                self.tz_name = new_name
+            except ZoneInfoNotFoundError:
+                self.Logger.error(f"Unknown timezone {new_name!r}; ignoring")
+                return
+
+        self.mqtt_support.client.publish(
+            self.timezone_topic, self.tz_name or "", retain=True)
+        self._persist_override({'timezone': self.tz_name})
+        # Force the next DATE_TIME_STATUS to publish with the new zone.
+        self.state = "unknown"
+        self.publish_ha_discovery_config()
 
     def publish_ha_discovery_config(self):
         """ Publish HA MQTT auto-discovery as a `datetime` platform entity.
@@ -232,6 +260,20 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
                 self.unique_device_id, "datetime"),
             json.dumps(config), retain=False)
 
+        # Companion `text` entity for editing the IANA timezone from HA.
+        tz_config = {"name": self.name + " Timezone",
+                     "state_topic": self.timezone_topic,
+                     "command_topic": self.timezone_set_topic,
+                     "qos": 1, "retain": False,
+                     "unique_id": self.unique_device_id + "_tz",
+                     "device": self.device}
+        tz_config.update(self.get_availability_discovery_info_for_ha())
+
+        self.mqtt_support.client.publish(
+            self.mqtt_support.make_ha_auto_discovery_config_topic(
+                self.unique_device_id, "text", "tz"),
+            json.dumps(tz_config), retain=False)
+
     def initialize(self):
         """ Optional function
         Will get called once when the object is loaded.
@@ -247,4 +289,6 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         # publish info to mqtt
         self.mqtt_support.client.publish(
             self.status_topic, self.state, retain=True)
+        self.mqtt_support.client.publish(
+            self.timezone_topic, self.tz_name or "", retain=True)
 
