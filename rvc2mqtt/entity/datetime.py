@@ -24,6 +24,7 @@ import logging
 import struct
 import json
 from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from rvc2mqtt.mqtt import MQTT_Support
 from rvc2mqtt.entity import EntityPluginBaseClass
 
@@ -64,6 +65,20 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         # save these for later to send rvc msg
         self.name = data['instance_name']
         self.state = "unknown"
+
+        # Optional IANA timezone (e.g. 'America/New_York') the RV-C clock
+        # represents. When set, the published state is naive ISO and HA is
+        # told to interpret it in this zone via the discovery `timezone`
+        # field. When omitted, fall back to the container's local zone.
+        self.tz_name = data.get('timezone')
+        self.tz: ZoneInfo = None
+        if self.tz_name:
+            try:
+                self.tz = ZoneInfo(self.tz_name)
+            except ZoneInfoNotFoundError:
+                self.Logger.error(
+                    f"Unknown timezone {self.tz_name!r}; falling back to system local")
+                self.tz_name = None
 
         self.device = {"manufacturer": "RV-C",
                        "via_device": self.mqtt_support.get_bridge_ha_name(),
@@ -111,7 +126,11 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
             second = int(new_message["second"])
 
             try:
-                dt = datetime(year, month, day, hour, minute, second).astimezone()
+                dt = datetime(year, month, day, hour, minute, second)
+                if self.tz is None:
+                    # No configured zone — attach the container's local offset
+                    # so HA receives a fully qualified ISO string.
+                    dt = dt.astimezone()
                 state = dt.isoformat(timespec='seconds')
             except ValueError:
                 self.Logger.warning(
@@ -181,7 +200,8 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
                 # fromisoformat in Python <3.11 doesn't accept the 'Z' suffix.
                 dt = datetime.fromisoformat(payload.replace('Z', '+00:00'))
                 if dt.tzinfo is not None:
-                    dt = dt.astimezone().replace(tzinfo=None)
+                    target = self.tz if self.tz is not None else None
+                    dt = dt.astimezone(target).replace(tzinfo=None)
                 pl = self._make_rvc_payload(dt)
                 self.send_queue.put({"dgn": "1FFFE", "data": pl})
             except Exception as e:
@@ -192,14 +212,19 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
 
     def publish_ha_discovery_config(self):
         """ Publish HA MQTT auto-discovery as a `datetime` platform entity.
-        State is the RV-C clock as ISO 8601 (no offset); HA's local timezone
-        is applied so the state reflects the user's wall-clock time. """
+
+        When a `timezone` is configured, the state is published as a naive
+        ISO datetime and HA is told (via the discovery `timezone` field) to
+        interpret it in that zone. Otherwise the state carries the
+        container's local UTC offset. """
         config = {"name": self.name,
                   "state_topic": self.status_topic,
                   "command_topic": self.command_topic,
                   "qos": 1, "retain": False,
                   "unique_id": self.unique_device_id + "_datetime",
                   "device": self.device}
+        if self.tz_name:
+            config["timezone"] = self.tz_name
         config.update(self.get_availability_discovery_info_for_ha())
 
         self.mqtt_support.client.publish(
