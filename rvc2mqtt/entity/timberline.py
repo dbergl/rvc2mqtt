@@ -600,7 +600,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     self._sleep_start_minute = new_message["start_minute"]
                     time_changed = True
                 if time_changed:
-                    start_time=f"{self._sleep_start_hour:0>2}:{self._sleep_start_minute:0>2}"
+                    start_time=f"{self._sleep_start_hour:0>2}:{self._sleep_start_minute:0>2}:00"
                     self.mqtt_support.client.publish(
                         self.sleep_start_time_topic, start_time, retain=True)
                 if new_message["setpoint_temp_heat"] != self._sleep_schedule_temp:
@@ -618,7 +618,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                     self._wake_start_minute = new_message["start_minute"]
                     time_changed = True
                 if time_changed:
-                    start_time=f"{self._wake_start_hour:0>2}:{self._wake_start_minute:0>2}"
+                    start_time=f"{self._wake_start_hour:0>2}:{self._wake_start_minute:0>2}:00"
                     self.mqtt_support.client.publish(
                         self.wake_start_time_topic, start_time, retain=True)
                 if new_message["setpoint_temp_heat"] != self._wake_schedule_temp:
@@ -1242,11 +1242,10 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 'unique_id': self.unique_device_id + '_cmd_setpt'
             }
             components['cmd_sleep_start_time'] = {
-                'p': 'text',
+                'p': 'time',
                 'name': 'Sleep Start Time',
                 'command_topic': self.command_sleep_start_time,
                 'state_topic': self.sleep_start_time_topic,
-                'pattern': '^([01][0-9]|2[0-3]):[0-5][0-9]$',
                 'unique_id': self.unique_device_id + '_cmd_slp_st'
             }
             components['cmd_sleep_set_point_temperature'] = {
@@ -1260,11 +1259,10 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 'unique_id': self.unique_device_id + '_cmd_slp_tmp'
             }
             components['cmd_wake_start_time'] = {
-                'p': 'text',
+                'p': 'time',
                 'name': 'Wake Start Time',
                 'command_topic': self.command_wake_start_time,
                 'state_topic': self.wake_start_time_topic,
-                'pattern': '^([01][0-9]|2[0-3]):[0-5][0-9]$',
                 'unique_id': self.unique_device_id + '_cmd_wak_st'
             }
             components['cmd_wake_set_point_temperature'] = {
