@@ -270,7 +270,7 @@ class app(object):
             rvc_dict)
 
         self.Logger.debug(f"Sending Msg: {str(rvc_dict)}")
-        logging.getLogger("rvc_bus_trace").debug(str(rvc_dict))
+        logging.getLogger("rvc_bus_trace").debug("%s", rvc_dict)
 
         # put into canbus watcher
         self.txQueue.put(rvc_dict)
@@ -291,8 +291,10 @@ class app(object):
             self.Logger.warning(f"Failed to decode msg. {message}: {e}")
             return
 
-        # Log all rvc bus messages to custom logger so it can be routed or ignored
-        logging.getLogger("rvc_bus_trace").debug(str(MsgDict))
+        # Log all rvc bus messages to custom logger so it can be routed or ignored.
+        # Pass MsgDict as a log arg (not pre-formatted) so RVCSourceFilter can
+        # extract source_id for per-source handlers / formatters.
+        logging.getLogger("rvc_bus_trace").debug("%s", MsgDict)
 
         # Find if this is a device entity in our list
         # Pass to object
@@ -304,7 +306,7 @@ class app(object):
                 return
 
         # Use a custom logger so it can be routed easily or ignored
-        logging.getLogger("unhandled_rvc").debug(f"Msg {str(MsgDict)}")
+        logging.getLogger("unhandled_rvc").debug("Msg %s", MsgDict)
 
 
 def configure_logging(verbosity: int, config_file: Optional[os.PathLike]):
