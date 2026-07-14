@@ -846,8 +846,6 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                             self._send_thermostat_command('operating_mode', 0b0000)
                         case '2' | '02' | '0002' | '0010' | 'heat':
                             self._send_thermostat_command('operating_mode', 0b0010)
-                        case '3' | '03' | '0003' | '0011' | 'auto':
-                            self._send_thermostat_command('operating_mode', 0b0011)
                         case _:
                             self.Logger.warning(
                             f'Invalid payload {payload} for topic {topic}')
@@ -967,9 +965,9 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                         # In this custom DGN the values expected for heating vs hot water priority
                         # are the opposite of WATERHEATER_STATUS_2.
                         # Match WATERHEATER_STATUS_2 to keep it consistent
-                        case '0' | '00' | 'water' | 'heating priority':
+                        case '0' | '00' | 'water' | 'domestic water priority':
                             self._send_extension_command('hot_water_priority', 0b01)
-                        case '1' | '01' | 'heat' | 'domestic water priority':
+                        case '1' | '01' | 'heat' | 'heating priority':
                             self._send_extension_command('hot_water_priority', 0b00)
                         case _:
                             self.Logger.warning(
@@ -1220,7 +1218,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 'name': 'Mode',
                 'command_topic': self.command_operating_mode,
                 'state_topic': self.thermostat_operating_mode_def_topic,
-                'options': ['Off', 'Heat', 'Auto'],
+                'options': ['Off', 'Heat'],
                 'unique_id': self.unique_device_id + '_cmd_mode'
             }
             components['cmd_schedule_mode'] = {
