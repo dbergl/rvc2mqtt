@@ -253,6 +253,7 @@ class Test_Dimmer_ComponentDriverStatus(unittest.TestCase):
         on_time = by_uid[d.unique_device_id + '_on_time']
         self.assertEqual(on_time['state_topic'], 'rvc/state/dimmer/on_time')
         self.assertEqual(on_time['entity_category'], 'diagnostic')
+        self.assertEqual(on_time['unit_of_measurement'], 'min')
         # every sensor is grouped under the same HA device as the light
         self.assertEqual(on_time['dev'], d.device)
 

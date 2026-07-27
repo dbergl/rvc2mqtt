@@ -292,7 +292,7 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
             'on_time': {
                 'name': 'Channel On Time',
                 'device_class': 'duration',
-                'unit_of_measurement': 's',
+                'unit_of_measurement': 'min',
                 'state_class': 'total_increasing',
                 'entity_category': 'diagnostic',
                 'state_topic': self.on_time_status_topic,
