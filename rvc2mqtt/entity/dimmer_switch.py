@@ -60,9 +60,22 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
             self.mqtt_support.register(self.brightness_command_topic, self.process_mqtt_msg)
 
 
+        self.current_status_topic = self.status_topic + "/current"
+        self.cycle_count_status_topic = self.status_topic + "/cycle_count"
+        self.on_time_status_topic = self.status_topic + "/on_time"
+
         # RVC message must match the following to be this device
         self.rvc_match_status = { "name": "DC_DIMMER_STATUS_3", "instance": data['instance']}
         self.rvc_match_command= { "name": "DC_DIMMER_COMMAND_2", "instance": data['instance']}
+
+        # The component driver DGNs report instance as 0xFF and carry the channel in
+        # driver_index, which tracks the dimmer instance.  Allow a floorplan override
+        # for hardware where the two numbering schemes differ.
+        self.driver_index = data.get('driver_index', data['instance'])
+        self.rvc_match_driver_status_1 = {
+            "name": "DC_COMPONENT_DRIVER_STATUS_1", "driver_index": self.driver_index}
+        self.rvc_match_driver_status_4 = {
+            "name": "DC_COMPONENT_DRIVER_STATUS_4", "driver_index": self.driver_index}
 
         self.Logger.debug(f"Must match: {str(self.rvc_match_status)} or {str(self.rvc_match_command)}")
 
@@ -75,6 +88,9 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         self.state = "unknown"
         self.messagestate = "unknown"
         self.brightness = 0
+        self.current = None
+        self.cycle_count = None
+        self.on_time = None
 
         self.device = {'mf': 'RV-C',
                        'ids': self.unique_device_id,
@@ -125,6 +141,34 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
             # as unhandled.
             self.Logger.debug(f"Msg Match Command: {str(new_message)}")
             return True
+
+        elif self._is_entry_match(self.rvc_match_driver_status_1, new_message):
+            self.Logger.debug(f"Msg Match Driver Status 1: {str(new_message)}")
+            current = new_message["current"]
+            # rvc.py converts an unavailable (0xFFFF) current to the string "n/a"
+            if current != "n/a" and current != self.current:
+                self.mqtt_support.client.publish(
+                    self.current_status_topic, current, retain=True)
+                self.current = current
+            return True
+
+        elif self._is_entry_match(self.rvc_match_driver_status_4, new_message):
+            self.Logger.debug(f"Msg Match Driver Status 4: {str(new_message)}")
+            # These parameters have no unit in the spec so they arrive as raw
+            # integers - filter the RVC unavailable values ourselves.
+            cycle_count = new_message["on_cycle_count"]
+            if cycle_count != 0xFFFF and cycle_count != self.cycle_count:
+                self.mqtt_support.client.publish(
+                    self.cycle_count_status_topic, cycle_count, retain=True)
+                self.cycle_count = cycle_count
+
+            on_time = new_message["channel_on_time"]
+            if on_time != 0xFFFFFFFF and on_time != self.on_time:
+                self.mqtt_support.client.publish(
+                    self.on_time_status_topic, on_time, retain=True)
+                self.on_time = on_time
+            return True
+
         return False
 
     def process_mqtt_msg(self, topic, payload, properties = None):
@@ -221,6 +265,48 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
             self.unique_device_id, ha_component)
         self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
+
+        self.publish_ha_discovery_sensor_configs()
+
+    def publish_ha_discovery_sensor_configs(self):
+        """Publish the DC_COMPONENT_DRIVER_STATUS_1/_4 sensors.  They reuse
+        self.device so HA groups them with the light."""
+        origin = {'name': self.mqtt_support.get_bridge_ha_name()}
+        sensors = {
+            'current': {
+                'name': 'Current',
+                'device_class': 'current',
+                'unit_of_measurement': 'A',
+                'suggested_display_precision': 2,
+                'state_class': 'measurement',
+                'state_topic': self.current_status_topic,
+                'unique_id': self.unique_device_id + '_current',
+            },
+            'cycle_count': {
+                'name': 'On Cycle Count',
+                'state_class': 'total_increasing',
+                'entity_category': 'diagnostic',
+                'state_topic': self.cycle_count_status_topic,
+                'unique_id': self.unique_device_id + '_cycle_count',
+            },
+            'on_time': {
+                'name': 'Channel On Time',
+                'device_class': 'duration',
+                'unit_of_measurement': 's',
+                'state_class': 'total_increasing',
+                'entity_category': 'diagnostic',
+                'state_topic': self.on_time_status_topic,
+                'unique_id': self.unique_device_id + '_on_time',
+            },
+        }
+        for sub_type, config in sensors.items():
+            config.update({'o': origin, 'qos': 1, 'retain': False,
+                           'value_template': '{{value}}', 'dev': self.device})
+            config.update(self.get_availability_discovery_info_for_ha())
+            ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
+                self.unique_device_id, "sensor", sub_type)
+            self.mqtt_support.client.publish(
+                ha_config_topic, json.dumps(config), retain=False)
 
     def _on_state_topic(self, topic, payload, properties=None):
         """Pre-seed local state from the retained MQTT value on startup.

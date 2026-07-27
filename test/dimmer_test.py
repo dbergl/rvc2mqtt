@@ -18,6 +18,7 @@ limitations under the License.
 
 """
 
+import json
 import unittest
 from unittest.mock import MagicMock
 import context  # add rvc2mqtt package to the python path using local reference
@@ -85,7 +86,7 @@ class Test_Dimmer(unittest.TestCase):
                     'status_topic': 'rvc/state/relay', 'command_topic': 'rvc/set/relay',
                     'dimmable': False}, mock)
         d.publish_ha_discovery_config()
-        mock.make_ha_auto_discovery_config_topic.assert_called_with(
+        mock.make_ha_auto_discovery_config_topic.assert_any_call(
             d.unique_device_id, 'switch')
 
     def test_rvc_set_brightness_frame_encoding(self):
@@ -146,6 +147,114 @@ class Test_Dimmer(unittest.TestCase):
             d.process_rvc_msg(self._make_status_msg(brightness='n/a'))
         except (ValueError, TypeError) as e:
             self.fail(f"process_rvc_msg raised {type(e).__name__} on n/a brightness: {e}")
+
+
+class Test_Dimmer_ComponentDriverStatus(unittest.TestCase):
+    """DC_COMPONENT_DRIVER_STATUS_1 / _4 report instance as 0xFF and identify the
+    channel with driver_index, which tracks the dimmer instance."""
+
+    def _make_dimmer(self, **extra):
+        data = {'instance': 1, 'instance_name': "test dimmer",
+                'status_topic': 'rvc/state/dimmer', 'command_topic': 'rvc/set/dimmer'}
+        data.update(extra)
+        return Dimmer(data, _make_mock())
+
+    def _make_driver_1_msg(self, driver_index=1, current=12.5):
+        return {'name': 'DC_COMPONENT_DRIVER_STATUS_1', 'instance': 255,
+                'driver_index': driver_index, 'voltage': 13.2, 'current': current,
+                'output_status': 1, 'output_status_definition': 'on'}
+
+    def _make_driver_4_msg(self, driver_index=1, cycle_count=42, on_time=3600):
+        return {'name': 'DC_COMPONENT_DRIVER_STATUS_4', 'instance': 255,
+                'driver_index': driver_index, 'on_cycle_count': cycle_count,
+                'channel_on_time': on_time}
+
+    def _published(self, d):
+        return {c[0][0]: c[0][1]
+                for c in d.mqtt_support.client.publish.call_args_list}
+
+    def test_status_1_publishes_current(self):
+        d = self._make_dimmer()
+        self.assertTrue(d.process_rvc_msg(self._make_driver_1_msg(current=12.5)))
+        self.assertEqual(self._published(d).get('rvc/state/dimmer/current'), 12.5)
+
+    def test_status_4_publishes_cycle_count_and_on_time(self):
+        d = self._make_dimmer()
+        self.assertTrue(d.process_rvc_msg(
+            self._make_driver_4_msg(cycle_count=42, on_time=3600)))
+        published = self._published(d)
+        self.assertEqual(published.get('rvc/state/dimmer/cycle_count'), 42)
+        self.assertEqual(published.get('rvc/state/dimmer/on_time'), 3600)
+
+    def test_non_matching_driver_index_ignored(self):
+        d = self._make_dimmer()
+        self.assertFalse(d.process_rvc_msg(self._make_driver_1_msg(driver_index=7)))
+        self.assertFalse(d.process_rvc_msg(self._make_driver_4_msg(driver_index=7)))
+        self.assertFalse(d.mqtt_support.client.publish.called)
+
+    def test_instance_alone_does_not_match(self):
+        """instance is 0xFF on these DGNs - it must not be what identifies the channel."""
+        d = self._make_dimmer(instance=255)
+        self.assertFalse(d.process_rvc_msg(self._make_driver_1_msg(driver_index=1)))
+
+    def test_driver_index_override(self):
+        """A floorplan driver_index takes precedence over instance."""
+        d = self._make_dimmer(driver_index=9)
+        self.assertFalse(d.process_rvc_msg(self._make_driver_1_msg(driver_index=1)))
+        self.assertTrue(d.process_rvc_msg(self._make_driver_1_msg(driver_index=9)))
+
+    def test_unchanged_values_publish_once(self):
+        d = self._make_dimmer()
+        for _ in range(3):
+            d.process_rvc_msg(self._make_driver_1_msg(current=12.5))
+            d.process_rvc_msg(self._make_driver_4_msg(cycle_count=42, on_time=3600))
+        topics = [c[0][0] for c in d.mqtt_support.client.publish.call_args_list]
+        self.assertEqual(topics.count('rvc/state/dimmer/current'), 1)
+        self.assertEqual(topics.count('rvc/state/dimmer/cycle_count'), 1)
+        self.assertEqual(topics.count('rvc/state/dimmer/on_time'), 1)
+
+    def test_changed_values_republish(self):
+        d = self._make_dimmer()
+        d.process_rvc_msg(self._make_driver_1_msg(current=12.5))
+        d.process_rvc_msg(self._make_driver_1_msg(current=13.0))
+        currents = [c[0][1] for c in d.mqtt_support.client.publish.call_args_list
+                    if c[0][0] == 'rvc/state/dimmer/current']
+        self.assertEqual(currents, [12.5, 13.0])
+
+    def test_unavailable_values_not_published_but_consumed(self):
+        """0xFFFF current decodes to 'n/a'; the _4 counters arrive raw."""
+        d = self._make_dimmer()
+        self.assertTrue(d.process_rvc_msg(self._make_driver_1_msg(current='n/a')))
+        self.assertTrue(d.process_rvc_msg(
+            self._make_driver_4_msg(cycle_count=0xFFFF, on_time=0xFFFFFFFF)))
+        self.assertFalse(d.mqtt_support.client.publish.called)
+
+    def test_sensor_discovery_configs_published(self):
+        d = self._make_dimmer()
+        d.publish_ha_discovery_config()
+        for sub_type in ('current', 'cycle_count', 'on_time'):
+            d.mqtt_support.make_ha_auto_discovery_config_topic.assert_any_call(
+                d.unique_device_id, 'sensor', sub_type)
+        for call in d.mqtt_support.client.publish.call_args_list:
+            _, kwargs = call
+            self.assertFalse(kwargs.get('retain', False),
+                             f"Discovery config published with retain=True: {call}")
+
+    def test_sensor_discovery_config_contents(self):
+        d = self._make_dimmer()
+        d.publish_ha_discovery_config()
+        configs = [json.loads(c[0][1])
+                   for c in d.mqtt_support.client.publish.call_args_list]
+        by_uid = {c['unique_id']: c for c in configs if 'unique_id' in c}
+        current = by_uid[d.unique_device_id + '_current']
+        self.assertEqual(current['state_topic'], 'rvc/state/dimmer/current')
+        self.assertEqual(current['device_class'], 'current')
+        self.assertEqual(current['unit_of_measurement'], 'A')
+        on_time = by_uid[d.unique_device_id + '_on_time']
+        self.assertEqual(on_time['state_topic'], 'rvc/state/dimmer/on_time')
+        self.assertEqual(on_time['entity_category'], 'diagnostic')
+        # every sensor is grouped under the same HA device as the light
+        self.assertEqual(on_time['dev'], d.device)
 
 
 if __name__ == '__main__':
