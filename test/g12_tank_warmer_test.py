@@ -18,6 +18,7 @@ limitations under the License.
 
 """
 
+import json
 import queue
 import unittest
 from unittest.mock import MagicMock
@@ -196,6 +197,99 @@ class Test_G12TankWarmer(unittest.TestCase):
         self.assertFalse(q.empty())
         dgn_msg = q.get_nowait()
         self.assertEqual(dgn_msg['dgn'], '0EAFF')
+
+
+class Test_G12TankWarmer_ComponentDriverStatus(unittest.TestCase):
+    """DC_COMPONENT_DRIVER_STATUS_1 / _4 report instance as 0xFF and identify the
+    channel with driver_index, which tracks the dimmer instance."""
+
+    def _make_heater(self, **extra):
+        mock = _make_mock()
+        data = {'instance': 1, 'instance_name': "test G12 Tank Warmer",
+                'status_topic': 'rvc/state/tank', 'command_topic': 'rvc/set/tank'}
+        data.update(extra)
+        return G12TankWarmer(data, mock), mock
+
+    def _make_driver_1_msg(self, driver_index=1, current=8.25):
+        return {'name': 'DC_COMPONENT_DRIVER_STATUS_1', 'instance': 255,
+                'driver_index': driver_index, 'voltage': 13.2, 'current': current,
+                'output_status': 1, 'output_status_definition': 'on'}
+
+    def _make_driver_4_msg(self, driver_index=1, cycle_count=17, on_time=240):
+        return {'name': 'DC_COMPONENT_DRIVER_STATUS_4', 'instance': 255,
+                'driver_index': driver_index, 'on_cycle_count': cycle_count,
+                'channel_on_time': on_time}
+
+    def test_status_1_publishes_current(self):
+        entity, mock = self._make_heater()
+        self.assertTrue(entity.process_rvc_msg(self._make_driver_1_msg(current=8.25)))
+        published = {c[0][0]: c[0][1] for c in mock.client.publish.call_args_list}
+        self.assertEqual(published.get('rvc/state/tank/current'), 8.25)
+
+    def test_status_4_publishes_cycle_count_and_on_time(self):
+        entity, mock = self._make_heater()
+        self.assertTrue(entity.process_rvc_msg(
+            self._make_driver_4_msg(cycle_count=17, on_time=240)))
+        published = {c[0][0]: c[0][1] for c in mock.client.publish.call_args_list}
+        self.assertEqual(published.get('rvc/state/tank/cycle_count'), 17)
+        self.assertEqual(published.get('rvc/state/tank/on_time'), 240)
+
+    def test_non_matching_driver_index_ignored(self):
+        entity, mock = self._make_heater()
+        self.assertFalse(entity.process_rvc_msg(self._make_driver_1_msg(driver_index=7)))
+        self.assertFalse(entity.process_rvc_msg(self._make_driver_4_msg(driver_index=7)))
+        self.assertFalse(mock.client.publish.called)
+
+    def test_driver_index_override(self):
+        """A floorplan driver_index takes precedence over instance."""
+        entity, _ = self._make_heater(driver_index=9)
+        self.assertFalse(entity.process_rvc_msg(self._make_driver_1_msg(driver_index=1)))
+        self.assertTrue(entity.process_rvc_msg(self._make_driver_1_msg(driver_index=9)))
+
+    def test_unchanged_values_publish_once(self):
+        entity, mock = self._make_heater()
+        for _ in range(3):
+            entity.process_rvc_msg(self._make_driver_1_msg(current=8.25))
+            entity.process_rvc_msg(self._make_driver_4_msg(cycle_count=17, on_time=240))
+        topics = [c[0][0] for c in mock.client.publish.call_args_list]
+        self.assertEqual(topics.count('rvc/state/tank/current'), 1)
+        self.assertEqual(topics.count('rvc/state/tank/cycle_count'), 1)
+        self.assertEqual(topics.count('rvc/state/tank/on_time'), 1)
+
+    def test_unavailable_values_not_published_but_consumed(self):
+        """0xFFFF current decodes to 'n/a'; the _4 counters arrive raw."""
+        entity, mock = self._make_heater()
+        self.assertTrue(entity.process_rvc_msg(self._make_driver_1_msg(current='n/a')))
+        self.assertTrue(entity.process_rvc_msg(
+            self._make_driver_4_msg(cycle_count=0xFFFF, on_time=0xFFFFFFFF)))
+        self.assertFalse(mock.client.publish.called)
+
+    def test_sensor_discovery_configs_published(self):
+        entity, mock = self._make_heater()
+        entity.publish_ha_discovery_config()
+        for sub_type in ('current', 'cycle_count', 'on_time'):
+            mock.make_ha_auto_discovery_config_topic.assert_any_call(
+                entity.unique_device_id, 'sensor', sub_type)
+        for call in mock.client.publish.call_args_list:
+            _, kwargs = call
+            self.assertFalse(kwargs.get('retain', False),
+                             f"Discovery config published with retain=True: {call}")
+
+    def test_sensor_discovery_config_contents(self):
+        entity, mock = self._make_heater()
+        entity.publish_ha_discovery_config()
+        configs = [json.loads(c[0][1]) for c in mock.client.publish.call_args_list]
+        by_uid = {c['unique_id']: c for c in configs if 'unique_id' in c}
+        current = by_uid[entity.unique_device_id + '_current']
+        self.assertEqual(current['state_topic'], 'rvc/state/tank/current')
+        self.assertEqual(current['device_class'], 'current')
+        self.assertEqual(current['unit_of_measurement'], 'A')
+        on_time = by_uid[entity.unique_device_id + '_on_time']
+        self.assertEqual(on_time['state_topic'], 'rvc/state/tank/on_time')
+        self.assertEqual(on_time['unit_of_measurement'], 'min')
+        self.assertEqual(on_time['entity_category'], 'diagnostic')
+        # every sensor is grouped under the same HA device as the switch
+        self.assertEqual(on_time['dev'], entity.device)
 
 
 if __name__ == '__main__':
