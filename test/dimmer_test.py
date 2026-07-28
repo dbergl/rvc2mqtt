@@ -79,6 +79,16 @@ class Test_Dimmer(unittest.TestCase):
                          for c in d.mqtt_support.client.publish.call_args_list}
         self.assertEqual(publish_calls.get('rvc/state/dimmer/brightness'), 50)
 
+    def test_dimmable_defaults_true(self):
+        """A dimmer_switch entry with no `dimmable` key is dimmable."""
+        mock = _make_mock()
+        d = Dimmer({'instance': 1, 'instance_name': "test dimmer",
+                    'status_topic': 'rvc/state/dimmer',
+                    'command_topic': 'rvc/set/dimmer'}, mock)
+        self.assertTrue(d.dimmable)
+        self.assertEqual(d.id, 'dimmer-1FEDB-i1')
+        mock.register.assert_any_call('rvc/set/dimmer/brightness', d.process_mqtt_msg)
+
     def test_dimmable_false_uses_switch_ha_component(self):
         mock = _make_mock()
         mock.make_ha_auto_discovery_config_topic.return_value = 'homeassistant/switch/test/config'

@@ -1,7 +1,8 @@
 """
-A dimmer switch
+A dimmer switch, and the tank heater that is the same dimmer contact driven on/off
 
 Copyright 2022 Sean Brogan
+Copyright 2025 Dan Berglund
 SPDX-License-Identifier: Apache-2.0
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,8 +19,6 @@ limitations under the License.
 
 """
 
-
-import queue
 import logging
 import struct
 import json
@@ -32,14 +31,24 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
     """
     Dimmer switch that is tied to RVC DGN of DC_DIMMER_STATUS_3 and DC_DIMMER_COMMAND_2
     Supports ON/OFF and brightness (0-100%)
+
+    Subclasses can serve another floorplan `type` off the same implementation by
+    overriding FACTORY_MATCH_ATTRIBUTES along with the three class attributes below.
+    ID_PREFIX feeds self.id, and therefore unique_device_id and the default MQTT
+    topics - never change it for an existing type or Home Assistant will treat the
+    entities as brand new.
     """
+    ID_PREFIX = "dimmer-1FEDB-i"
+    HA_MODEL = "RV-C Dimmer from DC_DIMMER_STATUS_3"
+    DEFAULT_DIMMABLE = True
+
     LIGHT_ON = "on"
     LIGHT_OFF = "off"
 
     def __init__(self, data: dict, mqtt_support: MQTT_Support):
-        self.id = "dimmer-1FEDB-i" + str(data["instance"])
+        self.id = self.ID_PREFIX + str(data["instance"])
         super().__init__(data, mqtt_support)
-        self.Logger = logging.getLogger(__class__.__name__)
+        self.Logger = logging.getLogger(type(self).__name__)
 
         # Allow MQTT to control light
         if 'command_topic' in data:
@@ -53,7 +62,7 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         if 'status_topic' in data:
             self.status_topic = str(data['status_topic'])
 
-        self.dimmable = data.get('dimmable', True)
+        self.dimmable = data.get('dimmable', self.DEFAULT_DIMMABLE)
         if self.dimmable:
             self.brightness_status_topic = self.status_topic + "/brightness"
             self.brightness_command_topic = self.command_topic + "/brightness"
@@ -94,7 +103,7 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
 
         self.device = {'mf': 'RV-C',
                        'ids': self.unique_device_id,
-                       'mdl': 'RV-C Dimmer from DC_DIMMER_STATUS_3',
+                       'mdl': self.HA_MODEL,
                        'name': self.name
                        }
 
@@ -109,9 +118,9 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         if self._is_entry_match(self.rvc_match_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
             if new_message["operating_status_brightness"] != 0.0:
-                self.messagestate = DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_ON
+                self.messagestate = self.LIGHT_ON
             elif new_message["operating_status_brightness"] == 0.0:
-                self.messagestate = DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_OFF
+                self.messagestate = self.LIGHT_OFF
             else:
                 self.messagestate = "UNEXPECTED(" + \
                     str(new_message["operating_status"]) + ")"
@@ -179,11 +188,11 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
             f"MQTT Msg Received on topic {topic} with payload {payload}")
 
         if topic == self.command_topic:
-            if payload.lower() == DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_OFF:
-                if self.state != DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_OFF:
+            if payload.lower() == self.LIGHT_OFF:
+                if self.state != self.LIGHT_OFF:
                     self._rvc_light_toggle()
-            elif payload.lower() == DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_ON:
-                if self.state != DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_ON:
+            elif payload.lower() == self.LIGHT_ON:
+                if self.state != self.LIGHT_ON:
                     self._rvc_light_toggle()
             else:
                 self.Logger.warning(
@@ -250,8 +259,8 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
                   'command_topic': self.command_topic,
                   'name': None,
                   'qos': 1, 'retain': False,
-                  'payload_on': DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_ON,
-                  'payload_off': DimmerSwitch_DC_DIMMER_STATUS_3.LIGHT_OFF,
+                  'payload_on': self.LIGHT_ON,
+                  'payload_off': self.LIGHT_OFF,
                   'unique_id': self.unique_device_id,
                   'dev': self.device}
         if self.dimmable:
@@ -347,3 +356,20 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         struct.pack_into("<BBBBBBBB", msg_bytes, 0, 0xDA,
             0xFE, 1, self.rvc_instance, 0, 0, 0, 0)
         self.send_queue.put({"dgn": "0EAFF", "data": msg_bytes})
+
+
+class TankHeater_DC_DIMMER_STATUS_3(DimmerSwitch_DC_DIMMER_STATUS_3):
+    """
+    A firefly tank warmer is just a dimmer contact driven on/off, so it shares the
+    dimmer implementation and only differs in how it presents itself to Home Assistant.
+    Registered under `type: tank_heater` to stay compatible with existing floorplans.
+
+    Supports ON/OFF.  Not dimmable by default, so it publishes as a HA switch rather
+    than a light - a floorplan may still set `dimmable: true` to opt in.
+
+    """
+    FACTORY_MATCH_ATTRIBUTES = {"name": "DC_DIMMER_STATUS_3", "type": "tank_heater"}
+
+    ID_PREFIX = "tank_warmer-1FEDB-i"
+    HA_MODEL = "RV-C Tank Warmer from DC_DIMMER_STATUS_3"
+    DEFAULT_DIMMABLE = False

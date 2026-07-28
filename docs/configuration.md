@@ -21,6 +21,65 @@ text from the WebUI might be written to floor plan 2.
 | `source_id` | no | Hex string — only process CAN frames from this source node |
 | `link_id` / `entity_links` | no | Cross-reference another entity by its `link_id` |
 
+### Dimmer switch (`dimmer_switch`) and tank heater (`tank_heater`)
+
+Both types are served by the same implementation in `rvc2mqtt/entity/dimmer_switch.py`
+and drive a Firefly dimmer channel via `DC_DIMMER_STATUS_3` / `DC_DIMMER_COMMAND_2`.
+They differ only in how the channel is presented to Home Assistant, so use whichever
+matches the hardware behind the channel.
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `dimmable` | no | Whether the channel supports brightness.  Defaults to `true` for `dimmer_switch` and `false` for `tank_heater` |
+| `driver_index` | no | Channel number in the `DC_COMPONENT_DRIVER_STATUS_1`/`_4` telemetry DGNs (default: same as `instance`) |
+| `group` | no | RV-C group bitmask sent with commands (default: `'11111111'`) |
+
+A dimmable entity is published to Home Assistant as a `light` with brightness support;
+a non-dimmable one as a `switch`.  Set `dimmable: false` on a `dimmer_switch` for a
+channel that is really an on/off load such as a water pump or a fan.
+
+**Topics**
+
+| Topic | Direction | Description |
+|-------|-----------|-------------|
+| `{status_topic}` | publish | `on` / `off` |
+| `{command_topic}` | subscribe | `on` / `off` |
+| `{status_topic}/brightness` | publish | Brightness 0-100 (dimmable only) |
+| `{command_topic}/brightness` | subscribe | Set brightness 0-100 (dimmable only) |
+| `{status_topic}/current` | publish | Channel current in amps |
+| `{status_topic}/cycle_count` | publish | On-cycle count (diagnostic) |
+| `{status_topic}/on_time` | publish | Channel on time in minutes (diagnostic) |
+
+The status topic is subscribed with retained values allowed on startup, so a bridge
+restart reads back the last known state instead of republishing it.
+
+#### Example
+
+```yaml
+floorplan:
+  - name: DC_DIMMER_STATUS_3
+    instance: 32
+    type: dimmer_switch
+    instance_name: main lights
+    status_topic: rvc/state/lights/int/main
+    command_topic: rvc/set/lights/int/main
+
+  - name: DC_DIMMER_STATUS_3
+    instance: 44
+    type: dimmer_switch
+    instance_name: water pump
+    dimmable: false
+    status_topic: rvc/state/waterpump
+    command_topic: rvc/set/waterpump
+
+  - name: DC_DIMMER_STATUS_3
+    instance: 5
+    type: tank_heater
+    instance_name: tank heater fresh
+    status_topic: rvc/state/tanks/fresh/heater
+    command_topic: rvc/set/tanks/fresh/heater
+```
+
 ### G12 tank level sensor (`g12_tank_level`)
 
 Reads raw sensor counts broadcast by the Firefly G12 controller (`G12_TANK_LEVEL_SENSOR` DGN).
