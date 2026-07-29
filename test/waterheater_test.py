@@ -28,7 +28,10 @@ from rvc2mqtt.entity.water_heater import WaterHeaterClass
 
 def _make_mock():
     mock = MagicMock()
-    mock.make_device_topic_string.return_value = 'test/topic'
+    # Distinct topic per field so that publish() change tracking cannot
+    # collapse unrelated fields onto a single cache key.
+    mock.make_device_topic_string.side_effect = lambda id, field, state: \
+        f'test/{id}/{field}/{"state" if state else "set"}'
     mock.TOPIC_BASE = 'rvc2mqtt'
     mock.client_id = 'bridge'
     mock.get_bridge_ha_name.return_value = 'bridge'
@@ -39,9 +42,6 @@ def _make_mock():
 
 def _make_heater():
     mock = _make_mock()
-    # Return distinct topics per field so topic comparisons in process_mqtt_msg work correctly
-    mock.make_device_topic_string.side_effect = lambda id, field, state: \
-        f'test/{id}/{field}/{"state" if state else "set"}'
     entity = WaterHeaterClass({'instance': 1, 'instance_name': "test water heater"}, mock)
     return entity, mock
 
