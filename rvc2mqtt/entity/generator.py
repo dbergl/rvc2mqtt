@@ -84,19 +84,16 @@ class Generator_GENERATOR(EntityPluginBaseClass):
 
         if self._is_entry_match(self.rvc_match_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            if new_message["status"] != self.status:
-                self.status = new_message["status"]
-                status_json = json.dumps(
-                    {'status': self.status, 'text': new_message.get(
-                        "status_definition", "reserved").title()})
+            self.status = new_message["status"]
+            status_json = json.dumps(
+                {'status': self.status, 'text': new_message.get(
+                    "status_definition", "reserved").title()})
+            self.publish(self.status_topic, status_json)
 
-                self.mqtt_support.client.publish(
-                    self.status_topic, status_json , retain=True)
-
-            if new_message["engine_run_time"] != self.run_time:
-                self.run_time = new_message["status"]
-                self.mqtt_support.client.publish(
-                    self.hours_topic, f'{float(new_message["engine_run_time"])/60:.2f}', retain=True)
+            # was assigned new_message["status"], so the run-time guard compared
+            # engine_run_time against a status value and almost always misfired
+            self.run_time = new_message["engine_run_time"]
+            self.publish(self.hours_topic, f'{float(self.run_time)/60:.2f}')
 
             return True
 
@@ -112,10 +109,7 @@ class Generator_GENERATOR(EntityPluginBaseClass):
                 self.Logger.error(
                     f"Unexpected RVC value {str(new_message['operating_status_brightness'])}")
 
-            # Only publish if the state has changed
-            if self.messagestate != self.state:
-                self.mqtt_support.client.publish(
-                    self.startstop_trigger_topic, self.messagestate, retain=True)
+            if self.publish(self.startstop_trigger_topic, self.messagestate):
                 self.state = self.messagestate
 
             return True
@@ -189,7 +183,5 @@ class Generator_GENERATOR(EntityPluginBaseClass):
         """
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
-            self.status_topic, self.status, retain=True)
-        self.mqtt_support.client.publish(
-            self.hours_topic, self.run_time, retain=True)
+        self.publish(self.status_topic, self.status)
+        self.publish(self.hours_topic, self.run_time)

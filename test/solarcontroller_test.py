@@ -85,10 +85,6 @@ class Test_SolarController(unittest.TestCase):
 
     def test_process_rvc_msg_controller_status_no_publish_if_unchanged(self):
         entity, mock = _make_controller()
-        entity.operating_state = 'bulk'
-        entity.power_up_state = 'normal'
-        entity.force_charge = 'off'
-        mock.client.publish.reset_mock()
         msg = {
             'name': 'SOLAR_CONTROLLER_STATUS', 'instance': 1,
             'operating_state': 'bulk',
@@ -98,6 +94,8 @@ class Test_SolarController(unittest.TestCase):
             'force_charge': 'off',
             'force_charge_definition': 'disabled',
         }
+        entity.process_rvc_msg(msg)
+        mock.client.publish.reset_mock()
         entity.process_rvc_msg(msg)
         mock.client.publish.assert_not_called()
 
@@ -202,15 +200,13 @@ class Test_SolarController(unittest.TestCase):
 
     def test_process_rvc_msg_array_status_no_power_publish_if_unchanged(self):
         entity, mock = _make_controller()
-        entity.array_voltage = 24.0
-        entity.array_current = 5.0
-        entity.array_power = 120.0
-        mock.client.publish.reset_mock()
         msg = {
             'name': 'SOLAR_CONTROLLER_SOLAR_ARRAY_STATUS', 'instance': 1,
             'solar_array_measured_voltage': 24.0,
             'solar_array_measured_current': 5.0,
         }
+        entity.process_rvc_msg(msg)
+        mock.client.publish.reset_mock()
         entity.process_rvc_msg(msg)
         calls = {call[0][0] for call in mock.client.publish.call_args_list}
         self.assertNotIn(entity.array_power_topic, calls)

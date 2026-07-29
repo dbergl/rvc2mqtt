@@ -138,9 +138,9 @@ class Test_G12TankWarmer(unittest.TestCase):
 
     def test_process_rvc_msg_no_publish_if_state_unchanged(self):
         entity, mock = _make_warmer()
-        entity.state = G12TankWarmer.LIGHT_ON
-        mock.client.publish.reset_mock()
         msg = {'name': 'DC_DIMMER_STATUS_3', 'instance': 1, 'operating_status_brightness': 100.0}
+        entity.process_rvc_msg(msg)
+        mock.client.publish.reset_mock()
         entity.process_rvc_msg(msg)
         # state didn't change — no publish
         mock.client.publish.assert_not_called()

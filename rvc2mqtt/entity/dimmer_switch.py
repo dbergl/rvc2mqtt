@@ -127,10 +127,7 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
                 self.Logger.error(
                     f"Unexpected RVC value {str(new_message['operating_status_brightness'])}")
 
-            # Only publish if the state has changed
-            if self.messagestate != self.state:
-                self.mqtt_support.client.publish(
-                    self.status_topic, self.messagestate, retain=True)
+            if self.publish(self.status_topic, self.messagestate):
                 self.state = self.messagestate
 
             if self.dimmable:
@@ -138,9 +135,7 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
                 if raw_brightness == "n/a":
                     return True
                 new_brightness = int(raw_brightness)
-                if new_brightness != self.brightness:
-                    self.mqtt_support.client.publish(
-                        self.brightness_status_topic, new_brightness, retain=True)
+                if self.publish(self.brightness_status_topic, new_brightness):
                     self.brightness = new_brightness
 
             return True
@@ -155,10 +150,8 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
             self.Logger.debug(f"Msg Match Driver Status 1: {str(new_message)}")
             current = new_message["current"]
             # rvc.py converts an unavailable (0xFFFF) current to the string "n/a"
-            if current != "n/a" and current != self.current:
-                self.mqtt_support.client.publish(
-                    self.current_status_topic, current, retain=True)
-                self.current = current
+            if current != "n/a":
+                self.publish(self.current_status_topic, current)
             return True
 
         elif self._is_entry_match(self.rvc_match_driver_status_4, new_message):
@@ -166,16 +159,12 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
             # These parameters have no unit in the spec so they arrive as raw
             # integers - filter the RVC unavailable values ourselves.
             cycle_count = new_message["on_cycle_count"]
-            if cycle_count != 0xFFFF and cycle_count != self.cycle_count:
-                self.mqtt_support.client.publish(
-                    self.cycle_count_status_topic, cycle_count, retain=True)
-                self.cycle_count = cycle_count
+            if cycle_count != 0xFFFF:
+                self.publish(self.cycle_count_status_topic, cycle_count)
 
             on_time = new_message["channel_on_time"]
-            if on_time != 0xFFFFFFFF and on_time != self.on_time:
-                self.mqtt_support.client.publish(
-                    self.on_time_status_topic, on_time, retain=True)
-                self.on_time = on_time
+            if on_time != 0xFFFFFFFF:
+                self.publish(self.on_time_status_topic, on_time)
             return True
 
         return False
@@ -273,7 +262,7 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
         ha_component = "light" if self.dimmable else "switch"
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
             self.unique_device_id, ha_component)
-        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
+        self.publish(ha_config_topic, config_json, retain=False)
 
         self.publish_ha_discovery_sensor_configs()
 
@@ -314,21 +303,24 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
             config.update(self.get_availability_discovery_info_for_ha())
             ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
                 self.unique_device_id, "sensor", sub_type)
-            self.mqtt_support.client.publish(
-                ha_config_topic, json.dumps(config), retain=False)
+            self.publish(ha_config_topic, json.dumps(config), retain=False)
 
     def _on_state_topic(self, topic, payload, properties=None):
         """Pre-seed local state from the retained MQTT value on startup.
         Prevents re-publishing unchanged state after a bridge restart."""
         if payload in (self.LIGHT_ON, self.LIGHT_OFF):
             self.state = payload
+            # publish() gates on its own cache, so the retained value has to be
+            # recorded there too or the first status report republishes it.
+            self.note_published(self.status_topic, payload)
 
     def _on_brightness_topic(self, topic, payload, properties=None):
         """Pre-seed local brightness from the retained MQTT value on startup."""
         try:
             self.brightness = int(payload)
         except ValueError:
-            pass
+            return
+        self.note_published(self.brightness_status_topic, self.brightness)
 
     def initialize(self):
         """ Optional function

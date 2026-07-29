@@ -271,5 +271,66 @@ class Test_Dimmer_ComponentDriverStatus(unittest.TestCase):
         self.assertEqual(on_time['dev'], d.device)
 
 
+class Test_Dimmer_RetainedPreseed(unittest.TestCase):
+    """The retained value the broker hands back on startup must reach the
+    change cache, or the first status report republishes it."""
+
+    def _make_dimmer(self, dimmable=True):
+        return Dimmer(
+            {'instance': 1, 'instance_name': "test dimmer",
+             'status_topic': 'rvc/state/dimmer', 'command_topic': 'rvc/set/dimmer',
+             'dimmable': dimmable},
+            _make_mock()
+        )
+
+    def _make_status_msg(self, brightness):
+        return {
+            'name': 'DC_DIMMER_STATUS_3',
+            'instance': 1,
+            'operating_status_brightness': brightness,
+        }
+
+    def test_preseed_from_retained_state_suppresses_first_publish(self):
+        """The retained value the broker hands back on startup must reach the
+        change cache, or the first status report republishes it."""
+        d = self._make_dimmer(dimmable=False)
+        d._on_state_topic('rvc/state/dimmer', 'on')
+        d.mqtt_support.client.publish.reset_mock()
+        d.process_rvc_msg(self._make_status_msg(brightness=100.0))
+        d.mqtt_support.client.publish.assert_not_called()
+
+    def test_preseed_still_publishes_a_real_change(self):
+        d = self._make_dimmer(dimmable=False)
+        d._on_state_topic('rvc/state/dimmer', 'on')
+        d.mqtt_support.client.publish.reset_mock()
+        d.process_rvc_msg(self._make_status_msg(brightness=0.0))
+        d.mqtt_support.client.publish.assert_called_once_with(
+            'rvc/state/dimmer', 'off', retain=True)
+
+    def test_preseed_brightness_suppresses_first_publish(self):
+        d = self._make_dimmer()
+        d._on_state_topic('rvc/state/dimmer', 'on')
+        d._on_brightness_topic('rvc/state/dimmer/brightness', '50')
+        d.mqtt_support.client.publish.reset_mock()
+        d.process_rvc_msg(self._make_status_msg(brightness=50.0))
+        d.mqtt_support.client.publish.assert_not_called()
+
+    def test_preseed_ignores_unparseable_brightness(self):
+        d = self._make_dimmer()
+        d._on_brightness_topic('rvc/state/dimmer/brightness', 'garbage')
+        d.mqtt_support.client.publish.reset_mock()
+        d.process_rvc_msg(self._make_status_msg(brightness=50.0))
+        topics = [c[0][0] for c in d.mqtt_support.client.publish.call_args_list]
+        self.assertIn('rvc/state/dimmer/brightness', topics)
+
+    def test_first_brightness_of_zero_is_published(self):
+        """brightness was initialised to 0, so a genuine first reading of 0%
+        used to be swallowed."""
+        d = self._make_dimmer()
+        d.process_rvc_msg(self._make_status_msg(brightness=0.0))
+        published = {c[0][0]: c[0][1]
+                     for c in d.mqtt_support.client.publish.call_args_list}
+        self.assertEqual(published['rvc/state/dimmer/brightness'], 0)
+
 if __name__ == '__main__':
     unittest.main()

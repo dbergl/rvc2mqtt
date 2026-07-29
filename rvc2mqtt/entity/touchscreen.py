@@ -119,8 +119,7 @@ class Touchscreen(EntityPluginBaseClass):
                         self._product_id = product_id
                         self.Logger.info(f"PRODUCT_IDENTIFICATION: {product_id}")
                         if hasattr(self, 'product_id_topic'):
-                            self.mqtt_support.client.publish(
-                                self.product_id_topic, product_id, retain=True)
+                            self.publish(self.product_id_topic, product_id)
                 except Exception as e:
                     self.Logger.error(f"Failed to decode PRODUCT_IDENTIFICATION: {e}")
                 finally:
@@ -144,22 +143,12 @@ class Touchscreen(EntityPluginBaseClass):
             else:
                 lamp_status = "off"
 
-            if self._fault_code != message_fault_code:
-                self._fault_code = message_fault_code
-                self._fault_description = fault_description
-                if hasattr(self, 'dm_rv_fault_code_topic'):
-                    self.mqtt_support.client.publish(
-                        self.dm_rv_fault_code_topic,
-                        "00" if self._fault_code == "4095" else str(self._fault_code),
-                        retain=True)
-                    self.mqtt_support.client.publish(
-                        self.dm_rv_fault_description_topic,
-                        self._fault_description, retain=True)
-            if self._lamp != lamp_status:
-                self._lamp = lamp_status
-                if hasattr(self, 'dm_rv_lamp_topic'):
-                    self.mqtt_support.client.publish(
-                        self.dm_rv_lamp_topic, self._lamp, retain=True)
+            if hasattr(self, 'dm_rv_fault_code_topic'):
+                self.publish(self.dm_rv_fault_code_topic,
+                    "00" if message_fault_code == "4095" else str(message_fault_code))
+                self.publish(self.dm_rv_fault_description_topic, fault_description)
+            if hasattr(self, 'dm_rv_lamp_topic'):
+                self.publish(self.dm_rv_lamp_topic, lamp_status)
             return True
 
         return False

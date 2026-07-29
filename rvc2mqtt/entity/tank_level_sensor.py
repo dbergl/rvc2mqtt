@@ -80,10 +80,8 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
             
             new_level = (new_message["relative_level"] * 100) / self.resolution
             new_level = round(new_level)  # round it..partial precentage isn't important here
-            if new_level != self.level:
-                self.level = new_level
-                self.mqtt_support.client.publish(
-                    self.status_topic, self.level, retain=True)
+            self.level = new_level
+            self.publish(self.status_topic, self.level)
             return True
         return False
 
@@ -114,8 +112,7 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
             self.unique_device_id, "device")
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
-            ha_config_topic, config_json, retain=False)
+        self.publish(ha_config_topic, config_json, retain=False)
 
     def _get_instance_name(self, instance: int) -> str:
         imap = {0: "fresh water", 

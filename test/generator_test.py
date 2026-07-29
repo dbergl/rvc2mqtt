@@ -99,15 +99,14 @@ class Test_Generator(unittest.TestCase):
 
     def test_process_rvc_msg_generator_status_no_publish_if_unchanged(self):
         entity, mock = _make_generator()
-        entity.status = 1
-        entity.run_time = 60
-        mock.client.publish.reset_mock()
         msg = {
             'name': 'GENERATOR_STATUS_1',
             'status': 1,
             'status_definition': 'running',
             'engine_run_time': 60,
         }
+        entity.process_rvc_msg(msg)
+        mock.client.publish.reset_mock()
         entity.process_rvc_msg(msg)
         # status unchanged, run_time unchanged — no publish
         mock.client.publish.assert_not_called()
@@ -152,9 +151,9 @@ class Test_Generator(unittest.TestCase):
 
     def test_process_rvc_msg_dimmer_no_publish_if_state_unchanged(self):
         entity, mock = _make_generator()
-        entity.state = 'on'
-        mock.client.publish.reset_mock()
         msg = {'name': 'DC_DIMMER_STATUS_3', 'instance': 19, 'operating_status_brightness': 100.0}
+        entity.process_rvc_msg(msg)
+        mock.client.publish.reset_mock()
         entity.process_rvc_msg(msg)
         mock.client.publish.assert_not_called()
 

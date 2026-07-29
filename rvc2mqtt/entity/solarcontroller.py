@@ -153,118 +153,83 @@ class SolarController_SOLAR_CONTROLLER_STATUS(EntityPluginBaseClass):
 
         if self._is_entry_match(self.rvc_solar_controller_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            if new_message["operating_state"] != self.operating_state:
-                self.operating_state = new_message["operating_state"]
-                self.mqtt_support.client.publish(
-                    self.operating_state_topic, new_message.get("operating_state_definition", "unknown").title(), retain=True)
-            if new_message["power-up_state"] != self.power_up_state:
-                self.power_up_state = new_message["power-up_state"]
-                self.mqtt_support.client.publish(
-                    self.power_up_state_topic, new_message.get("power-up_state_definition", "unknown").title(), retain=True)
+            self.operating_state = new_message["operating_state"]
+            self.publish(self.operating_state_topic, new_message.get("operating_state_definition", "unknown").title())
+            self.power_up_state = new_message["power-up_state"]
+            self.publish(self.power_up_state_topic, new_message.get("power-up_state_definition", "unknown").title())
 
-            if new_message["force_charge"] != self.force_charge:
-                self.force_charge = new_message["force_charge"]
-                self.mqtt_support.client.publish(
-                    self.force_charge_topic, new_message.get("force_charge_definition", "unknown").title(), retain=True)
+            self.force_charge = new_message["force_charge"]
+            self.publish(self.force_charge_topic, new_message.get("force_charge_definition", "unknown").title())
 
             return True
 
         if self._is_entry_match(self.rvc_solar_controller_4_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            if new_message["today's_amp-hours_to_battery"] != self.today:
-                self.today = new_message["today's_amp-hours_to_battery"]
-                self.mqtt_support.client.publish(
-                    self.today_topic, new_message["today's_amp-hours_to_battery"], retain=True)
+            self.today = new_message["today's_amp-hours_to_battery"]
+            self.publish(self.today_topic, self.today)
 
-            if new_message["yesterday's_amp-hours_to_battery"] != self.yesterday:
-                self.yesterday = new_message["yesterday's_amp-hours_to_battery"]
-                self.mqtt_support.client.publish(
-                    self.yesterday_topic, new_message["yesterday's_amp-hours_to_battery"], retain=True)
+            self.yesterday = new_message["yesterday's_amp-hours_to_battery"]
+            self.publish(self.yesterday_topic, self.yesterday)
 
-            if new_message["day_before_yesterday's_amp-hours_to_battery"] != self.two_days_ago:
-                self.two_days_ago = new_message["day_before_yesterday's_amp-hours_to_battery"]
-                self.mqtt_support.client.publish(
-                    self.two_days_ago_topic, new_message["day_before_yesterday's_amp-hours_to_battery"], retain=True)
+            self.two_days_ago = new_message["day_before_yesterday's_amp-hours_to_battery"]
+            self.publish(self.two_days_ago_topic, self.two_days_ago)
 
             return True
 
         if self._is_entry_match(self.rvc_solar_controller_5_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
 
-            if new_message["last_7_days_amp-hours_to_battery"] != self.seven_day_total:
-                self.seven_day_total = new_message["last_7_days_amp-hours_to_battery"]
-                self.mqtt_support.client.publish(
-                    self.seven_day_total_topic, new_message["last_7_days_amp-hours_to_battery"], retain=True)
+            self.seven_day_total = new_message["last_7_days_amp-hours_to_battery"]
+            self.publish(self.seven_day_total_topic, new_message["last_7_days_amp-hours_to_battery"])
 
-            if new_message["cumulative_power_generation"] != self.power_generation:
-                self.power_generation = new_message["cumulative_power_generation"]
-                # The value needs to be divided by 2, I think, because there are 2 battery banks. This should match firefly screen
-                self.mqtt_support.client.publish(
-                    self.power_generation_topic, f"{round(float(self.power_generation) / 2 )}", retain=True)
+            self.power_generation = new_message["cumulative_power_generation"]
+            # The value needs to be divided by 2, I think, because there are 2 battery banks. This should match firefly screen
+            self.publish(self.power_generation_topic,
+                f"{round(float(self.power_generation) / 2 )}")
 
             return True
 
         if self._is_entry_match(self.rvc_solar_controller_6_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
 
-            if new_message["total_number_of_operating_days"] != self.operating_days:
-                self.operating_days = new_message["total_number_of_operating_days"]
-                self.mqtt_support.client.publish(
-                    self.operating_days_topic, new_message["total_number_of_operating_days"], retain=True)
+            self.operating_days = new_message["total_number_of_operating_days"]
+            self.publish(self.operating_days_topic, new_message["total_number_of_operating_days"])
 
-            if new_message["solar_charge_controller_measured_temperature"] != self.temperature:
-                self.temperature = new_message["solar_charge_controller_measured_temperature"]
-                self.mqtt_support.client.publish(
-                    self.temperature_topic, new_message["solar_charge_controller_measured_temperature"], retain=True)
+            self.temperature = new_message["solar_charge_controller_measured_temperature"]
+            self.publish(self.temperature_topic, new_message["solar_charge_controller_measured_temperature"])
 
             return True
 
         if self._is_entry_match(self.rvc_solar_array_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
 
-            if new_message["solar_array_measured_voltage"] != self.array_voltage:
-                self.array_voltage = new_message["solar_array_measured_voltage"]
-                self.mqtt_support.client.publish(
-                    self.array_voltage_topic, new_message["solar_array_measured_voltage"], retain=True)
+            self.array_voltage = new_message["solar_array_measured_voltage"]
+            self.publish(self.array_voltage_topic, new_message["solar_array_measured_voltage"])
 
-            if new_message["solar_array_measured_current"] != self.array_current:
-                self.array_current = new_message["solar_array_measured_current"]
-                self.mqtt_support.client.publish(
-                    self.array_current_topic, new_message["solar_array_measured_current"], retain=True)
+            self.array_current = new_message["solar_array_measured_current"]
+            self.publish(self.array_current_topic, new_message["solar_array_measured_current"])
 
             # power (watts) is calculated v * a
-            _calc_power = round(float(self.array_voltage) * float(self.array_current),1)
-            if self.array_power != _calc_power:
-                self.array_power = _calc_power
-                self.mqtt_support.client.publish(
-                    self.array_power_topic, f"{self.array_power}", retain=True)
+            self.array_power = round(float(self.array_voltage) * float(self.array_current),1)
+            self.publish(self.array_power_topic, f"{self.array_power}")
 
             return True
 
         if self._is_entry_match(self.rvc_solar_battery_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
 
-            if new_message["measured_voltage"] != self.battery_voltage:
-                self.battery_voltage = new_message["measured_voltage"]
-                self.mqtt_support.client.publish(
-                    self.battery_voltage_topic, new_message["measured_voltage"], retain=True)
+            self.battery_voltage = new_message["measured_voltage"]
+            self.publish(self.battery_voltage_topic, new_message["measured_voltage"])
 
-            if new_message["measured_current"] != self.battery_current:
-                self.battery_current = new_message["measured_current"]
-                self.mqtt_support.client.publish(
-                    self.battery_current_topic, new_message["measured_current"], retain=True)
+            self.battery_current = new_message["measured_current"]
+            self.publish(self.battery_current_topic, new_message["measured_current"])
 
-            if new_message["measured_temperature"] != self.battery_temperature:
-                self.battery_temperature = new_message["measured_temperature"]
-                self.mqtt_support.client.publish(
-                    self.battery_temperature_topic, new_message["measured_temperature"], retain=True)
+            self.battery_temperature = new_message["measured_temperature"]
+            self.publish(self.battery_temperature_topic, new_message["measured_temperature"])
 
             # power (watts) is calculated v * a
-            _calc_power = round(float(self.battery_voltage) * float(self.battery_current),1)
-            if self.battery_power != _calc_power:
-                self.battery_power = _calc_power
-                self.mqtt_support.client.publish(
-                    self.battery_power_topic, f"{self.battery_power}", retain=True)
+            self.battery_power = round(float(self.battery_voltage) * float(self.battery_current),1)
+            self.publish(self.battery_power_topic, f"{self.battery_power}")
 
             return True
 
