@@ -415,3 +415,27 @@ class TestInstanceIsolation:
         b = _make_entity()
         a.publish('a/b', 'on')
         assert b.publish('a/b', 'on') is True
+
+
+# ---------------------------------------------------------------------------
+# Enforcement: entities must not reach past publish() to the mqtt client
+# ---------------------------------------------------------------------------
+
+class TestNoReachThrough:
+    def test_entities_do_not_call_client_publish_directly(self):
+        """publish() is the only gate. An entity that calls
+        mqtt_support.client.publish directly bypasses change tracking, which is
+        invisible at the call site and hard to notice in review."""
+        import os
+        entity_dir = os.path.join(os.path.dirname(__file__), '..', 'rvc2mqtt', 'entity')
+        offenders = []
+        for name in sorted(os.listdir(entity_dir)):
+            if not name.endswith('.py') or name == '__init__.py':
+                continue
+            with open(os.path.join(entity_dir, name)) as f:
+                for lineno, line in enumerate(f, 1):
+                    if 'client.publish' in line:
+                        offenders.append(f"{name}:{lineno}")
+        assert offenders == [], \
+            "use self.publish() instead of client.publish: " + ", ".join(offenders)
+

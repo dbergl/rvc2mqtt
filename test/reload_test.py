@@ -260,6 +260,33 @@ class TestAppDoReload:
         a._do_reload()
         mqtt.clear_all_retained.assert_not_called()
 
+    def test_publish_change_cache_does_not_survive_a_reload(self):
+        """_do_reload builds new entity objects, and app.py's reload contract is
+        that entities overwrite retained topics naturally when the CAN bus
+        re-broadcasts. A change cache shared across instances would silently
+        break that promise, so it has to be per-instance."""
+        from rvc2mqtt.entity import EntityPluginBaseClass
+
+        class _Stub(EntityPluginBaseClass):
+            def __init__(self, mqtt_support):
+                self.id = "reload-stub"
+                super().__init__({}, mqtt_support)
+
+            def process_rvc_msg(self, msg):
+                return False
+
+        mqtt_support = MagicMock()
+        mqtt_support.make_device_topic_string.return_value = 'test/topic'
+        mqtt_support.TOPIC_BASE = 'rvc2mqtt'
+        mqtt_support.client_id = 'bridge'
+
+        before = _Stub(mqtt_support)
+        assert before.publish('a/b', 'on') is True
+        assert before.publish('a/b', 'on') is False
+
+        after = _Stub(mqtt_support)
+        assert after.publish('a/b', 'on') is True
+
     def test_do_reload_publishes_offline_before_entity_teardown(self):
         """Bridge must go offline before entities are torn down."""
         call_order = []

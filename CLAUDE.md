@@ -101,6 +101,55 @@ MQTT Broker → Home Assistant
 4. Implement `initialize()` to register MQTT topics
 5. Add corresponding test in `test/my_device_test.py`
 
+### Publishing from an Entity
+
+Always publish via `self.publish(...)` from `EntityPluginBaseClass`. Never call
+`self.mqtt_support.client.publish(...)` from an entity — a test enforces this
+(`test/entity_publish_test.py::TestNoReachThrough`).
+
+```python
+self.publish(topic, payload, retain=True, force=None, key=None,
+             value=_UNSET, deadband=None, properties=None) -> bool
+```
+
+It publishes **only when the value changed**, and returns whether it did.
+
+- Don't write your own `if new != self.x:` guard — that's what this replaces.
+  Keep a mirror attribute only when something else genuinely reads it, via
+  `if self.publish(t, v): self.x = v`.
+- **`retain=False` implies `force=True`.** HA discovery configs and RPC-style
+  responses therefore keep re-firing on every boot, floorplan reload and HA
+  birth message with no extra thought. The reload stale-detection in `app.py`
+  depends on this.
+- `force=True` publishes regardless, and still records the value so the next
+  un-forced publish of it is suppressed. Use it for an optimistic echo of a
+  received MQTT command.
+- `publish_forget(key)` drops a cached value so the next publish goes out —
+  for when something outside our view invalidated the broker's retained copy.
+- `value=` gates on something other than the payload: a raw RVC field while
+  publishing its `.title()`'d definition string, or a number while publishing
+  JSON.
+- `deadband=` is a numeric tolerance, measured from the last *published* value
+  so a slow drift still eventually reports. Use it for noisy analog readings.
+- `value_changed(key, value)` is the underlying primitive. Reach for it when one
+  change signature must gate a group of publishes that move as a unit — e.g.
+  `diagnostic.py`, where two topics carry the whole decoded frame and so differ
+  on every message.
+- `note_published(key, value)` records a value without sending, for seeding the
+  cache from a retained value the broker hands back on startup (see
+  `dimmer_switch.py`).
+
+A first value of `0`, `False`, `""` or `None` always publishes — presence in the
+cache decides, not truthiness. Don't reintroduce sentinel init values like
+`self.level = 999999` to work around a first-reading problem.
+
+Set `RVC2MQTT_PUBLISH_ALWAYS=1` to disable all gating and restore the un-gated
+firehose, for A/B comparison against a live rig.
+
+Entity tests must stub `make_device_topic_string` with a `side_effect` returning
+a **distinct topic per field**. A single `return_value` collapses every topic to
+one string, which silently merges unrelated fields onto one cache key.
+
 ### RVC Spec (`rvc-spec.yml`)
 
 DGN entries define how to decode CAN payloads:
