@@ -116,8 +116,8 @@ class WaterPumpClass(EntityPluginBaseClass):
                 self.Logger.error(
                     f"Unexpected RVC value {str(new_message['operating_status'])}")
 
-            self.mqtt_support.client.publish(
-                self.status_topic, self.power_state, retain=True)
+            self.publish(
+                self.status_topic, self.power_state)
 
             # Running State
             if new_message["pump_status"] == "01":
@@ -130,8 +130,8 @@ class WaterPumpClass(EntityPluginBaseClass):
                 self.Logger.error(
                     f"Unexpected RVC value {str(new_message['pump_status'])}")
 
-            self.mqtt_support.client.publish(
-                self.running_status_topic, self.running_state, retain=True)
+            self.publish(
+                self.running_status_topic, self.running_state)
 
             # External Water Hookup State
             if new_message["water_hookup_detected"] == "01":
@@ -144,13 +144,13 @@ class WaterPumpClass(EntityPluginBaseClass):
                 self.Logger.error(
                     f"Unexpected RVC value {str(new_message['water_hookup_detected'])}")
 
-            self.mqtt_support.client.publish(
-                self.external_water_status_topic, self.external_water_hookup, retain=True)
+            self.publish(
+                self.external_water_status_topic, self.external_water_hookup)
 
             # System Pressure
             self.system_pressure = new_message['current_system_pressure']
-            self.mqtt_support.client.publish(
-                self.system_pressure_status_topic, self.system_pressure, retain=True)
+            self.publish(
+                self.system_pressure_status_topic, self.system_pressure)
 
             return True
 
@@ -209,7 +209,7 @@ class WaterPumpClass(EntityPluginBaseClass):
             self.unique_device_id, "switch", "power")
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
+        self.publish(
             ha_config_topic, config_json, retain=False)
 
         # running state binary sensor  - produce the HA MQTT discovery config json for
@@ -229,7 +229,7 @@ class WaterPumpClass(EntityPluginBaseClass):
             self.unique_device_id, "binary_sensor", "running")
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
+        self.publish(
             ha_config_topic, config_json, retain=False)
 
         # External Water Connected binary sensor  - produce the HA MQTT discovery config json for
@@ -249,7 +249,7 @@ class WaterPumpClass(EntityPluginBaseClass):
             self.unique_device_id, "binary_sensor", "external_water")
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
+        self.publish(
             ha_config_topic, config_json, retain=False)
 
         # System Pressure sensor  - produce the HA MQTT discovery config json for
@@ -271,7 +271,7 @@ class WaterPumpClass(EntityPluginBaseClass):
             self.unique_device_id, "sensor", "system_pressure")
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
+        self.publish(
             ha_config_topic, config_json, retain=False)
 
     def initialize(self):
@@ -286,11 +286,11 @@ class WaterPumpClass(EntityPluginBaseClass):
         self.publish_ha_discovery_config()
 
         # publish status to mqtt
-        self.mqtt_support.client.publish(
-            self.status_topic, self.power_state, retain=True)
-        self.mqtt_support.client.publish(
-            self.running_status_topic, self.running_state, retain=True)
-        self.mqtt_support.client.publish(
-            self.external_water_status_topic, self.external_water_hookup, retain=True)
-        self.mqtt_support.client.publish(
-            self.system_pressure_status_topic, self.system_pressure, retain=True)
+        self.publish(
+            self.status_topic, self.power_state)
+        self.publish(
+            self.running_status_topic, self.running_state)
+        self.publish(
+            self.external_water_status_topic, self.external_water_hookup)
+        self.publish(
+            self.system_pressure_status_topic, self.system_pressure)

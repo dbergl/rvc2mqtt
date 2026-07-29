@@ -102,8 +102,8 @@ class TankWarmer_DC_LOAD_STATUS(EntityPluginBaseClass):
                 self.Logger.error(
                     f"Unexpected RVC value {str(new_message['operating_status'])}")
 
-            self.mqtt_support.client.publish(
-                self.status_topic, self.state, retain=True)
+            self.publish(
+                self.status_topic, self.state)
 
             return True
         elif self._is_entry_match(self.rvc_match_command, new_message):
@@ -174,7 +174,7 @@ class TankWarmer_DC_LOAD_STATUS(EntityPluginBaseClass):
         config_json = json.dumps(config)
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
             self.unique_device_id, "switch")
-        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
+        self.publish(ha_config_topic, config_json, retain=False)
 
     def initialize(self):
         """ Optional function
@@ -186,7 +186,7 @@ class TankWarmer_DC_LOAD_STATUS(EntityPluginBaseClass):
 
         """
         self.publish_ha_discovery_config()
-        self.mqtt_support.client.publish(self.status_topic, self.state, retain=True)
+        self.publish(self.status_topic, self.state)
 
         # request dgn report - this should trigger that light to report
         # dgn = 1FFBD which is actually  BD FF 01 <instance> FF 00 00 00

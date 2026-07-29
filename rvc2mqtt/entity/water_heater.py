@@ -189,17 +189,17 @@ class WaterHeaterClass(EntityPluginBaseClass):
                 self.Logger.error(
                     f"Unexpected RVC Mode Value {str(self.mode)}")
 
-            self.mqtt_support.client.publish(self.status_topic, self.mode, retain=True)
-            self.mqtt_support.client.publish(self.status_gas_topic, self.gas_mode, retain=True)
-            self.mqtt_support.client.publish(self.status_ac_topic, self.ac_mode, retain=True)
+            self.publish(self.status_topic, self.mode)
+            self.publish(self.status_gas_topic, self.gas_mode)
+            self.publish(self.status_ac_topic, self.ac_mode)
 
             # Set Point Temperature
             self.set_point_temperature = new_message["set_point_temperature"]
-            self.mqtt_support.client.publish(self.status_set_point_temp_topic, self.set_point_temperature, retain=True)
+            self.publish(self.status_set_point_temp_topic, self.set_point_temperature)
 
             # water temperature
             self.water_temperature = new_message["water_temperature"]
-            self.mqtt_support.client.publish(self.status_water_temp_topic, self.water_temperature, retain=True)
+            self.publish(self.status_water_temp_topic, self.water_temperature)
 
             # Thermostat
             if new_message["thermostat_status"] == '00':
@@ -208,7 +208,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
                 self.thermostat_status = WaterHeaterClass.ON
             else:
                 self.Logger.error(f"Unexpected RVC thermostat status value {new_message['thermostat_status']}")
-            self.mqtt_support.client.publish(self.status_thermostat_topic, self.thermostat_status, retain=True)
+            self.publish(self.status_thermostat_topic, self.thermostat_status)
 
             # Gas Burner
             if new_message["burner_status"] == '00':
@@ -217,7 +217,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
                 self.burner_status = WaterHeaterClass.ON
             else:
                 self.Logger.error(f"Unexpected RVC burner status value {new_message['burner_status']}")
-            self.mqtt_support.client.publish(self.status_gas_burner_topic, self.burner_status, retain=True)
+            self.publish(self.status_gas_burner_topic, self.burner_status)
 
             # AC Element
             if new_message["ac_element_status"] == '00':
@@ -226,7 +226,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
                 self.ac_element_status = WaterHeaterClass.ON
             else:
                 self.Logger.error(f"Unexpected RVC ac element status value {new_message['ac_element_status']}")
-            self.mqtt_support.client.publish(self.status_ac_element_topic, self.ac_element_status, retain=True)
+            self.publish(self.status_ac_element_topic, self.ac_element_status)
 
             # High Temp Limit Tripped
             if new_message["high_temperature_limit_switch_status"] == '00':
@@ -235,7 +235,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
                 self.high_temp_switch_status = WaterHeaterClass.ON
             else:
                 self.Logger.error(f"Unexpected RVC high temp limit switch status value {new_message['high_temperature_limit_switch_status']}")
-            self.mqtt_support.client.publish(self.status_high_temp_topic, self.high_temp_switch_status, retain=True)
+            self.publish(self.status_high_temp_topic, self.high_temp_switch_status)
 
             # Failure To Ignite (gas)
             if new_message["failure_to_ignite_status"] == '00':
@@ -244,7 +244,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
                 self.failure_to_ignite = WaterHeaterClass.ON
             else:
                 self.Logger.error(f"Unexpected RVC failure to ignite status value {new_message['failure_to_ignite_status']}")
-            self.mqtt_support.client.publish(self.status_failure_gas_topic, self.failure_to_ignite, retain=True)
+            self.publish(self.status_failure_gas_topic, self.failure_to_ignite)
 
             # Failure AC element
             if new_message["ac_power_failure_status"] == '00':
@@ -253,7 +253,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
                 self.failure_ac_power = WaterHeaterClass.ON
             else:
                 self.Logger.error(f"Unexpected RVC ac power failure status value {new_message['ac_power_failure_status']}")
-            self.mqtt_support.client.publish(self.status_failure_ac_topic, self.failure_ac_power, retain=True)
+            self.publish(self.status_failure_ac_topic, self.failure_ac_power)
 
             # Failure DC Power
             if new_message["dc_power_failure_status"] == '00':
@@ -262,7 +262,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
                 self.failure_dc_power = WaterHeaterClass.ON
             else:
                 self.Logger.error(f"Unexpected RVC dc power failure status value {new_message['dc_power_failure_status']}")
-            self.mqtt_support.client.publish(self.status_failure_dc_topic, self.failure_dc_power, retain=True)
+            self.publish(self.status_failure_dc_topic, self.failure_dc_power)
 
             # Failure Warning DC Power (power low)
             if new_message["dc_power_warning_status"] == '00':
@@ -271,7 +271,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
                 self.failure_dc_warning = WaterHeaterClass.ON
             else:
                 self.Logger.error(f"Unexpected RVC dc power warning failure status value {new_message['dc_power_warning_status']}")
-            self.mqtt_support.client.publish(self.status_failure_low_dc_topic, self.failure_dc_warning, retain=True)
+            self.publish(self.status_failure_low_dc_topic, self.failure_dc_warning)
 
             return True
 
@@ -383,7 +383,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
             self.unique_device_id, "switch", "gas_mode")
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
+        self.publish(
             ha_config_topic, config_json, retain=False)
 
         # AC element switch - produce the HA MQTT discovery config json for
@@ -400,7 +400,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
             self.unique_device_id, "switch", "electric_mode")
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
+        self.publish(
             ha_config_topic, config_json, retain=False)
 
         # Set Point Temp input - produce the HA MQTT discovery config json for
@@ -421,7 +421,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
             self.unique_device_id, "number", "set_point_temperature")
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
+        self.publish(
             ha_config_topic, config_json, retain=False)
 
         # Water Temperature sensor  - produce the HA MQTT discovery config json for
@@ -442,7 +442,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
             self.unique_device_id, "sensor", "water_temperature")
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
+        self.publish(
             ha_config_topic, config_json, retain=False)
 
 
@@ -461,7 +461,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
             self.unique_device_id, "binary_sensor", "thermostat")
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
+        self.publish(
             ha_config_topic, config_json, retain=False)
 
 
@@ -481,7 +481,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
             self.unique_device_id, "binary_sensor", "gas_burner_status")
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
+        self.publish(
             ha_config_topic, config_json, retain=False)
 
         # AC Element Status binary sensor  - produce the HA MQTT discovery config json for
@@ -500,7 +500,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
             self.unique_device_id, "binary_sensor", "ac_element_status")
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
+        self.publish(
             ha_config_topic, config_json, retain=False)
 
         # High temp limit switch Status binary sensor  - produce the HA MQTT discovery config json for
@@ -519,7 +519,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
             self.unique_device_id, "binary_sensor", "high_temp_limit_switch_status")
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
+        self.publish(
             ha_config_topic, config_json, retain=False)
 
         # Failure to ignite Status binary sensor  - produce the HA MQTT discovery config json for
@@ -537,7 +537,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
             self.unique_device_id, "binary_sensor", "failure_to_ignite_status")
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
+        self.publish(
             ha_config_topic, config_json, retain=False)
 
         # Failure AC Power Status binary sensor  - produce the HA MQTT discovery config json for
@@ -555,7 +555,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
             self.unique_device_id, "binary_sensor", "failure_ac_power_status")
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
+        self.publish(
             ha_config_topic, config_json, retain=False)
 
         # Failure DC Power Status binary sensor  - produce the HA MQTT discovery config json for
@@ -573,7 +573,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
             self.unique_device_id, "binary_sensor", "failure_dc_power_status")
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
+        self.publish(
             ha_config_topic, config_json, retain=False)
 
         # Failure DC Power warning Status binary sensor  - produce the HA MQTT discovery config json for
@@ -591,7 +591,7 @@ class WaterHeaterClass(EntityPluginBaseClass):
             self.unique_device_id, "binary_sensor", "failure_dc_power_warning_status")
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
+        self.publish(
             ha_config_topic, config_json, retain=False)
 
     def initialize(self):
@@ -606,28 +606,28 @@ class WaterHeaterClass(EntityPluginBaseClass):
         self.publish_ha_discovery_config()
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
-            self.status_gas_topic, self.gas_mode, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_ac_topic, self.ac_mode, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_set_point_temp_topic, self.set_point_temperature, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_water_temp_topic, self.water_temperature, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_thermostat_topic, self.thermostat_status, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_gas_burner_topic, self.burner_status, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_ac_element_topic, self.ac_element_status, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_high_temp_topic, self.high_temp_switch_status, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_failure_gas_topic, self.failure_to_ignite, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_failure_ac_topic, self.failure_ac_power, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_failure_dc_topic, self.failure_dc_power, retain=True)
-        self.mqtt_support.client.publish(
-            self.status_failure_low_dc_topic, self.failure_dc_warning, retain=True)
+        self.publish(
+            self.status_gas_topic, self.gas_mode)
+        self.publish(
+            self.status_ac_topic, self.ac_mode)
+        self.publish(
+            self.status_set_point_temp_topic, self.set_point_temperature)
+        self.publish(
+            self.status_water_temp_topic, self.water_temperature)
+        self.publish(
+            self.status_thermostat_topic, self.thermostat_status)
+        self.publish(
+            self.status_gas_burner_topic, self.burner_status)
+        self.publish(
+            self.status_ac_element_topic, self.ac_element_status)
+        self.publish(
+            self.status_high_temp_topic, self.high_temp_switch_status)
+        self.publish(
+            self.status_failure_gas_topic, self.failure_to_ignite)
+        self.publish(
+            self.status_failure_ac_topic, self.failure_ac_power)
+        self.publish(
+            self.status_failure_dc_topic, self.failure_dc_power)
+        self.publish(
+            self.status_failure_low_dc_topic, self.failure_dc_warning)
 

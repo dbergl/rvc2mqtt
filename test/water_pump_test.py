@@ -226,5 +226,42 @@ class Test_WaterPump(unittest.TestCase):
         self.assertIn(entity.system_pressure_status_topic, published_topics)
 
 
+class Test_WaterPump_ChangeGating(unittest.TestCase):
+    """WATER_PUMP_STATUS used to publish all four topics on every frame."""
+
+    def _topics(self, mock):
+        return [c[0][0] for c in mock.client.publish.call_args_list]
+
+    def test_first_status_publishes_every_topic(self):
+        entity, mock = _make_pump()
+        mock.client.publish.reset_mock()
+        self.assertTrue(entity.process_rvc_msg(_make_status_msg()))
+        self.assertEqual(len(self._topics(mock)), 4)
+
+    def test_repeated_status_publishes_nothing(self):
+        entity, mock = _make_pump()
+        msg = _make_status_msg()
+        entity.process_rvc_msg(msg)
+        mock.client.publish.reset_mock()
+        entity.process_rvc_msg(msg)
+        entity.process_rvc_msg(msg)
+        self.assertEqual(self._topics(mock), [])
+
+    def test_only_the_changed_field_republishes(self):
+        entity, mock = _make_pump()
+        entity.process_rvc_msg(_make_status_msg(pressure=10))
+        mock.client.publish.reset_mock()
+        entity.process_rvc_msg(_make_status_msg(pressure=20))
+        self.assertEqual(self._topics(mock),
+                         [entity.system_pressure_status_topic])
+
+    def test_zero_pressure_is_a_real_first_value(self):
+        entity, mock = _make_pump()
+        mock.client.publish.reset_mock()
+        entity.process_rvc_msg(_make_status_msg(pressure=0))
+        published = {c[0][0]: c[0][1] for c in mock.client.publish.call_args_list}
+        self.assertEqual(published[entity.system_pressure_status_topic], 0)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -426,5 +426,42 @@ class Test_Waterheater(unittest.TestCase):
         self.assertIn(entity.status_failure_low_dc_topic, published_topics)
 
 
+class Test_Waterheater_ChangeGating(unittest.TestCase):
+    """WATERHEATER_STATUS used to publish all thirteen topics on every frame."""
+
+    def _topics(self, mock):
+        return [c[0][0] for c in mock.client.publish.call_args_list]
+
+    def test_first_status_publishes_every_topic(self):
+        entity, mock = _make_heater()
+        mock.client.publish.reset_mock()
+        self.assertTrue(entity.process_rvc_msg(_make_status_msg()))
+        self.assertEqual(len(self._topics(mock)), 13)
+
+    def test_repeated_status_publishes_nothing(self):
+        entity, mock = _make_heater()
+        msg = _make_status_msg()
+        entity.process_rvc_msg(msg)
+        mock.client.publish.reset_mock()
+        entity.process_rvc_msg(msg)
+        entity.process_rvc_msg(msg)
+        self.assertEqual(self._topics(mock), [])
+
+    def test_only_the_changed_field_republishes(self):
+        entity, mock = _make_heater()
+        entity.process_rvc_msg(_make_status_msg(water_temp=40.0))
+        mock.client.publish.reset_mock()
+        entity.process_rvc_msg(_make_status_msg(water_temp=41.0))
+        self.assertEqual(self._topics(mock),
+                         [entity.status_water_temp_topic])
+
+    def test_a_flag_flip_republishes_only_that_flag(self):
+        entity, mock = _make_heater()
+        entity.process_rvc_msg(_make_status_msg(burner='00'))
+        mock.client.publish.reset_mock()
+        entity.process_rvc_msg(_make_status_msg(burner='01'))
+        self.assertEqual(self._topics(mock), [entity.status_gas_burner_topic])
+
+
 if __name__ == '__main__':
     unittest.main()
