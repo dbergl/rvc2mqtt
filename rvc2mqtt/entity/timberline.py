@@ -215,61 +215,6 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
         self.rvc_thermostat_command_1         = { "name": "THERMOSTAT_COMMAND_1", "instance": self.rvc_instance}
         self.rvc_thermostat_schedule_command_1= { "name": "THERMOSTAT_SCHEDULE_COMMAND_1", "instance": self.rvc_instance}
 
-        # save these for later to send rvc msg
-
-        # WATERHEATER_STATUS
-        self._source = "unknown"
-        self._water_temperature = "unknown"
-        self._burner_status = "unknown"
-        self._ac_element_status = "unknown"
-        self._failure_to_ignite_status = "unknown"
-        # WATERHEATER_STATUS_2
-        self._hot_water_priority = "unknown"
-        # CIRCULATION_PUMP_STATUS
-        self._output_status = "unknown"
-        # FURNACE_STATUS
-        self._operating_mode = "unknown"
-        self._circulation_fan_speed = "unknown"
-        # THERMOSTAT_STATUS_1
-        self._thermostat_operating_mode = "unknown"
-        self._thermostat_schedule_mode = "unknown"
-        self._set_point_temp = "unknown"
-        # THERMOSTAT_STATUS_2
-        self._current_schedule_instance = "unknown"
-        # THERMOSTAT_SCHEDULE_STATUS_1
-        self._sleep_start_hour = "unknown"
-        self._sleep_start_minute = "unknown"
-        self._sleep_schedule_temp = "unknown"
-        self._wake_start_hour = "unknown"
-        self._wake_start_minute = "unknown"
-        self._wake_schedule_temp = "unknown"
-        # TIMBERLINE_PROPRIETARY
-        # 0x84
-        self._solenoid = "unknown"
-        self._temperature_sensor = "unknown"
-        self._tank_temperature = "unknown"
-        self._heater_temperature = "unknown"
-        self._fan_manual_speed = "unknown"
-        # 0x85
-        self._system_timer = "unknown"
-        self._domestic_water_timer = "unknown"
-        self._pump_override_timer = "unknown"
-        # 0x86
-        self._heater_minutes = "unknown"
-        self._heater_version = "unknown"
-        # 0x87
-        self._minutes_since_start = "unknown"
-        self._panel_version = "unknown"
-        # 0x88
-        self._hcu_version = "unknown"
-        # 0x8A
-        self._system_limitation = "unknown"
-        self._water_limitation = "unknown"
-        # DM_RV
-        self._fault_code = "unknown"
-        self._fault_description = "unknown"
-        self._lamp = "unknown"
-
     def _convert_c_to_f(self, temp_c: float):
         """ Convert Celsius to Fahrenheit"""
         return f"{(temp_c * 9/5) + 32:.2f}"
@@ -494,140 +439,82 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
 
         if self._is_entry_match(self.rvc_waterheater_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            if new_message["operating_modes"] != self._source:
-                self._source = new_message["operating_modes"]
-                self.mqtt_support.client.publish(
-                    self.source_topic, new_message["operating_modes"], retain=True)
-                self.mqtt_support.client.publish(
-                    self.source_def_topic, new_message.get("operating_modes_definition", "unknown").title(), retain=True)
-            if new_message["water_temperature"] != self._water_temperature:
-                self._water_temperature = new_message["water_temperature"]
-                self.mqtt_support.client.publish(
-                    self.waterheater_temp_topic, new_message["water_temperature"], retain=True)
-                self.mqtt_support.client.publish(
-                    self.waterheater_tempf_topic, round(float(
-                        self._convert_c_to_f(new_message["water_temperature"]))), retain=True)
-            if new_message["burner_status"] != self._burner_status:
-                self._burner_status = new_message["burner_status"]
-                self.mqtt_support.client.publish(
-                    self.burner_status_topic, new_message["burner_status"], retain=True)
-                self.mqtt_support.client.publish(
-                    self.burner_status_def_topic, new_message.get("burner_status_definition", "unknown").title(), retain=True)
-            if new_message["ac_element_status"] != self._ac_element_status:
-                self._ac_element_status = new_message["ac_element_status"]
-                self.mqtt_support.client.publish(
-                    self.ac_element_status_topic, new_message["ac_element_status"], retain=True)
-                self.mqtt_support.client.publish(
-                    self.ac_element_status_def_topic, new_message.get("ac_element_status_definition", "unknown").title(), retain=True)
-            if new_message["failure_to_ignite_status"] != self._failure_to_ignite_status:
-                self._failure_to_ignite_status = new_message["failure_to_ignite_status"]
-                self.mqtt_support.client.publish(
-                    self.failure_to_ignite_status_topic, new_message["failure_to_ignite_status"], retain=True)
-                self.mqtt_support.client.publish(
-                    self.failure_to_ignite_status_def_topic, new_message.get("failure_to_ignite_status_definition", "unknown").title(), retain=True)
+            self.publish(self.source_topic, new_message["operating_modes"])
+            self.publish(self.source_def_topic,
+                new_message.get("operating_modes_definition", "unknown").title())
+            self.publish(self.waterheater_temp_topic, new_message["water_temperature"])
+            self.publish(self.waterheater_tempf_topic, round(float(
+                self._convert_c_to_f(new_message["water_temperature"]))))
+            self.publish(self.burner_status_topic, new_message["burner_status"])
+            self.publish(self.burner_status_def_topic,
+                new_message.get("burner_status_definition", "unknown").title())
+            self.publish(self.ac_element_status_topic, new_message["ac_element_status"])
+            self.publish(self.ac_element_status_def_topic,
+                new_message.get("ac_element_status_definition", "unknown").title())
+            self.publish(self.failure_to_ignite_status_topic,
+                new_message["failure_to_ignite_status"])
+            self.publish(self.failure_to_ignite_status_def_topic,
+                new_message.get("failure_to_ignite_status_definition", "unknown").title())
             processed = True
         elif self._is_entry_match(self.rvc_waterheater_status_2, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            if new_message["hot_water_priority"] != self._hot_water_priority:
-                self._hot_water_priority = new_message["hot_water_priority"]
-                self.mqtt_support.client.publish(
-                    self.hot_water_priority_topic, new_message["hot_water_priority"], retain=True)
-                self.mqtt_support.client.publish(
-                    self.hot_water_priority_def_topic, new_message.get("hot_water_priority_definition", "unknown").title(), retain=True)
+            self.publish(self.hot_water_priority_topic, new_message["hot_water_priority"])
+            self.publish(self.hot_water_priority_def_topic,
+                new_message.get("hot_water_priority_definition", "unknown").title())
             processed = True
         elif self._is_entry_match(self.rvc_circulation_pump_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            if new_message["output_status"] != self._output_status:
-                self._output_status = new_message["output_status"]
-                self.mqtt_support.client.publish(
-                    self.output_status_topic, new_message["output_status"], retain=True)
-                self.mqtt_support.client.publish(
-                    self.output_status_def_topic, new_message.get("output_status_definition", "unknown").title(), retain=True)
+            self.publish(self.output_status_topic, new_message["output_status"])
+            self.publish(self.output_status_def_topic,
+                new_message.get("output_status_definition", "unknown").title())
             processed = True
         elif self._is_entry_match(self.rvc_furnace_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            if new_message["operating_mode"] != self._operating_mode:
-                self._operating_mode = new_message["operating_mode"]
-                self.mqtt_support.client.publish(
-                    self.operating_mode_topic, new_message["operating_mode"], retain=True)
-                self.mqtt_support.client.publish(
-                    self.operating_mode_def_topic, new_message.get("operating_mode_definition", "unknown").title(), retain=True)
-            if new_message["circulation_fan_speed"] != self._circulation_fan_speed:
-                self._circulation_fan_speed = new_message["circulation_fan_speed"]
-                self.mqtt_support.client.publish(
-                    self.circulation_fan_speed_topic, new_message["circulation_fan_speed"], retain=True)
+            self.publish(self.operating_mode_topic, new_message["operating_mode"])
+            self.publish(self.operating_mode_def_topic,
+                new_message.get("operating_mode_definition", "unknown").title())
+            self.publish(self.circulation_fan_speed_topic,
+                new_message["circulation_fan_speed"])
             processed = True
         elif self._is_entry_match(self.rvc_thermostat_status_1, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            if new_message["operating_mode"] != self._thermostat_operating_mode:
-                self._thermostat_operating_mode = new_message["operating_mode"]
-                self.mqtt_support.client.publish(
-                    self.thermostat_operating_mode_topic, new_message["operating_mode"], retain=True)
-                self.mqtt_support.client.publish(
-                    self.thermostat_operating_mode_def_topic, new_message.get("operating_mode_definition", "unknown").title(), retain=True)
-            if new_message["schedule_mode"] != self._thermostat_schedule_mode:
-                self._thermostat_schedule_mode = new_message["schedule_mode"]
-                self.mqtt_support.client.publish(
-                    self.thermostat_schedule_mode_topic, new_message["schedule_mode"], retain=True)
-                self.mqtt_support.client.publish(
-                    self.thermostat_schedule_mode_def_topic, new_message.get("schedule_mode_definition", "unknown").title(), retain=True)
-            if new_message["setpoint_temp_heat"] != self._set_point_temp:
-                self._set_point_temp = new_message["setpoint_temp_heat"]
-                self.mqtt_support.client.publish(
-                    self.set_point_temp_topic, new_message["setpoint_temp_heat"], retain=True)
-                self.mqtt_support.client.publish(
-                    self.set_point_tempf_topic, round(float(
-                        self._convert_c_to_f(new_message["setpoint_temp_heat"]))), retain=True)
+            self.publish(self.thermostat_operating_mode_topic,
+                new_message["operating_mode"])
+            self.publish(self.thermostat_operating_mode_def_topic,
+                new_message.get("operating_mode_definition", "unknown").title())
+            self.publish(self.thermostat_schedule_mode_topic,
+                new_message["schedule_mode"])
+            self.publish(self.thermostat_schedule_mode_def_topic,
+                new_message.get("schedule_mode_definition", "unknown").title())
+            self.publish(self.set_point_temp_topic, new_message["setpoint_temp_heat"])
+            self.publish(self.set_point_tempf_topic, round(float(
+                self._convert_c_to_f(new_message["setpoint_temp_heat"]))))
             processed = True
         elif self._is_entry_match(self.rvc_thermostat_status_2, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            if new_message["current_schedule_instance"] != self._current_schedule_instance:
-                self._current_schedule_instance = new_message["current_schedule_instance"]
-                self.mqtt_support.client.publish(
-                    self.current_schedule_instance_topic, new_message["current_schedule_instance"], retain=True)
-                self.mqtt_support.client.publish(
-                    self.current_schedule_instance_def_topic, self.current_schedule_instance_definition.get(
-                        str(new_message["current_schedule_instance"]),"unknown").title(), retain=True)
+            self.publish(self.current_schedule_instance_topic,
+                new_message["current_schedule_instance"])
+            self.publish(self.current_schedule_instance_def_topic,
+                self.current_schedule_instance_definition.get(
+                    str(new_message["current_schedule_instance"]), "unknown").title())
             processed = True
         elif self._is_entry_match(self.rvc_thermostat_schedule_status_1, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            time_changed = False
+            # start_hour and start_minute arrive in the same message, so the
+            # composed time is its own change signature.
+            start_time = f'{new_message["start_hour"]:0>2}:{new_message["start_minute"]:0>2}:00'
             if new_message["schedule_mode_instance"] == 0:
-                if new_message["start_hour"] != self._sleep_start_hour:
-                    self._sleep_start_hour = new_message["start_hour"]
-                    time_changed = True
-                if new_message["start_minute"] != self._sleep_start_minute:
-                    self._sleep_start_minute = new_message["start_minute"]
-                    time_changed = True
-                if time_changed:
-                    start_time=f"{self._sleep_start_hour:0>2}:{self._sleep_start_minute:0>2}:00"
-                    self.mqtt_support.client.publish(
-                        self.sleep_start_time_topic, start_time, retain=True)
-                if new_message["setpoint_temp_heat"] != self._sleep_schedule_temp:
-                    self._sleep_schedule_temp = new_message["setpoint_temp_heat"]
-                    self.mqtt_support.client.publish(
-                        self.sleep_schedule_temp_topic, new_message["setpoint_temp_heat"], retain=True)
-                    self.mqtt_support.client.publish(
-                        self.sleep_schedule_tempf_topic, round(float(
-                            self._convert_c_to_f(new_message["setpoint_temp_heat"]))), retain=True)
-            elif new_message["schedule_mode_instance"] == 1: 
-                if new_message["start_hour"] != self._wake_start_hour:
-                    self._wake_start_hour = new_message["start_hour"]
-                    time_changed = True
-                if new_message["start_minute"] != self._wake_start_minute:
-                    self._wake_start_minute = new_message["start_minute"]
-                    time_changed = True
-                if time_changed:
-                    start_time=f"{self._wake_start_hour:0>2}:{self._wake_start_minute:0>2}:00"
-                    self.mqtt_support.client.publish(
-                        self.wake_start_time_topic, start_time, retain=True)
-                if new_message["setpoint_temp_heat"] != self._wake_schedule_temp:
-                    self._wake_schedule_temp = new_message["setpoint_temp_heat"]
-                    self.mqtt_support.client.publish(
-                        self.wake_schedule_temp_topic, new_message["setpoint_temp_heat"], retain=True)
-                    self.mqtt_support.client.publish(
-                        self.wake_schedule_tempf_topic, round(float(
-                            self._convert_c_to_f(new_message["setpoint_temp_heat"]))), retain=True)
+                self.publish(self.sleep_start_time_topic, start_time)
+                self.publish(self.sleep_schedule_temp_topic,
+                    new_message["setpoint_temp_heat"])
+                self.publish(self.sleep_schedule_tempf_topic, round(float(
+                    self._convert_c_to_f(new_message["setpoint_temp_heat"]))))
+            elif new_message["schedule_mode_instance"] == 1:
+                self.publish(self.wake_start_time_topic, start_time)
+                self.publish(self.wake_schedule_temp_topic,
+                    new_message["setpoint_temp_heat"])
+                self.publish(self.wake_schedule_tempf_topic, round(float(
+                    self._convert_c_to_f(new_message["setpoint_temp_heat"]))))
             processed = True
         elif self._is_entry_match(self.rvc_timberline_proprietary, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
@@ -638,96 +525,57 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
                 # This is the command. Eat message so it doesn't show up as unhandled.
                 self.Logger.debug(f"Msg Match Command: {str(new_message)}")
             elif new_message["message_type"] == "84": #0x84 Timberline 1.5 Extension status message
-                if new_message["solenoid"] != self._solenoid:
-                    self._solenoid = new_message["solenoid"]
-                    self.mqtt_support.client.publish(
-                        self.solenoid_topic, new_message["solenoid"], retain=True)
-                    self.mqtt_support.client.publish(
-                        self.solenoid_def_topic, new_message.get("solenoid_definition", "unknown").title(), retain=True)
-                if new_message["used_temperature_sensor"] != self._temperature_sensor:
-                    self._temperature_sensor = new_message["used_temperature_sensor"]
-                    self.mqtt_support.client.publish(
-                        self.temperature_sensor_topic, new_message["used_temperature_sensor"], retain=True)
-                    self.mqtt_support.client.publish(
-                        self.temperature_sensor_def_topic, new_message.get("used_temperature_sensor_definition", "unknown").title(), retain=True)
-                if new_message["tank_temperature"] != self._tank_temperature:
-                    self._tank_temperature = new_message["tank_temperature"]
-                    self.mqtt_support.client.publish(
-                        self.tank_temperature_topic, new_message["tank_temperature"], retain=True)
-                    self.mqtt_support.client.publish(
-                        self.tank_temperaturef_topic,round(float(
-                            self._convert_c_to_f(new_message["tank_temperature"]))), retain=True)
-                if new_message["heater_temperature"] != self._heater_temperature:
-                    self._heater_temperature = new_message["heater_temperature"]
-                    self.mqtt_support.client.publish(
-                        self.heater_temperature_topic, new_message["heater_temperature"], retain=True)
-                    self.mqtt_support.client.publish(
-                        self.heater_temperaturef_topic,round(float(
-                            self._convert_c_to_f(new_message["heater_temperature"]))), retain=True)
-                if new_message["fan_manual_percents"] != self._fan_manual_speed:
-                    self._fan_manual_speed = new_message["fan_manual_percents"]
-                    self.mqtt_support.client.publish(
-                        self.fan_manual_speed_topic, new_message["fan_manual_percents"], retain=True)
+                self.publish(self.solenoid_topic, new_message["solenoid"])
+                self.publish(self.solenoid_def_topic,
+                    new_message.get("solenoid_definition", "unknown").title())
+                self.publish(self.temperature_sensor_topic,
+                    new_message["used_temperature_sensor"])
+                self.publish(self.temperature_sensor_def_topic,
+                    new_message.get("used_temperature_sensor_definition", "unknown").title())
+                self.publish(self.tank_temperature_topic, new_message["tank_temperature"])
+                self.publish(self.tank_temperaturef_topic, round(float(
+                    self._convert_c_to_f(new_message["tank_temperature"]))))
+                self.publish(self.heater_temperature_topic,
+                    new_message["heater_temperature"])
+                self.publish(self.heater_temperaturef_topic, round(float(
+                    self._convert_c_to_f(new_message["heater_temperature"]))))
+                self.publish(self.fan_manual_speed_topic,
+                    new_message["fan_manual_percents"])
             elif new_message["message_type"] == "85": #0x85 Timberline 1.5 Timers
-                if new_message["system_timer"] != self._system_timer:
-                    self._system_timer = new_message["system_timer"]
-                    self.mqtt_support.client.publish(
-                        self.system_timer_topic, new_message["system_timer"], retain=True)
-                if new_message["domestic_water_timer"] != self._domestic_water_timer:
-                    self._domestic_water_timer = new_message["domestic_water_timer"]
-                    self.mqtt_support.client.publish(
-                        self.domestic_water_timer_topic, new_message["domestic_water_timer"], retain=True)
-                if new_message["pump_override_timer"] != self._pump_override_timer:
-                    self._pump_override_timer = new_message["pump_override_timer"]
-                    self.mqtt_support.client.publish(
-                        self.pump_override_timer_topic, new_message["pump_override_timer"], retain=True)
+                self.publish(self.system_timer_topic, new_message["system_timer"])
+                self.publish(self.domestic_water_timer_topic,
+                    new_message["domestic_water_timer"])
+                self.publish(self.pump_override_timer_topic,
+                    new_message["pump_override_timer"])
             elif new_message["message_type"] == "86": #0x86 Timberline 1.5 Heater info
                 _ver = '.'.join([str(new_message["heater_version_1st_byte"]),
                         str(new_message["heater_version_2nd_byte"]),
                         str(new_message["heater_version_3rd_byte"]),
                         str(new_message["heater_version_4th_byte"])])
-                if new_message["heater_minutes"] != self._heater_minutes:
-                    self._heater_minutes = new_message["heater_minutes"]
-                    self.mqtt_support.client.publish(
-                        self.heater_minutes_topic, new_message["heater_minutes"], retain=True)
-                if _ver != self._heater_version:
-                    self._heater_version = _ver
-                    self.mqtt_support.client.publish(
-                        self.heater_version_topic, _ver, retain=True)
+                self.publish(self.heater_minutes_topic, new_message["heater_minutes"])
+                self.publish(self.heater_version_topic, _ver)
             elif new_message["message_type"] == "87": #0x87 Timberline 1.5 Panel info
                 _ver = '.'.join([str(new_message["panel_version_1st_byte"]),
                         str(new_message["panel_version_2nd_byte"]),
                         str(new_message["panel_version_3rd_byte"]),
                         str(new_message["panel_version_4th_byte"])])
-                if new_message["minutes_since_start"] != self._minutes_since_start:
-                    self._minutes_since_start = new_message["minutes_since_start"]
-                    self.mqtt_support.client.publish(
-                        self.minutes_since_start_topic, new_message["minutes_since_start"], retain=True)
-                if _ver != self._panel_version:
-                    self._panel_version = _ver
-                    self.mqtt_support.client.publish(
-                        self.panel_version_topic, _ver, retain=True)
+                self.publish(self.minutes_since_start_topic,
+                    new_message["minutes_since_start"])
+                self.publish(self.panel_version_topic, _ver)
             elif new_message["message_type"] == "88": #0x88 Timberline 1.5 HCU info
                 _ver = '.'.join([str(new_message["hcu_version_1st_byte"]),
                         str(new_message["hcu_version_2nd_byte"]),
                         str(new_message["hcu_version_3rd_byte"]),
                         str(new_message["hcu_version_4th_byte"])])
-                if _ver != self._hcu_version:
-                    self._hcu_version = _ver
-                    self.mqtt_support.client.publish(
-                        self.hcu_version_topic, _ver, retain=True)
+                self.publish(self.hcu_version_topic, _ver)
             elif new_message["message_type"] == "89": #0x81 Timberline 1.5 Extension command
                 # This is the command. Eat message so it doesn't show up as unhandled.
                 self.Logger.debug(f"Msg Match Command: {str(new_message)}")
             elif new_message["message_type"] == "8A": #0x8A Timberline 1.5 Timers Setup status
-                if new_message["system_limitation"] != self._system_limitation:
-                    self._system_limitation = new_message["system_limitation"]
-                    self.mqtt_support.client.publish(
-                        self.system_limitation_topic, new_message["system_limitation"], retain=True)
-                if new_message["water_limitation"] != self._water_limitation:
-                    self._water_limitation = new_message["water_limitation"]
-                    self.mqtt_support.client.publish(
-                        self.water_limitation_topic, new_message["water_limitation"], retain=True)
+                self.publish(self.system_limitation_topic,
+                    new_message["system_limitation"])
+                self.publish(self.water_limitation_topic,
+                    new_message["water_limitation"])
             processed = True
         elif self._is_entry_match(self.rvc_dm_rv, new_message):
             self.Logger.debug(f"Msg Match DM_RV: {str(new_message)}")
@@ -739,20 +587,10 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
             fault_description = new_message.get("fmi_definition", "unknown")
             lamp_status = "on" if int(new_message["red_lamp_status"]) > 0 else "off"
 
-            if self._fault_code != message_fault_code:
-                self._fault_code = message_fault_code
-                self._fault_description = fault_description
-                self.mqtt_support.client.publish(
-                    self.dm_rv_fault_code_topic,
-                    "00" if self._fault_code == "255" else str(self._fault_code),
-                    retain=True)
-                self.mqtt_support.client.publish(
-                    self.dm_rv_fault_description_topic,
-                    self._fault_description, retain=True)
-            if self._lamp != lamp_status:
-                self._lamp = lamp_status
-                self.mqtt_support.client.publish(
-                    self.dm_rv_lamp_topic, self._lamp, retain=True)
+            self.publish(self.dm_rv_fault_code_topic,
+                "00" if message_fault_code == "255" else str(message_fault_code))
+            self.publish(self.dm_rv_fault_description_topic, fault_description)
+            self.publish(self.dm_rv_lamp_topic, lamp_status)
             processed = True
         elif self._is_entry_match(self.rvc_waterheater_command, new_message):
             # This is the command. Eat message so it doesn't show up as unhandled.
@@ -1319,7 +1157,7 @@ class hvac_TIMBERLINE(EntityPluginBaseClass):
         config_json = json.dumps(config)
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
             self.unique_device_id, "device")
-        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
+        self.publish(ha_config_topic, config_json, retain=False)
 
     def initialize(self):
         """ Optional function

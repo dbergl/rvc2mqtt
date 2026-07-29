@@ -151,5 +151,76 @@ class Test_Timberline_DM_RV(unittest.TestCase):
         self.assertEqual(len(fault_publishes), 1)
 
 
+class Test_Timberline_WaterheaterStatus(unittest.TestCase):
+    """WATERHEATER_STATUS publishes ten topics; they must be change-gated
+    individually rather than as one group."""
+
+    def _make_timberline(self):
+        return hvac_TIMBERLINE(_TIMBERLINE_DATA, _make_mock())
+
+    def _make_status(self, water_temperature=40.0, operating_modes=1,
+                     burner_status=0, ac_element_status=0,
+                     failure_to_ignite_status=0):
+        return {
+            'name': 'WATERHEATER_STATUS',
+            'instance': 1,
+            'operating_modes': operating_modes,
+            'operating_modes_definition': 'combustion',
+            'water_temperature': water_temperature,
+            'burner_status': burner_status,
+            'burner_status_definition': 'off',
+            'ac_element_status': ac_element_status,
+            'ac_element_status_definition': 'off',
+            'failure_to_ignite_status': failure_to_ignite_status,
+            'failure_to_ignite_status_definition': 'no failure',
+        }
+
+    def _topics(self, entity):
+        return [c[0][0] for c in entity.mqtt_support.client.publish.call_args_list]
+
+    def test_first_message_publishes_every_topic(self):
+        t = self._make_timberline()
+        self.assertTrue(t.process_rvc_msg(self._make_status()))
+        self.assertEqual(len(self._topics(t)), 10)
+
+    def test_repeated_identical_message_publishes_nothing(self):
+        t = self._make_timberline()
+        msg = self._make_status()
+        t.process_rvc_msg(msg)
+        t.mqtt_support.client.publish.reset_mock()
+        t.process_rvc_msg(msg)
+        t.process_rvc_msg(msg)
+        self.assertEqual(self._topics(t), [])
+
+    def test_only_the_changed_field_republishes(self):
+        t = self._make_timberline()
+        t.process_rvc_msg(self._make_status(water_temperature=40.0))
+        t.mqtt_support.client.publish.reset_mock()
+        # 40.0 C -> 104 F, 41.0 C -> 106 F, so both the C and F topics move
+        t.process_rvc_msg(self._make_status(water_temperature=41.0))
+        self.assertEqual(sorted(self._topics(t)), [
+            'timberline/status/heat_exchanger_temperature',
+            'timberline/status/heat_exchanger_temperaturef',
+        ])
+
+    def test_rounded_fahrenheit_is_gated_independently(self):
+        # A C change too small to move the rounded F value must not republish F.
+        t = self._make_timberline()
+        t.process_rvc_msg(self._make_status(water_temperature=40.0))
+        t.mqtt_support.client.publish.reset_mock()
+        t.process_rvc_msg(self._make_status(water_temperature=40.1))
+        self.assertEqual(self._topics(t),
+                         ['timberline/status/heat_exchanger_temperature'])
+
+    def test_definition_topic_publishes_with_its_raw_value(self):
+        t = self._make_timberline()
+        t.process_rvc_msg(self._make_status(operating_modes=1))
+        published = {c[0][0]: c[0][1]
+                     for c in t.mqtt_support.client.publish.call_args_list}
+        self.assertEqual(published['timberline/status/heatsource'], 1)
+        self.assertEqual(published['timberline/status/heatsource_definition'],
+                         'Combustion')
+
+
 if __name__ == '__main__':
     unittest.main()
