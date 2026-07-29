@@ -123,47 +123,19 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         self.name = data['instance_name']
 
         # class specific values that change
-        self._dc_voltage             = 5  # should never be this low
-        self._dc_current             = 50  # should not be this high
         #DC_SOURCE_STATUS_4
-        self._desired_charge_state   = "unknown"
-        self._desired_dc_voltage     = "unknown" # expected is 54.7 volts
-        self._desired_dc_current     = "unknown" # expected is 90 A
         #DC_SOURCE_STATUS_5
-        self._hp_dc_voltage          = "unknown"
         #CHARGER_CONFIGURATION_STATUS
-        self._charging_algorithm     = "unknown"
-        self._charging_mode          = "unknown"
-        self._battery_sensor_present = "unknown"
         #BATTERY_STATUS_11
-        self._charge_detected        = "unknown"
-        self._reserve_status         = "unknown"
         #CHARGER_STATUS
-        self._charge_voltage         = "unknown"
-        self._charge_current         = "unknown"
-        self._charge_current_pct     = "unknown"
-        self._operating_state        = "unknown"
-        self._power_up_default_state = "unknown"
-        self._auto_recharge_enable   = "unknown"
-        self._force_charge           = "unknown"
 
         #CHARGER_STATUS_2
-        self._charging_voltage       = "unknown"
-        self._charging_current       = "unknown"
-        self._charger_temperature    = "unknown"
 
         #CHARGER_EQUALIZATION_STATUS
-        self._equalization_time_remaining       = "unknown"
-        self._equalization_pre_charging_status  = "unknown"
 
         #J1939_ALTERNATOR_INFORMATION_1
-        self._alternator_speed       = "unknown"
-        self._engine_running         = None
 
         #DM_RV
-        self._fault_code             = "unknown"
-        self._fault_description      = "unknown"
-        self._lamp                   = "unknown"
 
         #TERMINAL
         self._terminal_message_call  = {}
@@ -281,80 +253,37 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         if self._is_entry_match(self.rvc_match_source_status_4, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
 
-            if new_message["desired_charge_state"] != self._desired_charge_state:
-                self._desired_charge_state = new_message["desired_charge_state"]
-                self.mqtt_support.client.publish(
-                    self.desired_charge_state_topic, new_message.get("desired_charge_state_definition", "unknown").title(), retain=True)
-            if new_message["desired_dc_voltage"] != self._desired_dc_voltage:
-                self._desired_dc_voltage = new_message["desired_dc_voltage"]
-                self.mqtt_support.client.publish(
-                    self.desired_dc_voltage_topic, self._desired_dc_voltage, retain=True)
-            if new_message["desired_dc_current"] != self._desired_dc_current:
-                self._desired_dc_current = new_message["desired_dc_current"]
-                self.mqtt_support.client.publish(
-                    self.desired_dc_current_topic, self._desired_dc_current, retain=True)
+            self.publish(self.desired_charge_state_topic, new_message.get("desired_charge_state_definition", "unknown").title())
+            self.publish(self.desired_dc_voltage_topic, new_message["desired_dc_voltage"])
+            self.publish(self.desired_dc_current_topic, new_message["desired_dc_current"])
 
             return True
 
         if self._is_entry_match(self.rvc_match_source_status_5, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
 
-            if self._hp_dc_voltage != new_message["hp_dc_voltage"]:
-                self._hp_dc_voltage = new_message["hp_dc_voltage"]
-                self.mqtt_support.client.publish(
-                    self.hp_dc_voltage_topic, f"{self._hp_dc_voltage:.3f}",
-                    retain=True)
+            self.publish(self.hp_dc_voltage_topic, f'{new_message["hp_dc_voltage"]:.3f}')
             return True
 
         if self._is_entry_match(self.rvc_match_charger_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
 
-            if self._charge_voltage != new_message["charge_voltage"]:
-                self._charge_voltage = new_message["charge_voltage"]
-                self.mqtt_support.client.publish(
-                    self.charge_voltage_topic, self._charge_voltage, retain=True)
-            if self._charge_current != new_message["charge_current"]:
-                self._charge_current = new_message["charge_current"]
-                self.mqtt_support.client.publish(
-                    self.charge_current_topic, self._charge_current, retain=True)
-            if self._charge_current_pct != new_message["charge_current_percent_of_maximum"]:
-                self._charge_current_pct = new_message["charge_current_percent_of_maximum"]
-                self.mqtt_support.client.publish(
-                    self.charge_current_pct_topic, self._charge_current_pct, retain=True)
-            if self._operating_state != new_message["operating_state"]:
-                self._operating_state = new_message["operating_state"]
-                self.mqtt_support.client.publish(
-                    self.operating_state_topic, new_message.get("operating_state_definition", "unknown").title(), retain=True)
-            if self._power_up_default_state != new_message["default_state_on_power-up"]:
-                self._power_up_default_state = new_message["default_state_on_power-up"]
-                self.mqtt_support.client.publish(
-                    self.power_up_default_state_topic, new_message.get("default_state_on_power-up_definition", "unknown").title(), retain=True)
-            if self._auto_recharge_enable != new_message["auto_recharge_enable"]:
-                self._auto_recharge_enable = new_message["auto_recharge_enable"]
-                self.mqtt_support.client.publish(
-                    self.auto_recharge_enable_topic, new_message.get("auto_recharge_enable_definition", "unknown").title(), retain=True)
-            if self._force_charge != new_message["force_charge"]:
-                self._force_charge = new_message["force_charge"]
-                self.mqtt_support.client.publish(
-                    self.force_charge_topic, new_message.get("force_charge_definition", "unknown").title(), retain=True)
+            self.publish(self.charge_voltage_topic, new_message["charge_voltage"])
+            self.publish(self.charge_current_topic, new_message["charge_current"])
+            self.publish(self.charge_current_pct_topic, new_message["charge_current_percent_of_maximum"])
+            self.publish(self.operating_state_topic, new_message.get("operating_state_definition", "unknown").title())
+            self.publish(self.power_up_default_state_topic, new_message.get("default_state_on_power-up_definition", "unknown").title())
+            self.publish(self.auto_recharge_enable_topic, new_message.get("auto_recharge_enable_definition", "unknown").title())
+            self.publish(self.force_charge_topic, new_message.get("force_charge_definition", "unknown").title())
 
             return True
 
         if self._is_entry_match(self.rvc_match_charger_status_2, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
 
-            if self._charging_voltage != new_message["charging_voltage"]:
-                self._charging_voltage = new_message["charging_voltage"]
-                self.mqtt_support.client.publish(
-                    self.charging_voltage_topic, self._charging_voltage, retain=True)
-            if self._charging_current != new_message["charging_current"]:
-                self._charging_current = new_message["charging_current"]
-                self.mqtt_support.client.publish(
-                    self.charging_current_topic, self._charging_current, retain=True)
-            if self._charger_temperature != new_message["charger_temperature"]:
-                self._charger_temperature = new_message["charger_temperature"]
-                self.mqtt_support.client.publish(
-                    self.charger_temperature_topic, self._charger_temperature, retain=True)
+            self.publish(self.charging_voltage_topic, new_message["charging_voltage"])
+            self.publish(self.charging_current_topic, new_message["charging_current"])
+            self.publish(self.charger_temperature_topic, new_message["charger_temperature"])
 
             return True
 
@@ -362,53 +291,29 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         if self._is_entry_match(self.rvc_match_charger_configuration_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
 
-            if self._charging_algorithm != new_message["charging_algorithm"]:
-                self._charging_algorithm = new_message["charging_algorithm"]
-                self.mqtt_support.client.publish(
-                    self.charging_algorithm_topic, new_message.get("charging_algorithm_definition", "unknown").title(), retain=True)
+            self.publish(self.charging_algorithm_topic, new_message.get("charging_algorithm_definition", "unknown").title())
 
-            if self._charging_mode != new_message["charger_mode"]:
-                self._charging_mode = new_message["charger_mode"]
-                self.mqtt_support.client.publish(
-                    self.charging_mode_topic, new_message.get("charger_mode_definition", "unknown").title(), retain=True)
+            self.publish(self.charging_mode_topic, new_message.get("charger_mode_definition", "unknown").title())
 
-            if self._battery_sensor_present != new_message["battery_sensor_present"]:
-                self._battery_sensor_present = new_message["battery_sensor_present"]
-                self.mqtt_support.client.publish(
-                    self.battery_sensor_present_topic, new_message.get("battery_sensor_present_definition", "unknown").title(), retain=True)
+            self.publish(self.battery_sensor_present_topic, new_message.get("battery_sensor_present_definition", "unknown").title())
 
             return True
 
         if self._is_entry_match(self.rvc_match_charger_equalization_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
 
-            if self._equalization_time_remaining != new_message["time_remaining"]:
-                self._equalization_time_remaining = new_message["time_remaining"]
-                self.mqtt_support.client.publish(
-                    self.equalization_time_remaining_topic,
-                    self._equalization_time_remaining, retain=True)
+            self.publish(self.equalization_time_remaining_topic, new_message["time_remaining"])
 
-            if self._equalization_pre_charging_status != new_message["pre-charging_status"]:
-                self._equalization_pre_charging_status = new_message["pre-charging_status"]
-                self.mqtt_support.client.publish(
-                    self.equalization_pre_charging_status_topic,
-                    new_message.get("pre-charging_status_definition", "unknown").title(),
-                    retain=True)
+            self.publish(self.equalization_pre_charging_status_topic, new_message.get("pre-charging_status_definition", "unknown").title())
 
             return True
 
         if self._is_entry_match(self.rvc_match_battery_status_11, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
 
-            if self._charge_detected != new_message["charge_detected"]:
-                self._charge_detected = new_message["charge_detected"]
-                self.mqtt_support.client.publish(
-                self.charge_detected_topic, new_message.get("charge_detected_definition", "unknown").title(), retain=True)
+            self.publish(self.charge_detected_topic, new_message.get("charge_detected_definition", "unknown").title())
 
-            if self._reserve_status != new_message["reserve_status"]:
-                self._reserve_status = new_message["reserve_status"]
-                self.mqtt_support.client.publish(
-                self.reserve_status_topic, new_message.get("reserve_status_definition", "unknown").title(), retain=True)
+            self.publish(self.reserve_status_topic, new_message.get("reserve_status_definition", "unknown").title())
 
             return True
 
@@ -431,23 +336,11 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             else:
                 lamp_status = "off"
 
-            if self._fault_code != message_fault_code:
-                self._fault_code = message_fault_code
-                self._fault_description = fault_description
-                # Fault_code 4095 actually means "No Fault" so publish "" instead
-                self.mqtt_support.client.publish(
-                    self.dm_rv_fault_code_topic,
-                    "00" if self._fault_code == "4095" else str(self._fault_code),
-                    retain=True)
-
-                self.mqtt_support.client.publish(
-                    self.dm_rv_fault_description_topic,
-                    self._fault_description, retain=True)
-
-            if self._lamp != lamp_status:
-                self._lamp = lamp_status
-                self.mqtt_support.client.publish(
-                self.dm_rv_lamp_topic, self._lamp, retain=True)
+            # Fault_code 4095 actually means "No Fault" so publish "" instead
+            self.publish(self.dm_rv_fault_code_topic,
+                "00" if message_fault_code == "4095" else str(message_fault_code))
+            self.publish(self.dm_rv_fault_description_topic, fault_description)
+            self.publish(self.dm_rv_lamp_topic, lamp_status)
 
             return True
 
@@ -485,11 +378,11 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             if publish_msg:
                 # Publish TERMINAL response to responsetopic if it exists
                 if self._terminal_message_call.get("responsetopic") is not None:
-                    self.mqtt_support.client.publish(topic=self._terminal_message_call.get("responsetopic"),
+                    self.publish(topic=self._terminal_message_call.get("responsetopic"),
                         payload=messages, retain=False, properties=messageproperties)
                 else:
                     # Pubish TERMINAL response to terminal_status_topic
-                    self.mqtt_support.client.publish(topic=self.terminal_status_topic,
+                    self.publish(topic=self.terminal_status_topic,
                         payload=messages, retain=False, properties=messageproperties)
 
                 self._terminal_message_call = {}
@@ -537,8 +430,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                         self._product_id = product_id
                         self.Logger.info(f"PRODUCT_IDENTIFICATION: {product_id}")
                         if hasattr(self, 'product_id_topic'):
-                            self.mqtt_support.client.publish(
-                                self.product_id_topic, product_id, retain=True)
+                            self.publish(self.product_id_topic, product_id)
                 except Exception as e:
                     self.Logger.error(f"Failed to decode PRODUCT_IDENTIFICATION: {e}")
                 finally:
@@ -555,16 +447,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         if self._is_entry_match(self.rvc_match_0fed5, new_message):
             self.Logger.debug(f"Msg Match J1939_ALTERNATOR_INFORMATION_1: {str(new_message)}")
             alt_rpm = new_message["alternator_speed"]
-            if alt_rpm != self._alternator_speed:
-                self._alternator_speed = alt_rpm
-                if alt_rpm != "n/a":
-                    payload = json.dumps({"alt": round(alt_rpm), "engine": round(alt_rpm / 2.83)})
-                    self.mqtt_support.client.publish(self.alternator_speed_topic, payload, retain=True)
+            if alt_rpm != "n/a":
+                payload = json.dumps({"alt": round(alt_rpm), "engine": round(alt_rpm / 2.83)})
+                self.publish(self.alternator_speed_topic, payload)
             engine_running = alt_rpm != "n/a" and alt_rpm > 500
-            if engine_running != self._engine_running:
-                self._engine_running = engine_running
-                self.mqtt_support.client.publish(
-                    self.engine_running_topic, "true" if engine_running else "false", retain=True)
+            self.publish(self.engine_running_topic,
+                "true" if engine_running else "false")
             return True
 
         return False
@@ -1006,7 +894,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         config_json = json.dumps(config)
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
             self.unique_device_id, "device")
-        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
+        self.publish(ha_config_topic, config_json, retain=False)
 
     def initialize(self):
         """ Optional function
@@ -1018,8 +906,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         """
         self.publish_ha_discovery_config()
 
-        self.mqtt_support.client.publish(
-            self.request_last_fault_status_topic, "unknown", retain=True)
+        self.publish(self.request_last_fault_status_topic, "unknown")
 
 
         # request dgn report - this should trigger this device to report
