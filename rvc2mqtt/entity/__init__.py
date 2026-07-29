@@ -25,6 +25,16 @@ import threading
 import ruyaml
 from rvc2mqtt.mqtt import MQTT_Support
 
+# Marker for "nothing has ever been published under this key".  A dedicated
+# sentinel - not None/0/False - so that a legitimate falsy first value is never
+# mistaken for "unchanged".
+_UNSET = object()
+
+# Escape hatch: RVC2MQTT_PUBLISH_ALWAYS=1 disables all change gating and restores
+# the un-gated firehose, for A/B comparison against a live rig.
+_PUBLISH_ALWAYS = os.environ.get("RVC2MQTT_PUBLISH_ALWAYS", "").lower() in ("1", "true", "yes")
+
+
 class EntityPluginBaseClass(object):
     """ Baseclass for all device entities
     
@@ -61,6 +71,10 @@ class EntityPluginBaseClass(object):
         self._pending_override_updates: dict = {}
         self._override_timer: threading.Timer = None
         self._override_lock = threading.Lock()
+
+        # Change tracking for publish().  key -> last value published.
+        self._published_values: dict = {}
+        self._publish_lock = threading.Lock()
 
 
     def process_rvc_msg(self, new_message: dict) -> bool:
@@ -168,7 +182,120 @@ class EntityPluginBaseClass(object):
         pass
 
     ########
-    # HELPER FUNCTIONS 
+    # MQTT PUBLISH
+    # All entities publish through these.  Do not call
+    # self.mqtt_support.client.publish directly.
+    ########
+    def publish(self, topic, payload, retain=True, force=None, key=None,
+                value=_UNSET, deadband=None, properties=None) -> bool:
+        """Publish to mqtt, skipping a repeat of a value we already published.
+
+        topic    - mqtt topic
+        payload  - what goes on the wire
+        retain   - passed to paho.  Defaults True (state topics).
+        force    - True  : always publish
+                   False : always change-gate
+                   None  : (default) change-gate retained publishes, always send
+                           non-retained ones.  Non-retained traffic is HA
+                           discovery config and RPC-style responses, which must
+                           re-fire on every boot, every floorplan reload and
+                           every HA birth message.
+        key      - identity of the tracked value.  Defaults to `topic`.  Pass an
+                   explicit key when several logical values share a topic.
+        value    - the value to compare, when that is not the payload itself.
+                   Use it to gate on a raw RVC field while publishing its
+                   human-readable definition string, or to apply a deadband to a
+                   number while publishing JSON.
+        deadband - numeric.  Publish only when abs(value - last) >= deadband.
+                   The first value under a key always publishes.
+        properties - mqtt v5 properties, passed to paho.
+
+        Only immutable payloads/values are safe to track - the cache holds a
+        reference, so a mutated dict would never register as a change.  Every
+        current caller passes str/int/float/bool.
+
+        ret True if published, False if suppressed as unchanged.
+        """
+        if force is None:
+            force = not retain
+
+        cache_key = topic if key is None else key
+        cmp_value = payload if value is _UNSET else value
+
+        if force:
+            # A forced publish still records what it sent, so that the next
+            # un-forced publish of the same value is correctly suppressed.
+            self.note_published(cache_key, cmp_value)
+        elif not self.value_changed(cache_key, cmp_value, deadband=deadband):
+            self.Logger.debug(f"Unchanged, not publishing to {topic}")
+            return False
+
+        self._do_publish(topic, payload, retain, properties)
+        return True
+
+    def value_changed(self, key, value, deadband=None) -> bool:
+        """Record `value` under `key` and report whether it differs from what was
+        recorded before.  Nothing recorded yet always counts as a change, so a
+        first reading of 0 / False / "" is never swallowed.
+
+        publish() is built on this.  Call it directly when one change has to gate
+        several publishes that move as a unit: pass a tuple of the source fields
+        as `value` and force=True on the publishes inside the branch.
+        """
+        with self._publish_lock:
+            last = self._published_values.get(key, _UNSET)
+            if not _PUBLISH_ALWAYS and last is not _UNSET \
+                    and not self._value_differs(last, value, deadband):
+                return False
+            self._published_values[key] = value
+            return True
+
+    def publish_forget(self, key=None):
+        """Forget the last published value so the next publish() for that key
+        goes out even if unchanged.  Pass no key to forget every key.
+
+        Use when something outside our view invalidates the broker's retained
+        copy - an optimistic echo of an mqtt command, or a units change.
+        """
+        with self._publish_lock:
+            if key is None:
+                self._published_values.clear()
+            else:
+                self._published_values.pop(key, None)
+
+    def note_published(self, key, value):
+        """Record `value` as already published without sending anything.
+
+        For seeding the cache from a retained value the broker hands back on
+        startup, so the first RVC report of an unchanged value is suppressed.
+        """
+        with self._publish_lock:
+            self._published_values[key] = value
+
+    def _do_publish(self, topic, payload, retain, properties=None):
+        """The single place that touches the mqtt client.  topic and payload stay
+        positional and retain stays a keyword, so _RetainTracker and every
+        existing test assertion see the call shape they always have."""
+        if properties is not None:
+            self.mqtt_support.client.publish(topic, payload, retain=retain,
+                                             properties=properties)
+        else:
+            self.mqtt_support.client.publish(topic, payload, retain=retain)
+
+    @staticmethod
+    def _value_differs(last, new, deadband) -> bool:
+        """True when `new` should be treated as a change from `last`."""
+        if deadband:
+            try:
+                diff = abs(float(new) - float(last))
+            except (TypeError, ValueError):
+                diff = None                  # not numeric - fall back to equality
+            if diff is not None and diff == diff:   # diff == diff excludes NaN
+                return diff >= float(deadband)
+        return new != last
+
+    ########
+    # HELPER FUNCTIONS
     # NOT EXPECTING TO NEED TO BE OVERRIDDEN
     ########
     def _is_entry_match(self, match_entries: dict, rvc_msg: dict) -> bool:
