@@ -196,8 +196,8 @@ class HvacClass(EntityPluginBaseClass):
         self.rvc_instance = data["instance"]
         self.scheduled_mode = "disabled"  # don't support this
 
-        self._mode     = HvacMode.OFF
-        self._fan_mode = FanMode.OFF
+        self.mode     = HvacMode.OFF
+        self.fan_mode = FanMode.OFF
 
         valid_hvac_modes = {e.value for e in HvacMode}
         valid_fan_modes  = {e.value for e in FanMode}
@@ -219,9 +219,8 @@ class HvacClass(EntityPluginBaseClass):
             self._fan_modes = HvacClass.MQTT_SUPPORTED_FAN_MODE
 
 
-        self._set_point_temperature = 16.09
-        self._set_point_temperaturef = 61.0
-        self._changed = False
+        self.set_point_temperature = 16.09
+        self.set_point_temperaturef = 61.0
 
         self.device = {"manufacturer": "RV-C",
                        "via_device": self.mqtt_support.get_bridge_ha_name(),
@@ -270,48 +269,6 @@ class HvacClass(EntityPluginBaseClass):
         self.mqtt_support.register(self.command_fan_mode_topic, self.process_mqtt_msg)
         self.mqtt_support.register(self.command_set_point_temp_topic, self.process_mqtt_msg)
         self.mqtt_support.register(self.command_set_point_tempf_topic, self.process_mqtt_msg)
-
-    @property
-    def fan_mode(self) -> FanMode:
-        return self._fan_mode
-
-    @fan_mode.setter
-    def fan_mode(self, value: FanMode):
-        if value != self._fan_mode:
-            self._fan_mode = value
-            self._changed = True
-
-    @property
-    def mode(self) -> HvacMode:
-        return self._mode
-
-    @mode.setter
-    def mode(self, value: HvacMode):
-        if value != self._mode:
-            self._mode = value
-            self._changed = True
-
-
-    @property
-    def set_point_temperature(self) -> float:
-        return self._set_point_temperature
-
-    @property
-    def set_point_temperaturef(self) -> float:
-        return self._set_point_temperaturef
-
-    @set_point_temperature.setter
-    def set_point_temperature(self, value: float):
-        if value != self._set_point_temperature:
-            self._set_point_temperature = value
-            self._changed = True
-
-    @set_point_temperaturef.setter
-    def set_point_temperaturef(self, value: float):
-        if value != self._set_point_temperaturef:
-            self._set_point_temperaturef = value
-            self._changed = True
-
 
     def add_entity_link(self, obj):
         """ optional function
@@ -365,25 +322,10 @@ class HvacClass(EntityPluginBaseClass):
     def _update_mqtt_topics_with_changed_values(self):
         ''' entry data has potentially changed.  Update mqtt'''
 
-        if self._changed:
-
-            self.mqtt_support.client.publish(
-                self.status_mode_topic, self.mode.value, retain=True
-            )
-
-            self.mqtt_support.client.publish(
-                self.status_fan_mode_topic, self.fan_mode.value, retain=True
-            )
-
-            self.mqtt_support.client.publish(
-                self.status_set_point_temp_topic, self.set_point_temperature, retain=True
-            )
-
-            self.mqtt_support.client.publish(
-                self.status_set_point_tempf_topic, self.set_point_temperaturef, retain=True
-            )
-
-            self._changed = False
+        self.publish(self.status_mode_topic, self.mode.value)
+        self.publish(self.status_fan_mode_topic, self.fan_mode.value)
+        self.publish(self.status_set_point_temp_topic, self.set_point_temperature)
+        self.publish(self.status_set_point_tempf_topic, self.set_point_temperaturef)
         return False
 
     def _convert_temp_c_to_rvc_uint16(self, temp_c: float):
@@ -498,7 +440,7 @@ class HvacClass(EntityPluginBaseClass):
         config_json = json.dumps(config)
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
             self.unique_device_id, "climate")
-        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
+        self.publish(ha_config_topic, config_json, retain=False)
 
     def initialize(self):
         """ Optional function

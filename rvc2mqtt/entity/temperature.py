@@ -39,8 +39,8 @@ class TemperatureSensor_THERMOSTAT_AMBIENT_STATUS(EntityPluginBaseClass):
 
         # RVC message must match the following to be this device
         self.rvc_match_status = {"name": "THERMOSTAT_AMBIENT_STATUS", "instance": data['instance']}
-        self.reported_temp = 100  # should never get this hot in C
-        self.reported_tempf = 210  # should never get this hot in F
+        self.reported_temp = None
+        self.reported_tempf = None
         self.Logger.debug(f"Must match: {str(self.rvc_match_status)}")
 
         self.name = data['instance_name']
@@ -65,15 +65,17 @@ class TemperatureSensor_THERMOSTAT_AMBIENT_STATUS(EntityPluginBaseClass):
 
         if self._is_entry_match(self.rvc_match_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            # These events happen a lot.  Lets filter down to when temp changes
-            #Temperature changes by a tiny amount a lot, only report if .25 C change
-            if abs(self.reported_temp - new_message["ambient_temp"]) > .25:
-                self.reported_temp = new_message["ambient_temp"]
-                self.reported_tempf =  round( ( ( self.reported_temp * ( 9 / 5 ) ) + 32 ) )
-                status_payload = {"c": self.reported_temp, "f": self.reported_tempf}
-                payload_json = json.dumps(status_payload)
-                self.mqtt_support.client.publish(
-                    self.status_topic, payload_json, retain=True)
+            # These events happen a lot, and the temperature moves by a tiny
+            # amount constantly, so only report a change of .25 C or more.  The
+            # deadband applies to the celsius reading while the payload is json,
+            # and the first reading always publishes.
+            temp_c = new_message["ambient_temp"]
+            temp_f = round(((temp_c * (9 / 5)) + 32))
+            payload_json = json.dumps({"c": temp_c, "f": temp_f})
+            if self.publish(self.status_topic, payload_json,
+                            value=temp_c, deadband=0.25):
+                self.reported_temp = temp_c
+                self.reported_tempf = temp_f
             return True
         return False
 
@@ -91,7 +93,7 @@ class TemperatureSensor_THERMOSTAT_AMBIENT_STATUS(EntityPluginBaseClass):
         config_json = json.dumps(config)
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
             self.unique_device_id, "sensor")
-        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
+        self.publish(ha_config_topic, config_json, retain=False)
 
     def initialize(self):
         """ Optional function

@@ -42,7 +42,7 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
         self.rvc_match_status = {"name": "G12_TANK_LEVEL_SENSOR", "instance": data['instance']}
         tank_status_instance = data.get('tank_status_instance', data['instance'])
         self.rvc_match_tank_status = {"name": "TANK_STATUS", "instance": tank_status_instance}
-        self.tank_level = 999999
+        self.tank_level = None
         self.tank_percent = None
         self.custom_triggers = False
         self.tank_status_level = -1
@@ -112,8 +112,12 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
         if self._is_entry_match(self.rvc_match_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
 
-            # These events happen a lot.  Lets filter down to when the value changed by more than diff_min
-            if abs(new_message["tank_level"] - self.tank_level) >= int(self.diff_min):
+            # These events happen a lot.  Lets filter down to when the value
+            # changed by more than diff_min.  The deadband is measured from the
+            # last published level, so a slow drift still eventually reports,
+            # and the first reading always publishes.
+            if self.value_changed(self.status_topic, new_message["tank_level"],
+                                  deadband=int(self.diff_min)):
                 self.tank_level = new_message['tank_level']
                 if self.custom_triggers:
                     new_percent = 0
@@ -132,13 +136,11 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
                         if self.tank_level >= self.onehundred:
                             new_percent = 100
 
-                    if new_percent != self.tank_percent:
-                        self.tank_percent = new_percent
-                        self.mqtt_support.client.publish(
-                                self.status_tank_percent_topic, self.tank_percent, retain=True)
+                    self.tank_percent = new_percent
+                    self.publish(self.status_tank_percent_topic, new_percent)
 
-                self.mqtt_support.client.publish(
-                        self.status_topic, self.tank_level, retain=True)
+                # the deadband above is the gate for this topic
+                self.publish(self.status_topic, self.tank_level, force=True)
             return True
 
         if self._is_entry_match(self.rvc_match_tank_status, new_message):
@@ -149,8 +151,8 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
             new_level = round((new_message["relative_level"] * 100) / self.resolution)
             if new_level != self.tank_status_level:
                 self.tank_status_level = new_level
-                self.mqtt_support.client.publish(
-                    self.tank_status_level_topic, self.tank_status_level, retain=True)
+                self.publish(
+                    self.tank_status_level_topic, self.tank_status_level)
             return True
 
         return False
@@ -165,15 +167,15 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
 
         if topic == self.cust_threshold_33_set_topic:
             self.thirtythree = value
-            self.mqtt_support.client.publish(self.cust_threshold_33_topic, value, retain=True)
+            self.publish(self.cust_threshold_33_topic, value)
             self._persist_override({'33_custom_threshold': value})
         elif topic == self.cust_threshold_66_set_topic:
             self.sixtysix = value
-            self.mqtt_support.client.publish(self.cust_threshold_66_topic, value, retain=True)
+            self.publish(self.cust_threshold_66_topic, value)
             self._persist_override({'66_custom_threshold': value})
         elif topic == self.cust_threshold_100_set_topic:
             self.onehundred = value
-            self.mqtt_support.client.publish(self.cust_threshold_100_topic, value, retain=True)
+            self.publish(self.cust_threshold_100_topic, value)
             self._persist_override({'100_custom_threshold': value})
 
     def publish_ha_discovery_config(self):
@@ -240,7 +242,7 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
             self.unique_device_id, "device")
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
+        self.publish(
             ha_config_topic, config_json, retain=False)
 
     def initialize(self):
@@ -267,8 +269,8 @@ class TankLevelSensor_TANK_STATUS(EntityPluginBaseClass):
             self.mqtt_support.register(self.cust_threshold_33_set_topic, self.process_mqtt_msg)
             self.mqtt_support.register(self.cust_threshold_66_set_topic, self.process_mqtt_msg)
             self.mqtt_support.register(self.cust_threshold_100_set_topic, self.process_mqtt_msg)
-            self.mqtt_support.client.publish(self.cust_threshold_33_topic, self.thirtythree, retain=True)
-            self.mqtt_support.client.publish(self.cust_threshold_66_topic, self.sixtysix, retain=True)
-            self.mqtt_support.client.publish(self.cust_threshold_100_topic, self.onehundred, retain=True)
+            self.publish(self.cust_threshold_33_topic, self.thirtythree)
+            self.publish(self.cust_threshold_66_topic, self.sixtysix)
+            self.publish(self.cust_threshold_100_topic, self.onehundred)
 
         self.publish_ha_discovery_config()

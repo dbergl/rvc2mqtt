@@ -91,44 +91,9 @@ class Diagnostic(EntityPluginBaseClass):
         self.warning_msg = ""
         self.fault_attributes = {}
         self.fault_msg = ""
-        self._fault = False
-        self._warning = False
-        self._state = "unknown"
-        self._changed = True
-
-    #### Try using properties so that change tracking can be easier
-    #### This might be overly complex and be an over optimization
-    #### Does python have something better for this tracking.
-
-    @property
-    def state(self):
-        return self._state
-
-    @state.setter
-    def state(self, value):
-        if value != self._state:
-            self._state = value
-            self._changed = True
-
-    @property
-    def fault(self):
-        return self._fault
-
-    @fault.setter
-    def fault(self, value):
-        if value != self._fault:
-            self._fault = value
-            self._changed = True
-        
-    @property
-    def warning(self):
-        return self._warning
-
-    @warning.setter
-    def warning(self, value):
-        if value != self._warning:
-            self._warning = value
-            self._changed = True
+        self.fault = False
+        self.warning = False
+        self.state = "unknown"
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
@@ -141,14 +106,13 @@ class Diagnostic(EntityPluginBaseClass):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
 
             self.fault = new_message["red_lamp_status"] != '00'
-            self.fault_msg = f"Failure Mode Identifier: {new_message['fmi']} - {new_message['fmi_definition']}" 
-            self.fault_attributes = new_message
-
             self.warning = new_message["yellow_lamp_status"] != '00'
-            self.warning_msg = f"Failure Mode Identifier: {new_message['fmi']} - {new_message['fmi_definition']}" 
-            self.warning_attributes = new_message
-            
             self.state = new_message["operating_status_definition"]
+            fmi = f"Failure Mode Identifier: {new_message['fmi']} - {new_message['fmi_definition']}"
+            self.fault_msg = fmi
+            self.warning_msg = fmi
+            self.fault_attributes = new_message
+            self.warning_attributes = new_message
 
             self._update_mqtt_topics_with_changed_values()
             return True
@@ -156,29 +120,23 @@ class Diagnostic(EntityPluginBaseClass):
 
 
     def _update_mqtt_topics_with_changed_values(self):
-        if self._changed:            
-            self.mqtt_support.client.publish(
-                self.status_topic, self.state, retain=True)
+        # The two attribute topics carry the whole decoded frame, which differs
+        # on every message, so gating them individually would publish every
+        # time.  One signature over the diagnostic state gates the group, and
+        # the publishes inside are forced.
+        if not self.value_changed(
+                'status_group', (self.state, self.fault, self.warning, self.fault_msg)):
+            return
 
-            self.mqtt_support.client.publish(
-                self.warning_status_topic, self.warning, retain=True)
+        attributes_json = json.dumps(self.fault_attributes)
 
-            self.mqtt_support.client.publish(
-                self.warning_msg_topic, self.warning_msg, retain=True)
-
-            self.mqtt_support.client.publish(
-                self.warning_attributes_topic, json.dumps(self.warning_attributes), retain=True)
-
-            self.mqtt_support.client.publish(
-                self.fault_status_topic, self.fault, retain=True)
-
-            self.mqtt_support.client.publish(
-                self.fault_msg_topic, self.fault_msg, retain=True)
-
-            self.mqtt_support.client.publish(
-                self.fault_attributes_topic, json.dumps(self.fault_attributes), retain=True)
-            
-            self._changed = False
+        self.publish(self.status_topic, self.state, force=True)
+        self.publish(self.warning_status_topic, self.warning, force=True)
+        self.publish(self.warning_msg_topic, self.warning_msg, force=True)
+        self.publish(self.warning_attributes_topic, attributes_json, force=True)
+        self.publish(self.fault_status_topic, self.fault, force=True)
+        self.publish(self.fault_msg_topic, self.fault_msg, force=True)
+        self.publish(self.fault_attributes_topic, attributes_json, force=True)
 
 
     def publish_ha_discovery_config(self):
@@ -191,7 +149,7 @@ class Diagnostic(EntityPluginBaseClass):
         config.update(self.get_availability_discovery_info_for_ha())
         config_json = json.dumps(config)
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(self.unique_device_id, "sensor", "power_state")
-        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
+        self.publish(ha_config_topic, config_json, retain=False)
 
         # produce the HA MQTT discovery config json for binary sensor fault
         config = {"name": self.name + " fault state",
@@ -205,7 +163,7 @@ class Diagnostic(EntityPluginBaseClass):
         config.update(self.get_availability_discovery_info_for_ha())
         config_json = json.dumps(config)
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(self.unique_device_id, "binary_sensor", "fault_state")
-        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
+        self.publish(ha_config_topic, config_json, retain=False)
 
         # produce the HA MQTT discovery config json for text sensor fault msg
         config = {"name": self.name + " fault message",
@@ -216,7 +174,7 @@ class Diagnostic(EntityPluginBaseClass):
         config.update(self.get_availability_discovery_info_for_ha())
         config_json = json.dumps(config)
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(self.unique_device_id, "sensor", "fault_message")
-        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
+        self.publish(ha_config_topic, config_json, retain=False)
 
         # produce the HA MQTT discovery config json for binary sensor warning
         config = {"name": self.name + " warning state",
@@ -230,7 +188,7 @@ class Diagnostic(EntityPluginBaseClass):
         config.update(self.get_availability_discovery_info_for_ha())
         config_json = json.dumps(config)
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(self.unique_device_id, "binary_sensor", "warning_state")
-        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
+        self.publish(ha_config_topic, config_json, retain=False)
 
         # produce the HA MQTT discovery config json for text sensor warning msg
         config = {"name": self.name + " warning message",
@@ -241,7 +199,7 @@ class Diagnostic(EntityPluginBaseClass):
         config.update(self.get_availability_discovery_info_for_ha())
         config_json = json.dumps(config)
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(self.unique_device_id, "sensor", "warning_message")
-        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
+        self.publish(ha_config_topic, config_json, retain=False)
 
     def initialize(self):
         """ Optional function

@@ -216,36 +216,41 @@ class Test_HvacClimate(unittest.TestCase):
 
     # --- property setters ---
 
-    def test_mode_setter_sets_changed(self):
-        entity, mock = _make_hvac()
-        entity._changed = False
-        entity.mode = HvacMode.COOL  # different from default OFF
-        self.assertTrue(entity._changed)
+    # --- change gating ---
+    # These replace tests of the old _changed flag: each field is now gated on
+    # its own value, so a change to one no longer republishes the other three.
 
-    def test_mode_setter_no_change_if_same(self):
-        entity, mock = _make_hvac()
-        entity._mode = HvacMode.OFF
-        entity._changed = False
-        entity.mode = HvacMode.OFF
-        self.assertFalse(entity._changed)
+    def _topics(self, mock):
+        return [c[0][0] for c in mock.client.publish.call_args_list]
 
-    def test_fan_mode_setter_sets_changed(self):
+    def test_changed_value_publishes(self):
         entity, mock = _make_hvac()
-        entity._changed = False
-        entity.fan_mode = FanMode.HIGH  # different from default AUTO
-        self.assertTrue(entity._changed)
+        entity.mode = HvacMode.COOL
+        entity._update_mqtt_topics_with_changed_values()
+        self.assertIn(entity.status_mode_topic, self._topics(mock))
 
-    def test_set_point_temperature_setter_sets_changed(self):
+    def test_unchanged_values_publish_nothing(self):
         entity, mock = _make_hvac()
-        entity._changed = False
-        entity.set_point_temperature = 25.0  # different from default 16.09
-        self.assertTrue(entity._changed)
+        entity._update_mqtt_topics_with_changed_values()
+        mock.client.publish.reset_mock()
+        entity._update_mqtt_topics_with_changed_values()
+        self.assertEqual(self._topics(mock), [])
 
-    def test_set_point_temperaturef_setter_sets_changed(self):
+    def test_only_the_changed_field_republishes(self):
         entity, mock = _make_hvac()
-        entity._changed = False
-        entity.set_point_temperaturef = 80.0  # different from default 61.0
-        self.assertTrue(entity._changed)
+        entity._update_mqtt_topics_with_changed_values()
+        mock.client.publish.reset_mock()
+        entity.fan_mode = FanMode.HIGH
+        entity._update_mqtt_topics_with_changed_values()
+        self.assertEqual(self._topics(mock), [entity.status_fan_mode_topic])
+
+    def test_set_point_fields_gated_independently(self):
+        entity, mock = _make_hvac()
+        entity._update_mqtt_topics_with_changed_values()
+        mock.client.publish.reset_mock()
+        entity.set_point_temperature = 25.0
+        entity._update_mqtt_topics_with_changed_values()
+        self.assertEqual(self._topics(mock), [entity.status_set_point_temp_topic])
 
     # --- process_rvc_msg ---
 

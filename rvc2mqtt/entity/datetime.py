@@ -142,10 +142,8 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
                 return True
 
             #only publish if the time or date has changed. This should be once a minute
-            if self.state != state:
+            if self.publish(self.status_topic, state):
                 self.state = state
-                self.mqtt_support.client.publish(
-                    self.status_topic, self.state, retain=True)
             return True
 
         elif self._is_entry_match(self.rvc_match_command, new_message):
@@ -231,11 +229,13 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
                 self.Logger.error(f"Unknown timezone {new_name!r}; ignoring")
                 return
 
-        self.mqtt_support.client.publish(
-            self.timezone_topic, self.tz_name or "", retain=True)
+        # echo the accepted value back even if it round-trips unchanged, so HA
+        # sees a confirmation for the command it just sent
+        self.publish(self.timezone_topic, self.tz_name or "", force=True)
         self._persist_override({'timezone': self.tz_name})
-        # Force the next DATE_TIME_STATUS to publish with the new zone.
-        self.state = "unknown"
+        # The retained status is stale under the new zone, so make the next
+        # DATE_TIME_STATUS publish even if the wall-clock reading is unchanged.
+        self.publish_forget(self.status_topic)
         self.publish_ha_discovery_config()
 
     def publish_ha_discovery_config(self):
@@ -255,7 +255,7 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
             config["timezone"] = self.tz_name
         config.update(self.get_availability_discovery_info_for_ha())
 
-        self.mqtt_support.client.publish(
+        self.publish(
             self.mqtt_support.make_ha_auto_discovery_config_topic(
                 self.unique_device_id, "datetime"),
             json.dumps(config), retain=False)
@@ -269,7 +269,7 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
                      "device": self.device}
         tz_config.update(self.get_availability_discovery_info_for_ha())
 
-        self.mqtt_support.client.publish(
+        self.publish(
             self.mqtt_support.make_ha_auto_discovery_config_topic(
                 self.unique_device_id, "text", "tz"),
             json.dumps(tz_config), retain=False)
@@ -287,8 +287,8 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         self.publish_ha_discovery_config()
 
         # publish info to mqtt
-        self.mqtt_support.client.publish(
-            self.status_topic, self.state, retain=True)
-        self.mqtt_support.client.publish(
-            self.timezone_topic, self.tz_name or "", retain=True)
+        self.publish(
+            self.status_topic, self.state)
+        self.publish(
+            self.timezone_topic, self.tz_name or "")
 

@@ -18,6 +18,7 @@ limitations under the License.
 
 """
 
+import json
 import unittest
 from unittest.mock import MagicMock
 import context  # add rvc2mqtt package to the python path using local reference
@@ -56,6 +57,60 @@ class Test_TemperatureSensor(unittest.TestCase):
             _, kwargs = call
             self.assertFalse(kwargs.get('retain', False),
                              f"Discovery config published with retain=True: {call}")
+
+class Test_TemperatureSensor_Deadband(unittest.TestCase):
+    """Ambient temperature moves constantly, so it is filtered by a 0.25 C
+    deadband rather than by equality."""
+
+    def _make_sensor(self):
+        mock = _make_mock()
+        entity = TemperatureSensor(
+            {'instance': 1, 'instance_name': "test temp"}, mock)
+        return entity, mock
+
+    def _msg(self, temp_c):
+        return {'name': 'THERMOSTAT_AMBIENT_STATUS', 'instance': 1,
+                'ambient_temp': temp_c}
+
+    def _payloads(self, mock):
+        return [json.loads(c[0][1]) for c in mock.client.publish.call_args_list]
+
+    def test_first_reading_always_publishes(self):
+        entity, mock = self._make_sensor()
+        self.assertTrue(entity.process_rvc_msg(self._msg(22.0)))
+        self.assertEqual(self._payloads(mock), [{'c': 22.0, 'f': 72}])
+
+    def test_small_change_is_suppressed(self):
+        entity, mock = self._make_sensor()
+        entity.process_rvc_msg(self._msg(22.0))
+        mock.client.publish.reset_mock()
+        entity.process_rvc_msg(self._msg(22.1))
+        self.assertEqual(self._payloads(mock), [])
+
+    def test_exactly_at_the_deadband_publishes(self):
+        entity, mock = self._make_sensor()
+        entity.process_rvc_msg(self._msg(22.0))
+        mock.client.publish.reset_mock()
+        entity.process_rvc_msg(self._msg(22.25))
+        self.assertEqual(len(self._payloads(mock)), 1)
+
+    def test_deadband_measured_from_last_published_reading(self):
+        """A slow drift must eventually publish rather than being suppressed
+        forever by comparing against the most recent reading."""
+        entity, mock = self._make_sensor()
+        entity.process_rvc_msg(self._msg(22.0))
+        mock.client.publish.reset_mock()
+        for temp in (22.1, 22.15, 22.2):
+            entity.process_rvc_msg(self._msg(temp))
+        self.assertEqual(self._payloads(mock), [])
+        entity.process_rvc_msg(self._msg(22.3))
+        self.assertEqual(self._payloads(mock), [{'c': 22.3, 'f': 72}])
+
+    def test_a_first_reading_of_zero_publishes(self):
+        entity, mock = self._make_sensor()
+        entity.process_rvc_msg(self._msg(0.0))
+        self.assertEqual(self._payloads(mock), [{'c': 0.0, 'f': 32}])
+
 
 if __name__ == '__main__':
     unittest.main()

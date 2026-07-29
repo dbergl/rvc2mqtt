@@ -53,12 +53,9 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                        'name': self.name
                        }
 
-        self._voltage_changed = False
-        self._current_changed = False
-
         # class specific values that change; None until first valid reading received
-        self._dc_voltage = None
-        self._dc_current = None
+        self.dc_voltage = None
+        self.dc_current = None
 
         if 'status_topic' in data:
             topic_base= str(data['status_topic'])
@@ -68,26 +65,6 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         else:
             self.status_dc_voltage_topic = mqtt_support.make_device_topic_string(self.id, "dc_voltage", True)
             self.status_dc_current_topic = mqtt_support.make_device_topic_string(self.id, "dc_current", True)
-
-    @property
-    def dc_voltage(self):
-        return self._dc_voltage
-
-    @dc_voltage.setter
-    def dc_voltage(self, value):
-        if value != self._dc_voltage:
-            self._dc_voltage = value
-            self._voltage_changed = True
-
-    @property
-    def dc_current(self):
-        return self._dc_current
-
-    @dc_current.setter
-    def dc_current(self, value):
-        if value != self._dc_current:
-            self._dc_current = value
-            self._current_changed = True
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
@@ -120,15 +97,13 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
     def _update_mqtt_topics_with_changed_values(self):
         ''' entry data has potentially changed.  Update mqtt'''
 
-        if self._voltage_changed and self._dc_voltage is not None:
-            self.mqtt_support.client.publish(
-                self.status_dc_voltage_topic, f"{self.dc_voltage:.2f}", retain=True)
-            self._voltage_changed = False
+        # gating on the formatted string means a voltage change too small to
+        # move the second decimal place does not republish
+        if self.dc_voltage is not None:
+            self.publish(self.status_dc_voltage_topic, f"{self.dc_voltage:.2f}")
 
-        if self._current_changed and self._dc_current is not None:
-            self.mqtt_support.client.publish(
-                self.status_dc_current_topic, self.dc_current, retain=True)
-            self._current_changed = False
+        if self.dc_current is not None:
+            self.publish(self.status_dc_current_topic, self.dc_current)
 
         return False
 
@@ -151,7 +126,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         config_json = json.dumps(config)
         ha_config_topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
             self.unique_device_id, "device")
-        self.mqtt_support.client.publish(ha_config_topic, config_json, retain=False)
+        self.publish(ha_config_topic, config_json, retain=False)
 
     def initialize(self):
         """ Optional function
