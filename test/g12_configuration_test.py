@@ -387,7 +387,6 @@ class Test_G12_Configuration(unittest.TestCase):
         self.assertTrue(result)
         g.mqtt_support.client.publish.assert_called_once_with(
             'g12/status/aes/max_engine_run_time', 115, retain=True)
-        self.assertEqual(g._max_engine_run_time, 115)
 
     def test_1fed9_set_updates_state_no_duplicate_publish(self):
         g = self._make_g12()
@@ -436,7 +435,10 @@ class Test_G12_Configuration(unittest.TestCase):
         result = g.process_rvc_msg(msg)
         self.assertTrue(result)
         g.mqtt_support.client.publish.assert_not_called()
-        self.assertEqual(g._max_engine_run_time, "unknown")
+        # The query recorded nothing, so a real value still publishes afterwards.
+        g.process_rvc_msg(self._make_1fed9_msg(selector=0x16, value_le=115, function=0xD1))
+        g.mqtt_support.client.publish.assert_called_once_with(
+            'g12/status/aes/max_engine_run_time', 115, retain=True)
 
     def test_1fed9_wrong_group_ignored(self):
         g = self._make_g12()

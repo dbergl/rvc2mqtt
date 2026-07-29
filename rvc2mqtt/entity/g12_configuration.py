@@ -84,11 +84,6 @@ class G12_Configuration(EntityPluginBaseClass):
         # DC_DIMMER_STATUS_3 (1FEDA) from G12 — instance 18 = engine relay
         self.rvc_match_engine_status  = {"name": "DC_DIMMER_STATUS_3", "source_id": self.source_id}
 
-        # DM_RV
-        self._fault_code = "unknown"
-        self._fault_description = "unknown"
-        self._lamp = "unknown"
-
         # INITIAL_PACKET / DATA_PACKET (multi-packet transport for PRODUCT_IDENTIFICATION)
         self._mp_expected_count = 0
         self._mp_message_length = 0
@@ -103,35 +98,6 @@ class G12_Configuration(EntityPluginBaseClass):
         # Input numbers ever confirmed as 12V-type (persists across deactivations so that
         # trailing AA00 frames after FB00 are still recognised as deactivation, not activation).
         self._known_12v_codes = set()
-
-        # Internal state - initialized to "unknown" so first received value always publishes
-        self._max_engine_run_time = "unknown"
-        self._time_at_start_volts = "unknown"
-        self._stop_at_voltage = "unknown"
-        self._time_at_stop_volts = "unknown"
-        self._quiet_time_start = "unknown"
-        self._quiet_time_stop = "unknown"
-        self._start_at_voltage = "unknown"
-        self._threshold_cc = "unknown"
-        self._threshold_cd = "unknown"
-        self._threshold_ce = "unknown"
-
-        # Newly discovered settings (from log analysis)
-        self._ags_low_volts_trigger  = "unknown"  # 0x2F
-        self._ags_gen_start_retries  = "unknown"  # 0x15 byte 2
-        self._ags_config_mode        = "unknown"  # 0x15 byte 3
-        self._go_power_controllers   = "unknown"  # 0xD7
-        self._num_batteries          = "unknown"  # 0xD8
-        self._cargo_bath_light       = "unknown"  # 0xE3
-        self._bunk_accent            = "unknown"  # 0xE5
-        self._progressive_inverter   = "unknown"  # 0xE6
-        self._bath_fan               = "unknown"  # 0xE9
-        self._black_tank_setting     = "unknown"  # 0xEC
-        self._gen_aes_mode           = "unknown"  # 0xEF
-        self._selected_floorplan     = "unknown"  # 0xF5
-        self._ags_retry_interval     = "unknown"  # 0xF7
-        self._aes_enabled            = "unknown"  # 0x9B (on/off)
-        self._engine_running         = "unknown"  # engine on/off (from DC_DIMMER_STATUS_3 instance 18)
 
         if 'status_topic' in data:
             topic_base = str(data['status_topic'])
@@ -271,8 +237,7 @@ class G12_Configuration(EntityPluginBaseClass):
                         self._product_id = product_id
                         self.Logger.info(f"PRODUCT_IDENTIFICATION: {product_id}")
                         if hasattr(self, 'product_id_topic'):
-                            self.mqtt_support.client.publish(
-                                self.product_id_topic, product_id, retain=True)
+                            self.publish(self.product_id_topic, product_id)
                 except Exception as e:
                     self.Logger.error(f"Failed to decode PRODUCT_IDENTIFICATION: {e}")
                 finally:
@@ -290,22 +255,11 @@ class G12_Configuration(EntityPluginBaseClass):
             fault_description = new_message.get("fmi_definition", "unknown")
             lamp_status = "on" if int(new_message["red_lamp_status"]) > 0 else "off"
 
-            if self._fault_code != message_fault_code:
-                self._fault_code = message_fault_code
-                self._fault_description = fault_description
-                if hasattr(self, 'dm_rv_fault_code_topic'):
-                    self.mqtt_support.client.publish(
-                        self.dm_rv_fault_code_topic,
-                        str(self._fault_code),
-                        retain=True)
-                    self.mqtt_support.client.publish(
-                        self.dm_rv_fault_description_topic,
-                        self._fault_description, retain=True)
-            if self._lamp != lamp_status:
-                self._lamp = lamp_status
-                if hasattr(self, 'dm_rv_lamp_topic'):
-                    self.mqtt_support.client.publish(
-                        self.dm_rv_lamp_topic, self._lamp, retain=True)
+            if hasattr(self, 'dm_rv_fault_code_topic'):
+                self.publish(self.dm_rv_fault_code_topic, message_fault_code)
+                self.publish(self.dm_rv_fault_description_topic, fault_description)
+            if hasattr(self, 'dm_rv_lamp_topic'):
+                self.publish(self.dm_rv_lamp_topic, lamp_status)
             return True
 
         if self._is_entry_match(self.rvc_match_input_status, new_message):
@@ -325,8 +279,8 @@ class G12_Configuration(EntityPluginBaseClass):
                         self._active_inputs.add(n)
                         self._12v_inputs.add(n)
                         if hasattr(self, '_input_topic_base'):
-                            self.mqtt_support.client.publish(
-                                f"{self._input_topic_base}/inputs/{n}/active", "true", retain=True)
+                            self.publish(
+                                f"{self._input_topic_base}/inputs/{n}/active", "true")
                     # Already active — repeated heartbeat frame, ignore.
                 else:
                     if n in self._known_12v_codes:
@@ -337,15 +291,15 @@ class G12_Configuration(EntityPluginBaseClass):
                         self._active_inputs.discard(n)
                         self._12v_inputs.discard(n)
                         if was_active and hasattr(self, '_input_topic_base'):
-                            self.mqtt_support.client.publish(
-                                f"{self._input_topic_base}/inputs/{n}/active", "false", retain=True)
+                            self.publish(
+                                f"{self._input_topic_base}/inputs/{n}/active", "false")
                     else:
                         # GND-type input (aux=0 is normal while active) — mark as active.
                         if n not in self._active_inputs:
                             self._active_inputs.add(n)
                             if hasattr(self, '_input_topic_base'):
-                                self.mqtt_support.client.publish(
-                                    f"{self._input_topic_base}/inputs/{n}/active", "true", retain=True)
+                                self.publish(
+                                    f"{self._input_topic_base}/inputs/{n}/active", "true")
             else:
                 # Idle or unknown code.
                 if aux and self._12v_inputs:
@@ -358,8 +312,8 @@ class G12_Configuration(EntityPluginBaseClass):
                 # All inputs released — clear everything active.
                 if hasattr(self, '_input_topic_base'):
                     for prev in self._active_inputs:
-                        self.mqtt_support.client.publish(
-                            f"{self._input_topic_base}/inputs/{prev}/active", "false", retain=True)
+                        self.publish(
+                            f"{self._input_topic_base}/inputs/{prev}/active", "false")
                 self._active_inputs.clear()
                 self._12v_inputs.clear()
                 # _known_12v_codes is intentionally preserved so that any trailing AA00
@@ -371,11 +325,8 @@ class G12_Configuration(EntityPluginBaseClass):
             # DC_DIMMER_STATUS_3 instance 18 = engine relay state
             if int(new_message.get("instance", -1)) == 18:
                 val = "on" if new_message.get("operating_status_brightness", 0) > 0 else "off"
-                if val != self._engine_running:
-                    self._engine_running = val
-                    if hasattr(self, 'engine_running_topic'):
-                        self.mqtt_support.client.publish(
-                            self.engine_running_topic, val, retain=True)
+                if hasattr(self, 'engine_running_topic'):
+                    self.publish(self.engine_running_topic, val)
             return True
 
         if self._is_entry_match(self.rvc_match_g12_indicator, new_message):
@@ -403,82 +354,49 @@ class G12_Configuration(EntityPluginBaseClass):
             if function in (0xD1, 0xD2):
                 if selector == 0x2B:
                     val = f"{raw[5]:02d}:{raw[4]:02d}:00"
-                    if val != self._quiet_time_start:
-                        self._quiet_time_start = val
-                        if hasattr(self, 'quiet_time_start_topic'):
-                            self.mqtt_support.client.publish(
-                                self.quiet_time_start_topic, val, retain=True)
+                    if hasattr(self, 'quiet_time_start_topic'):
+                        self.publish(self.quiet_time_start_topic, val)
                 elif selector == 0x2C:
                     val = f"{raw[5]:02d}:{raw[4]:02d}:00"
-                    if val != self._quiet_time_stop:
-                        self._quiet_time_stop = val
-                        if hasattr(self, 'quiet_time_stop_topic'):
-                            self.mqtt_support.client.publish(
-                                self.quiet_time_stop_topic, val, retain=True)
+                    if hasattr(self, 'quiet_time_stop_topic'):
+                        self.publish(self.quiet_time_stop_topic, val)
                 elif selector == 0x16:
                     val = value_le
-                    if val != self._max_engine_run_time:
-                        self._max_engine_run_time = val
-                        if hasattr(self, 'max_engine_run_time_topic'):
-                            self.mqtt_support.client.publish(
-                                self.max_engine_run_time_topic, val, retain=True)
+                    if hasattr(self, 'max_engine_run_time_topic'):
+                        self.publish(self.max_engine_run_time_topic, val)
                 elif selector == 0x0C:
                     val = value_le
-                    if val != self._time_at_start_volts:
-                        self._time_at_start_volts = val
-                        if hasattr(self, 'time_at_start_volts_topic'):
-                            self.mqtt_support.client.publish(
-                                self.time_at_start_volts_topic, val, retain=True)
+                    if hasattr(self, 'time_at_start_volts_topic'):
+                        self.publish(self.time_at_start_volts_topic, val)
                 elif selector == 0x0D:
                     val = round(value_le * 0.05, 2)
-                    if val != self._stop_at_voltage:
-                        self._stop_at_voltage = val
-                        if hasattr(self, 'stop_at_voltage_topic'):
-                            self.mqtt_support.client.publish(
-                                self.stop_at_voltage_topic, val, retain=True)
+                    if hasattr(self, 'stop_at_voltage_topic'):
+                        self.publish(self.stop_at_voltage_topic, val)
                 elif selector == 0x0E:
                     val = value_le
-                    if val != self._time_at_stop_volts:
-                        self._time_at_stop_volts = val
-                        if hasattr(self, 'time_at_stop_volts_topic'):
-                            self.mqtt_support.client.publish(
-                                self.time_at_stop_volts_topic, val, retain=True)
+                    if hasattr(self, 'time_at_stop_volts_topic'):
+                        self.publish(self.time_at_stop_volts_topic, val)
                 elif selector == 0x31:
                     val = round(value_le * 0.05, 2)
-                    if val != self._start_at_voltage:
-                        self._start_at_voltage = val
-                        if hasattr(self, 'start_at_voltage_topic'):
-                            self.mqtt_support.client.publish(
-                                self.start_at_voltage_topic, val, retain=True)
+                    if hasattr(self, 'start_at_voltage_topic'):
+                        self.publish(self.start_at_voltage_topic, val)
                 elif selector == 0xCC:
                     val = value_le
-                    if val != self._threshold_cc:
-                        self._threshold_cc = val
-                        if hasattr(self, 'threshold_cc_topic'):
-                            self.mqtt_support.client.publish(
-                                self.threshold_cc_topic, val, retain=True)
+                    if hasattr(self, 'threshold_cc_topic'):
+                        self.publish(self.threshold_cc_topic, val)
                 elif selector == 0xCD:
                     val = value_le
-                    if val != self._threshold_cd:
-                        self._threshold_cd = val
-                        if hasattr(self, 'threshold_cd_topic'):
-                            self.mqtt_support.client.publish(
-                                self.threshold_cd_topic, val, retain=True)
+                    if hasattr(self, 'threshold_cd_topic'):
+                        self.publish(self.threshold_cd_topic, val)
                 elif selector == 0xCE:
                     val = value_le
-                    if val != self._threshold_ce:
-                        self._threshold_ce = val
-                        if hasattr(self, 'threshold_ce_topic'):
-                            self.mqtt_support.client.publish(
-                                self.threshold_ce_topic, val, retain=True)
+                    if hasattr(self, 'threshold_ce_topic'):
+                        self.publish(self.threshold_ce_topic, val)
                 elif selector == 0x9B:
                     # AES enable/disable command — byte 4 is 0x01=enabled, 0x00=disabled
                     val = "on" if raw[4] == 0x01 else "off"
-                    if val != self._aes_enabled:
-                        self._aes_enabled = val
-                        if hasattr(self, 'aes_enabled_topic'):
-                            self.mqtt_support.client.publish(
-                                self.aes_enabled_topic, val, retain=True)
+                    if hasattr(self, 'aes_enabled_topic'):
+                        self.publish(self.aes_enabled_topic, val)
             return True
 
         if not self._is_entry_match(self.rvc_match_g12_config, new_message):
@@ -494,205 +412,133 @@ class G12_Configuration(EntityPluginBaseClass):
                 try:
                     raw_data = bytes.fromhex(new_message["data"])
                     val = "on" if raw_data[4] == 0x01 else "off"
-                    if val != self._aes_enabled:
-                        self._aes_enabled = val
-                        if hasattr(self, 'aes_enabled_topic'):
-                            self.mqtt_support.client.publish(
-                                self.aes_enabled_topic, val, retain=True)
+                    if hasattr(self, 'aes_enabled_topic'):
+                        self.publish(self.aes_enabled_topic, val)
                 except Exception:
                     pass
 
         elif msg_type == "16":  # 0x16 - max engine run time
             val = new_message.get("minutes")
-            if val is not None and val != self._max_engine_run_time:
-                self._max_engine_run_time = val
-                if hasattr(self, 'max_engine_run_time_topic'):
-                    self.mqtt_support.client.publish(
-                        self.max_engine_run_time_topic, val, retain=True)
+            if val is not None and hasattr(self, 'max_engine_run_time_topic'):
+                self.publish(self.max_engine_run_time_topic, val)
 
         elif msg_type == "C":  # 0x0C - time at start volts (duration)
             # rvc.py applies *2 for sec/uint16; G12 stores raw seconds, so undo it
             raw = new_message.get("duration")
             val = raw // 2 if raw is not None else None
-            if val is not None and val != self._time_at_start_volts:
-                self._time_at_start_volts = val
-                if hasattr(self, 'time_at_start_volts_topic'):
-                    self.mqtt_support.client.publish(
-                        self.time_at_start_volts_topic, val, retain=True)
+            if val is not None and hasattr(self, 'time_at_start_volts_topic'):
+                self.publish(self.time_at_start_volts_topic, val)
 
         elif msg_type == "D":  # 0x0D - stop at voltage
             val = new_message.get("volts")
-            if val is not None and val != self._stop_at_voltage:
-                self._stop_at_voltage = val
-                if hasattr(self, 'stop_at_voltage_topic'):
-                    self.mqtt_support.client.publish(
-                        self.stop_at_voltage_topic, val, retain=True)
+            if val is not None and hasattr(self, 'stop_at_voltage_topic'):
+                self.publish(self.stop_at_voltage_topic, val)
 
         elif msg_type == "E":  # 0x0E - time at stop volts (duration)
             # rvc.py applies *2 for sec/uint16; G12 stores raw seconds, so undo it
             raw = new_message.get("duration")
             val = raw // 2 if raw is not None else None
-            if val is not None and val != self._time_at_stop_volts:
-                self._time_at_stop_volts = val
-                if hasattr(self, 'time_at_stop_volts_topic'):
-                    self.mqtt_support.client.publish(
-                        self.time_at_stop_volts_topic, val, retain=True)
+            if val is not None and hasattr(self, 'time_at_stop_volts_topic'):
+                self.publish(self.time_at_stop_volts_topic, val)
 
         elif msg_type == "2B":  # 0x2B - quiet time start
             hours = new_message.get("hours")
             minutes = new_message.get("minutes")
             if hours is not None and minutes is not None:
                 val = f"{int(hours):02d}:{int(minutes):02d}:00"
-                if val != self._quiet_time_start:
-                    self._quiet_time_start = val
-                    if hasattr(self, 'quiet_time_start_topic'):
-                        self.mqtt_support.client.publish(
-                            self.quiet_time_start_topic, val, retain=True)
+                if hasattr(self, 'quiet_time_start_topic'):
+                    self.publish(self.quiet_time_start_topic, val)
 
         elif msg_type == "2C":  # 0x2C - quiet time stop
             hours = new_message.get("hours")
             minutes = new_message.get("minutes")
             if hours is not None and minutes is not None:
                 val = f"{int(hours):02d}:{int(minutes):02d}:00"
-                if val != self._quiet_time_stop:
-                    self._quiet_time_stop = val
-                    if hasattr(self, 'quiet_time_stop_topic'):
-                        self.mqtt_support.client.publish(
-                            self.quiet_time_stop_topic, val, retain=True)
+                if hasattr(self, 'quiet_time_stop_topic'):
+                    self.publish(self.quiet_time_stop_topic, val)
 
         elif msg_type == "31":  # 0x31 - start at voltage
             val = new_message.get("volts")
-            if val is not None and val != self._start_at_voltage:
-                self._start_at_voltage = val
-                if hasattr(self, 'start_at_voltage_topic'):
-                    self.mqtt_support.client.publish(
-                        self.start_at_voltage_topic, val, retain=True)
+            if val is not None and hasattr(self, 'start_at_voltage_topic'):
+                self.publish(self.start_at_voltage_topic, val)
 
         elif msg_type == "CC":  # 0xCC - 0%-33% tank threshold
             val = new_message.get("value")
-            if val is not None and val != self._threshold_cc:
-                self._threshold_cc = val
-                if hasattr(self, 'threshold_cc_topic'):
-                    self.mqtt_support.client.publish(
-                        self.threshold_cc_topic, val, retain=True)
+            if val is not None and hasattr(self, 'threshold_cc_topic'):
+                self.publish(self.threshold_cc_topic, val)
 
         elif msg_type == "CD":  # 0xCD - 33%-67% tank threshold
             val = new_message.get("value")
-            if val is not None and val != self._threshold_cd:
-                self._threshold_cd = val
-                if hasattr(self, 'threshold_cd_topic'):
-                    self.mqtt_support.client.publish(
-                        self.threshold_cd_topic, val, retain=True)
+            if val is not None and hasattr(self, 'threshold_cd_topic'):
+                self.publish(self.threshold_cd_topic, val)
 
         elif msg_type == "CE":  # 0xCE - 67%-100% tank threshold
             val = new_message.get("value")
-            if val is not None and val != self._threshold_ce:
-                self._threshold_ce = val
-                if hasattr(self, 'threshold_ce_topic'):
-                    self.mqtt_support.client.publish(
-                        self.threshold_ce_topic, val, retain=True)
+            if val is not None and hasattr(self, 'threshold_ce_topic'):
+                self.publish(self.threshold_ce_topic, val)
 
         elif msg_type == "15":  # 0x15 - AGS config (gen start retries / mode)
             retries = new_message.get("gen_start_retries")
             mode    = new_message.get("mode_indicator_definition", new_message.get("mode_indicator"))
-            if retries is not None and retries != self._ags_gen_start_retries:
-                self._ags_gen_start_retries = retries
-                if hasattr(self, 'ags_gen_start_retries_topic'):
-                    self.mqtt_support.client.publish(
-                        self.ags_gen_start_retries_topic, retries, retain=True)
-            if mode is not None and mode != self._ags_config_mode:
-                self._ags_config_mode = mode
-                if hasattr(self, 'ags_config_mode_topic'):
-                    self.mqtt_support.client.publish(
-                        self.ags_config_mode_topic, mode, retain=True)
+            if retries is not None and hasattr(self, 'ags_gen_start_retries_topic'):
+                self.publish(self.ags_gen_start_retries_topic, retries)
+            if mode is not None and hasattr(self, 'ags_config_mode_topic'):
+                self.publish(self.ags_config_mode_topic, mode)
 
         elif msg_type == "2F":  # 0x2F - AGS low volts trigger
             val = new_message.get("enabled_definition", new_message.get("enabled"))
-            if val is not None and val != self._ags_low_volts_trigger:
-                self._ags_low_volts_trigger = val
-                if hasattr(self, 'ags_low_volts_trigger_topic'):
-                    self.mqtt_support.client.publish(
-                        self.ags_low_volts_trigger_topic, val, retain=True)
+            if val is not None and hasattr(self, 'ags_low_volts_trigger_topic'):
+                self.publish(self.ags_low_volts_trigger_topic, val)
 
         elif msg_type == "D7":  # 0xD7 - number of Go Power! controllers
             val = new_message.get("controller_count")
-            if val is not None and val != self._go_power_controllers:
-                self._go_power_controllers = val
-                if hasattr(self, 'go_power_controllers_topic'):
-                    self.mqtt_support.client.publish(
-                        self.go_power_controllers_topic, val, retain=True)
+            if val is not None and hasattr(self, 'go_power_controllers_topic'):
+                self.publish(self.go_power_controllers_topic, val)
 
         elif msg_type == "D8":  # 0xD8 - number of batteries
             val = new_message.get("battery_count_definition", new_message.get("battery_count"))
-            if val is not None and val != self._num_batteries:
-                self._num_batteries = val
-                if hasattr(self, 'num_batteries_topic'):
-                    self.mqtt_support.client.publish(
-                        self.num_batteries_topic, val, retain=True)
+            if val is not None and hasattr(self, 'num_batteries_topic'):
+                self.publish(self.num_batteries_topic, val)
 
         elif msg_type == "E3":  # 0xE3 - cargo/bath light ch.25
             val = new_message.get("enabled_definition", new_message.get("enabled"))
-            if val is not None and val != self._cargo_bath_light:
-                self._cargo_bath_light = val
-                if hasattr(self, 'cargo_bath_light_topic'):
-                    self.mqtt_support.client.publish(
-                        self.cargo_bath_light_topic, val, retain=True)
+            if val is not None and hasattr(self, 'cargo_bath_light_topic'):
+                self.publish(self.cargo_bath_light_topic, val)
 
         elif msg_type == "E5":  # 0xE5 - bunk accent
             val = new_message.get("enabled_definition", new_message.get("enabled"))
-            if val is not None and val != self._bunk_accent:
-                self._bunk_accent = val
-                if hasattr(self, 'bunk_accent_topic'):
-                    self.mqtt_support.client.publish(
-                        self.bunk_accent_topic, val, retain=True)
+            if val is not None and hasattr(self, 'bunk_accent_topic'):
+                self.publish(self.bunk_accent_topic, val)
 
         elif msg_type == "E6":  # 0xE6 - progressive inverter
             val = new_message.get("enabled_definition", new_message.get("enabled"))
-            if val is not None and val != self._progressive_inverter:
-                self._progressive_inverter = val
-                if hasattr(self, 'progressive_inverter_topic'):
-                    self.mqtt_support.client.publish(
-                        self.progressive_inverter_topic, val, retain=True)
+            if val is not None and hasattr(self, 'progressive_inverter_topic'):
+                self.publish(self.progressive_inverter_topic, val)
 
         elif msg_type == "E9":  # 0xE9 - bath fan
             val = new_message.get("enabled_definition", new_message.get("enabled"))
-            if val is not None and val != self._bath_fan:
-                self._bath_fan = val
-                if hasattr(self, 'bath_fan_topic'):
-                    self.mqtt_support.client.publish(
-                        self.bath_fan_topic, val, retain=True)
+            if val is not None and hasattr(self, 'bath_fan_topic'):
+                self.publish(self.bath_fan_topic, val)
 
         elif msg_type == "EC":  # 0xEC - black tank
             val = new_message.get("enabled_definition", new_message.get("enabled"))
-            if val is not None and val != self._black_tank_setting:
-                self._black_tank_setting = val
-                if hasattr(self, 'black_tank_setting_topic'):
-                    self.mqtt_support.client.publish(
-                        self.black_tank_setting_topic, val, retain=True)
+            if val is not None and hasattr(self, 'black_tank_setting_topic'):
+                self.publish(self.black_tank_setting_topic, val)
 
         elif msg_type == "EF":  # 0xEF - generator/AES mode
             val = new_message.get("mode_definition", new_message.get("mode"))
-            if val is not None and val != self._gen_aes_mode:
-                self._gen_aes_mode = val
-                if hasattr(self, 'gen_aes_mode_topic'):
-                    self.mqtt_support.client.publish(
-                        self.gen_aes_mode_topic, val, retain=True)
+            if val is not None and hasattr(self, 'gen_aes_mode_topic'):
+                self.publish(self.gen_aes_mode_topic, val)
 
         elif msg_type == "F5":  # 0xF5 - selected floorplan
             val = new_message.get("floorplan_definition", new_message.get("floorplan"))
-            if val is not None and val != self._selected_floorplan:
-                self._selected_floorplan = val
-                if hasattr(self, 'selected_floorplan_topic'):
-                    self.mqtt_support.client.publish(
-                        self.selected_floorplan_topic, val, retain=True)
+            if val is not None and hasattr(self, 'selected_floorplan_topic'):
+                self.publish(self.selected_floorplan_topic, val)
 
         elif msg_type == "F7":  # 0xF7 - AGS time between retries
             val = new_message.get("retry_interval")
-            if val is not None and val != self._ags_retry_interval:
-                self._ags_retry_interval = val
-                if hasattr(self, 'ags_retry_interval_topic'):
-                    self.mqtt_support.client.publish(
-                        self.ags_retry_interval_topic, val, retain=True)
+            if val is not None and hasattr(self, 'ags_retry_interval_topic'):
+                self.publish(self.ags_retry_interval_topic, val)
 
         else:
             self.Logger.debug(f"G12_CONFIGURATION unhandled message type {msg_type}: {str(new_message)}")
@@ -1101,7 +947,7 @@ class G12_Configuration(EntityPluginBaseClass):
 
         config = {'dev': self.device, 'o': origin, 'cmps': cmps, 'qos': 1}
         config.update(self.get_availability_discovery_info_for_ha())
-        self.mqtt_support.client.publish(
+        self.publish(
             self.mqtt_support.make_ha_auto_discovery_config_topic(self.unique_device_id, 'device'),
             json.dumps(config),
             retain=False)
