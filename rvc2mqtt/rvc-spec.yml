@@ -4897,16 +4897,35 @@ Z0005:
         "EF": generator/aes mode
         "F5": selected floorplan
         "F7": ags time between retries (sec)
+  # Byte 2 was observed tracking the AES enabled flag exactly (0 disabled / 1 enabled,
+  # engine off) across a touchscreen toggle on 2026-08-04 — it is NOT the state machine
+  # the earlier mapping assumed, and "1 = triggered" was wrong. The 3/64/131 codes below
+  # are retained as unverified; they have never been seen on this coach and need a
+  # capture with the engine actually cranking/running to confirm.
+  # Byte 3 held 0x03 in both states, matching message type EF (gen/aes mode = AES Single
+  # Output), so it is likely the mode rather than a state.
   "05":
     - byte: 2
       name: aes state
       type: uint8
       unit: hex
       values:
-        64: "monitoring"
-        1: "triggered"
-        3: "cranking"
-        131: "running"
+        0: "disabled"
+        1: "enabled"
+        3: "cranking (unverified)"
+        64: "monitoring (unverified)"
+        131: "running (unverified)"
+  # Confirmed 2026-08-04 by toggling AES on the touchscreen (0x9F) and diffing the
+  # 15FCE table: 9B00010000000000 while enabled, 9B00000000000000 while disabled.
+  # Note the value is at byte 2 like every other 15FCE type — the 1FED9 *command*
+  # form of the same setting carries it at byte 4 instead.
+  "9B":
+    - byte: 2
+      name: aes enabled
+      type: uint8
+      values:
+        0: "disabled"
+        1: "enabled"
   "16":
     - byte: 2-3
       name: minutes

@@ -473,12 +473,7 @@ class G12_Configuration(EntityPluginBaseClass):
                                 self.threshold_ce_topic, val, retain=True)
                 elif selector == 0x9B:
                     # AES enable/disable command — byte 4 is 0x01=enabled, 0x00=disabled
-                    val = "on" if raw[4] == 0x01 else "off"
-                    if val != self._aes_enabled:
-                        self._aes_enabled = val
-                        if hasattr(self, 'aes_enabled_topic'):
-                            self.mqtt_support.client.publish(
-                                self.aes_enabled_topic, val, retain=True)
+                    self._publish_aes_enabled("on" if raw[4] == 0x01 else "off")
             return True
 
         if not self._is_entry_match(self.rvc_match_g12_config, new_message):
@@ -488,19 +483,16 @@ class G12_Configuration(EntityPluginBaseClass):
         msg_type = new_message.get("message_type", "")
 
         if msg_type in ("1", "3", "5", "9B"):
-            # AES-related messages — type 9B carries the enabled state in byte 4
+            # AES-related messages. Unlike the 1FED9 command form, every 15FCE payload
+            # carries its value at byte 2 (byte 0 is the message type, byte 1 is unused).
             self.Logger.debug(f"G12 AES message type {msg_type}: {str(new_message)}")
             if msg_type == "9B":
-                try:
-                    raw_data = bytes.fromhex(new_message["data"])
-                    val = "on" if raw_data[4] == 0x01 else "off"
-                    if val != self._aes_enabled:
-                        self._aes_enabled = val
-                        if hasattr(self, 'aes_enabled_topic'):
-                            self.mqtt_support.client.publish(
-                                self.aes_enabled_topic, val, retain=True)
-                except Exception:
-                    pass
+                raw_data = bytes.fromhex(new_message.get("data", ""))
+                if len(raw_data) < 3:
+                    self.Logger.warning(
+                        f"G12_CONFIGURATION 9B payload too short: {new_message.get('data')}")
+                else:
+                    self._publish_aes_enabled("on" if raw_data[2] == 0x01 else "off")
 
         elif msg_type == "16":  # 0x16 - max engine run time
             val = new_message.get("minutes")
@@ -699,6 +691,19 @@ class G12_Configuration(EntityPluginBaseClass):
 
         return True
 
+    def _publish_aes_enabled(self, val):
+        """ Publish AES enabled state, change-gated.
+
+        Reached from three directions: the G12's own 15FCE type 9B broadcast (~every 5s),
+        a snooped 1FED9 SET from the touchscreen, and our own outbound set (which the bus
+        thread never echoes back to us, so it has to publish locally).
+        """
+        if val == self._aes_enabled:
+            return
+        self._aes_enabled = val
+        if hasattr(self, 'aes_enabled_topic'):
+            self.mqtt_support.client.publish(self.aes_enabled_topic, val, retain=True)
+
     def process_mqtt_msg(self, topic, payload, properties=None):
         """ Handle an inbound MQTT set message by sending a 1FED9 G12 config command. """
         if not payload:
@@ -840,20 +845,34 @@ class G12_Configuration(EntityPluginBaseClass):
                         struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x01, 0x0F, 0x01, 0x00, 0xD1, 0xFF),
                         struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x01, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
                         struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x9B, 0x0F, 0x01, 0x00, 0xD1, 0xFF),
+                        # Read AES enabled back so a G12 refusal surfaces immediately
+                        # rather than waiting for the next 15FCE broadcast.
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x9B, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
                     ]
+                    frames = [("1FED9", f) for f in frames]
                 else:
+                    # Verified against the touchscreen (0x9F) disabling AES, captured
+                    # 2026-08-04 18:51:56 — frame order and the interleaved engine-relay
+                    # off match exactly.
                     frames = [
-                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x01, 0x0F, 0x00, 0x00, 0xD1, 0xEA),
-                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x06, 0x0F, 0x00, 0x00, 0xD1, 0xEA),
-                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x58, 0x0F, 0x00, 0x00, 0xD1, 0xEA),
-                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x58, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
-                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x4F, 0x0F, 0x00, 0x00, 0xD1, 0xEA),
-                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0xB8, 0x0F, 0x00, 0x00, 0xD1, 0xEA),
-                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x01, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
-                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x9B, 0x0F, 0x00, 0x00, 0xD1, 0xFF),
+                        ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x01, 0x0F, 0x00, 0x00, 0xD1, 0xEA)),
+                        ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x06, 0x0F, 0x00, 0x00, 0xD1, 0xEA)),
+                        ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x58, 0x0F, 0x00, 0x00, 0xD1, 0xEA)),
+                        ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x58, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF)),
+                        ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x4F, 0x0F, 0x00, 0x00, 0xD1, 0xEA)),
+                        ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0xB8, 0x0F, 0x00, 0x00, 0xD1, 0xEA)),
+                        # Engine relay off (DC_DIMMER_COMMAND_2 instance 18)
+                        ("1FEDB", struct.pack("<BBBBBBBB", 0x12, 0xFF, 0x00, 0x03, 0xFF, 0x00, 0xFF, 0xFF)),
+                        ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x01, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF)),
+                        ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x9B, 0x0F, 0x00, 0x00, 0xD1, 0xFF)),
+                        ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x9B, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF)),
                     ]
-                for f in frames:
-                    self.send_queue.put({"dgn": "1FED9", "data": bytearray(f)})
+                for dgn, f in frames:
+                    self.send_queue.put({"dgn": dgn, "data": bytearray(f)})
+                # The CAN thread does not echo our own frames back to us, so nothing
+                # would update HA until the G12's next 15FCE type 9B broadcast. Publish
+                # the requested state now; the read-back above corrects it if refused.
+                self._publish_aes_enabled("on" if enable else "off")
                 return
 
             elif topic == self.engine_start_set_topic:

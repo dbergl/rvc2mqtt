@@ -126,12 +126,46 @@ class Test_G12_Configuration(unittest.TestCase):
 
     def test_aes_messages_return_true_no_publish(self):
         g = self._make_g12()
-        for msg_type in ('1', '3', '5', '9B'):
+        for msg_type in ('1', '3', '5'):
             g.mqtt_support.client.publish.reset_mock()
             msg = {'name': 'G12_CONFIGURATION', 'source_id': '9C', 'message_type': msg_type}
             result = g.process_rvc_msg(msg)
             self.assertTrue(result)
             g.mqtt_support.client.publish.assert_not_called()
+
+    def test_aes_enabled_from_15fce_reads_byte_2(self):
+        """15FCE carries its value at byte 2, not byte 4.
+
+        Payloads captured off the coach: 9B00010000000000 while AES was enabled on the
+        touchscreen, 9B00000000000000 after disabling it. Reading byte 4 made this always
+        report 'off' and clobbered the state every ~5s.
+        """
+        for data, expected in (('9B00010000000000', 'on'), ('9B00000000000000', 'off')):
+            g = self._make_g12()
+            msg = {'name': 'G12_CONFIGURATION', 'source_id': '9C',
+                   'message_type': '9B', 'data': data}
+            self.assertTrue(g.process_rvc_msg(msg))
+            g.mqtt_support.client.publish.assert_called_once_with(
+                'g12/status/aes/enabled', expected, retain=True)
+
+    def test_aes_enabled_15fce_does_not_clobber_snooped_state(self):
+        """A snooped touchscreen enable must survive the G12's own broadcast."""
+        g = self._make_g12()
+        g.process_rvc_msg({'name': 'GENERIC_INDICATOR_COMMAND', 'group': '10010110',
+                           'data': 'FF969B0F0100D1FF'})
+        g.mqtt_support.client.publish.assert_called_once_with(
+            'g12/status/aes/enabled', 'on', retain=True)
+        g.mqtt_support.client.publish.reset_mock()
+        g.process_rvc_msg({'name': 'G12_CONFIGURATION', 'source_id': '9C',
+                           'message_type': '9B', 'data': '9B00010000000000'})
+        g.mqtt_support.client.publish.assert_not_called()
+
+    def test_aes_enabled_short_payload_warns(self):
+        g = self._make_g12()
+        msg = {'name': 'G12_CONFIGURATION', 'source_id': '9C',
+               'message_type': '9B', 'data': '9B'}
+        self.assertTrue(g.process_rvc_msg(msg))
+        g.mqtt_support.client.publish.assert_not_called()
 
     def test_cd_ce_messages_return_true_no_publish(self):
         g = self._make_g12()
