@@ -325,7 +325,18 @@ class Test_APS500_AlternatorInformation(unittest.TestCase):
         l.mqtt_support.client.publish.assert_any_call(
             'aps500/status/alternator_speed',
             '{"alt": 2830, "engine": 1000}',
-            retain=True)
+            retain=False)
+
+    def test_alternator_speed_not_retained(self):
+        """Live RPM must not be retained or HA shows a stale speed forever."""
+        l = self._make_aps()
+        l.process_rvc_msg(self._make_msg(alternator_speed=2830.0))
+        alt_calls = [c for c in l.mqtt_support.client.publish.call_args_list
+                     if c[0][0] == 'aps500/status/alternator_speed']
+        self.assertTrue(alt_calls, "No publish call to alternator_speed topic")
+        for call in alt_calls:
+            self.assertFalse(call[1].get('retain', False),
+                             f"alternator_speed published with retain=True: {call}")
 
     def test_engine_rpm_is_alt_divided_by_2_83(self):
         l = self._make_aps()
@@ -386,6 +397,117 @@ class Test_APS500_AlternatorInformation(unittest.TestCase):
         engine_calls = [c for c in l.mqtt_support.client.publish.call_args_list
                         if c[0][0] == 'aps500/status/engine_running']
         self.assertEqual(sum(1 for c in engine_calls if c[0][1] == 'true'), 1)
+
+
+class Test_APS500_UnavailableNumerics(unittest.TestCase):
+    """rvc.py decodes an unavailable (0xFF/0xFFFF) v/a/deg c field to the string
+    "n/a".  Those topics are announced to HA with a numeric device_class, so the
+    string must never be published or HA logs a ValueError and drops the state.
+    """
+
+    def _make_aps(self):
+        return Aps500(_APS_DATA, _make_mock())
+
+    def _topics(self, entity):
+        return [c[0][0] for c in entity.mqtt_support.client.publish.call_args_list]
+
+    def _charger_status_2(self, charging_voltage=13.5, charging_current=20.0,
+                          charger_temperature=25):
+        return {'name': 'CHARGER_STATUS_2', 'source_id': '80',
+                'charger_instance': 1,
+                'charging_voltage': charging_voltage,
+                'charging_current': charging_current,
+                'charger_temperature': charger_temperature}
+
+    def _charger_status(self, charge_voltage=13.5, charge_current=20.0):
+        return {'name': 'CHARGER_STATUS', 'source_id': '80', 'instance': 1,
+                'charge_voltage': charge_voltage,
+                'charge_current': charge_current,
+                'charge_current_percent_of_maximum': 50.0,
+                'operating_state': 3, 'operating_state_definition': 'float',
+                'default_state_on_power-up': 1,
+                'default_state_on_power-up_definition': 'enabled',
+                'auto_recharge_enable': 1,
+                'auto_recharge_enable_definition': 'enabled',
+                'force_charge': 0, 'force_charge_definition': 'disabled'}
+
+    def _source_status_4(self, desired_dc_voltage=54.7, desired_dc_current=90.0):
+        return {'name': 'DC_SOURCE_STATUS_4', 'source_id': '80', 'instance': 1,
+                'desired_charge_state': 3,
+                'desired_charge_state_definition': 'float',
+                'desired_dc_voltage': desired_dc_voltage,
+                'desired_dc_current': desired_dc_current}
+
+    def _source_status_5(self, hp_dc_voltage=13.456):
+        return {'name': 'DC_SOURCE_STATUS_5', 'source_id': '80', 'instance': 1,
+                'hp_dc_voltage': hp_dc_voltage}
+
+    # --- CHARGER_STATUS_2 -------------------------------------------------
+
+    def test_charging_current_published_when_numeric(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._charger_status_2(charging_current=20.0))
+        l.mqtt_support.client.publish.assert_any_call(
+            'aps500/status/charging_current', 20.0, retain=True)
+
+    def test_charging_current_na_not_published(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._charger_status_2(charging_current='n/a'))
+        self.assertNotIn('aps500/status/charging_current', self._topics(l))
+
+    def test_charging_voltage_na_not_published(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._charger_status_2(charging_voltage='n/a'))
+        self.assertNotIn('aps500/status/charging_voltage', self._topics(l))
+
+    def test_charger_temperature_na_not_published(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._charger_status_2(charger_temperature='n/a'))
+        self.assertNotIn('aps500/status/charger_temp', self._topics(l))
+
+    def test_numeric_siblings_still_published_when_one_is_na(self):
+        """An unavailable current must not suppress the fields around it."""
+        l = self._make_aps()
+        l.process_rvc_msg(self._charger_status_2(charging_current='n/a'))
+        topics = self._topics(l)
+        self.assertIn('aps500/status/charging_voltage', topics)
+        self.assertIn('aps500/status/charger_temp', topics)
+
+    def test_real_value_published_after_na(self):
+        """Recovering from n/a must publish the real reading, not stay silent."""
+        l = self._make_aps()
+        l.process_rvc_msg(self._charger_status_2(charging_current='n/a'))
+        l.process_rvc_msg(self._charger_status_2(charging_current=31.5))
+        l.mqtt_support.client.publish.assert_any_call(
+            'aps500/status/charging_current', 31.5, retain=True)
+
+    # --- CHARGER_STATUS ---------------------------------------------------
+
+    def test_charge_voltage_and_current_na_not_published(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._charger_status(charge_voltage='n/a',
+                                               charge_current='n/a'))
+        topics = self._topics(l)
+        self.assertNotIn('aps500/status/charge_voltage', topics)
+        self.assertNotIn('aps500/status/charge_current', topics)
+
+    # --- DC_SOURCE_STATUS_4 -----------------------------------------------
+
+    def test_desired_dc_values_na_not_published(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._source_status_4(desired_dc_voltage='n/a',
+                                                desired_dc_current='n/a'))
+        topics = self._topics(l)
+        self.assertNotIn('aps500/status/desired_dc_voltage', topics)
+        self.assertNotIn('aps500/status/desired_dc_current', topics)
+
+    # --- DC_SOURCE_STATUS_5 -----------------------------------------------
+
+    def test_hp_dc_voltage_na_does_not_raise(self):
+        """hp_dc_voltage is formatted with :.3f, which raises on a str."""
+        l = self._make_aps()
+        self.assertTrue(l.process_rvc_msg(self._source_status_5(hp_dc_voltage='n/a')))
+        self.assertNotIn('aps500/status/hp_dc_voltage', self._topics(l))
 
 
 if __name__ == '__main__':

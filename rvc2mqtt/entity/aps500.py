@@ -257,6 +257,22 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             self.equalization_time_remaining_topic      = mqtt_support.make_device_topic_string(self.id, "missing_status_topic", True)
             self.equalization_pre_charging_status_topic = mqtt_support.make_device_topic_string(self.id, "missing_status_topic", True)
 
+    def _publish_numeric(self, topic: str, value, fmt: str = None):
+        """Publish a decoded RVC value only when it is actually a number.
+
+        rvc.py decodes an unavailable field (raw 0xFF / 0xFFFF / 0xFFFFFFFF for
+        the v, a and deg c units) to the string "n/a".  These topics are
+        announced to HA with a numeric device_class, so publishing that string
+        makes HA reject the state with a ValueError.  Skip the publish instead
+        and leave the last good retained reading in place.
+        """
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            self.Logger.debug(
+                f"Not publishing non-numeric value {value!r} to {topic}")
+            return
+        self.mqtt_support.client.publish(
+            topic, format(value, fmt) if fmt else value, retain=True)
+
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
         is of interest to this object.
@@ -287,12 +303,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                     self.desired_charge_state_topic, new_message.get("desired_charge_state_definition", "unknown").title(), retain=True)
             if new_message["desired_dc_voltage"] != self._desired_dc_voltage:
                 self._desired_dc_voltage = new_message["desired_dc_voltage"]
-                self.mqtt_support.client.publish(
-                    self.desired_dc_voltage_topic, self._desired_dc_voltage, retain=True)
+                self._publish_numeric(
+                    self.desired_dc_voltage_topic, self._desired_dc_voltage)
             if new_message["desired_dc_current"] != self._desired_dc_current:
                 self._desired_dc_current = new_message["desired_dc_current"]
-                self.mqtt_support.client.publish(
-                    self.desired_dc_current_topic, self._desired_dc_current, retain=True)
+                self._publish_numeric(
+                    self.desired_dc_current_topic, self._desired_dc_current)
 
             return True
 
@@ -301,9 +317,8 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
             if self._hp_dc_voltage != new_message["hp_dc_voltage"]:
                 self._hp_dc_voltage = new_message["hp_dc_voltage"]
-                self.mqtt_support.client.publish(
-                    self.hp_dc_voltage_topic, f"{self._hp_dc_voltage:.3f}",
-                    retain=True)
+                self._publish_numeric(
+                    self.hp_dc_voltage_topic, self._hp_dc_voltage, ".3f")
             return True
 
         if self._is_entry_match(self.rvc_match_charger_status, new_message):
@@ -311,12 +326,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
             if self._charge_voltage != new_message["charge_voltage"]:
                 self._charge_voltage = new_message["charge_voltage"]
-                self.mqtt_support.client.publish(
-                    self.charge_voltage_topic, self._charge_voltage, retain=True)
+                self._publish_numeric(
+                    self.charge_voltage_topic, self._charge_voltage)
             if self._charge_current != new_message["charge_current"]:
                 self._charge_current = new_message["charge_current"]
-                self.mqtt_support.client.publish(
-                    self.charge_current_topic, self._charge_current, retain=True)
+                self._publish_numeric(
+                    self.charge_current_topic, self._charge_current)
             if self._charge_current_pct != new_message["charge_current_percent_of_maximum"]:
                 self._charge_current_pct = new_message["charge_current_percent_of_maximum"]
                 self.mqtt_support.client.publish(
@@ -345,16 +360,16 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
             if self._charging_voltage != new_message["charging_voltage"]:
                 self._charging_voltage = new_message["charging_voltage"]
-                self.mqtt_support.client.publish(
-                    self.charging_voltage_topic, self._charging_voltage, retain=True)
+                self._publish_numeric(
+                    self.charging_voltage_topic, self._charging_voltage)
             if self._charging_current != new_message["charging_current"]:
                 self._charging_current = new_message["charging_current"]
-                self.mqtt_support.client.publish(
-                    self.charging_current_topic, self._charging_current, retain=True)
+                self._publish_numeric(
+                    self.charging_current_topic, self._charging_current)
             if self._charger_temperature != new_message["charger_temperature"]:
                 self._charger_temperature = new_message["charger_temperature"]
-                self.mqtt_support.client.publish(
-                    self.charger_temperature_topic, self._charger_temperature, retain=True)
+                self._publish_numeric(
+                    self.charger_temperature_topic, self._charger_temperature)
 
             return True
 
@@ -559,7 +574,10 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 self._alternator_speed = alt_rpm
                 if alt_rpm != "n/a":
                     payload = json.dumps({"alt": round(alt_rpm), "engine": round(alt_rpm / 2.83)})
-                    self.mqtt_support.client.publish(self.alternator_speed_topic, payload, retain=True)
+                    # Not retained: RPM is live telemetry that stops being
+                    # broadcast once the engine is off, so a retained value
+                    # would leave HA showing a stale speed indefinitely.
+                    self.mqtt_support.client.publish(self.alternator_speed_topic, payload, retain=False)
             engine_running = alt_rpm != "n/a" and alt_rpm > 500
             if engine_running != self._engine_running:
                 self._engine_running = engine_running
