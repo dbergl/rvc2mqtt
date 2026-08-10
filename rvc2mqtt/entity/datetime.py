@@ -287,8 +287,16 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         self.publish_ha_discovery_config()
 
         # publish info to mqtt
+        #
+        # HA's datetime platform parses the state topic as a date/time
+        # expression, so the "unknown" sentinel must never be published there --
+        # it is rejected with "Invalid received date/time expression". Publish an
+        # empty retained payload instead: that deletes any stale retained value
+        # on the broker and HA ignores it with only a debug log. The first
+        # DATE_TIME_STATUS (broadcast about once a minute) fills in the state.
         self.mqtt_support.client.publish(
-            self.status_topic, self.state, retain=True)
+            self.status_topic, "" if self.state == "unknown" else self.state,
+            retain=True)
         self.mqtt_support.client.publish(
             self.timezone_topic, self.tz_name or "", retain=True)
 
