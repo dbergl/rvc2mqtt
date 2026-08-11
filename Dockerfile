@@ -1,22 +1,20 @@
-FROM python:3-slim AS builder
+FROM python:3.14-slim AS builder
 
-RUN  apt-get update && apt-get install build-essential -y
-
-RUN pip install --upgrade pip
+# No compiler toolchain here on purpose: every runtime dependency (python-can,
+# ruyaml, paho-mqtt and their transitive deps) ships a pure-Python
+# py3-none-any wheel, so nothing is built from source. Installing
+# build-essential cost ~60s per emulated platform in CI for no benefit.
 
 COPY requirements.txt .
-
-ARG MSGPACK_PUREPYTHON=1 
 
 RUN pip install --user --no-cache-dir -r requirements.txt
 
 WORKDIR /app
-COPY readme.md /app
-COPY setup.py /app
+COPY readme.md setup.py /app/
 COPY rvc2mqtt /app/rvc2mqtt
 RUN pip install --user --no-cache-dir .
 
-FROM python:3-slim
+FROM python:3.14-slim
 
 RUN adduser worker
 RUN install -o worker -g worker -d /config /floorplan /logs
