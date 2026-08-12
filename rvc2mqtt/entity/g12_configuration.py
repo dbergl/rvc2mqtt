@@ -838,6 +838,21 @@ class G12_Configuration(EntityPluginBaseClass):
                 # independent switches. The touchscreen always writes both, in opposite
                 # directions; writing E3 alone would produce a both-on or both-off state
                 # the coach never generates. Confirmed by capture 2026-08-12.
+                #
+                # TODO: also switch off the channel being abandoned. When the touchscreen
+                # changes this option it additionally sends DC_DIMMER_COMMAND_2 (1FEDB)
+                # with command 3 (Off) to the outgoing channel -- 25 when moving to E4,
+                # 26 when moving back to E3 -- so a load is never left energised with no
+                # control bound to it. This handler does not, so a light left on before
+                # the switch stays on and becomes unreachable from the UI.
+                #
+                # Not done here because it means transmitting frames that switch off a
+                # real load, and the ordering relative to the E3/E4 writes should be
+                # confirmed against the coach first. Observed order was: both option
+                # sets, then the Off to the abandoned channel, then both read-backs.
+                #
+                # Note the channel numbers are floorplan-specific (25/26 on WD), so this
+                # cannot be hardcoded for every coach without a per-floorplan mapping.
                 on = payload.lower() == 'on'
                 frames = [
                     ("1FED9", struct.pack("<BBBBHBB", 0xFF, 0x96, 0xE3, 0x0F, 1 if on else 0, 0xD1, 0xEA)),
@@ -996,6 +1011,13 @@ class G12_Configuration(EntityPluginBaseClass):
         # The AES bounds below are the previously established ones. The AGS bounds are
         # PROVISIONAL — chosen to contain the observed values, not derived from the G12,
         # which has not been asked for its limits.
+        #
+        # TODO: establish the real AGS limits. The 10.0-16.0 V / 0-1440 min bounds below
+        # are guesses, wide enough to hold what was observed on 2026-08-12 (13.50 V stop,
+        # 12.20 V start, 720 min) and nothing more. Finding the true limits means either
+        # driving each setting to its stops on the touchscreen while in AGS mode and
+        # watching where it clamps, or reading them out of the Firefly firmware. Until
+        # then Home Assistant will accept AGS values the G12 may refuse.
         is_ags = str(self._gen_aes_mode).upper() == 'AGS'
         if is_ags:
             v_stop = {'min': 10.0, 'max': 16.0, 'step': 0.1}
