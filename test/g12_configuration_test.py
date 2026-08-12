@@ -629,26 +629,56 @@ class Test_G12_Configuration(unittest.TestCase):
         self.assertEqual(frame[2], 0x31)
         self.assertEqual(int.from_bytes(frame[4:6], 'little'), round(12.4 / 0.05))
 
-    def test_mqtt_set_threshold_cc(self):
+    # CC/CD/CE take a SIGNED DELTA, not an absolute value. Confirmed on hardware
+    # 2026-08-12: the touchscreen arrows sent 64536 (-1000 as int16) and 1000, and the
+    # stored value moved by exactly -1000 then +1000. These tests previously asserted
+    # absolute writes, which would have ADDED the payload to the current threshold.
+
+    def test_mqtt_set_threshold_cc_sends_delta(self):
         g, q = self._make_g12_with_queue()
-        g.process_mqtt_msg('g12/set/tanks/threshold_33_pct', '1000')
+        g._threshold_cc = 54000
+        g.process_mqtt_msg('g12/set/tanks/threshold_33_pct', '53000')
         frame = q.get_nowait()['data']
         self.assertEqual(frame[2], 0xCC)
-        self.assertEqual(int.from_bytes(frame[4:6], 'little'), 1000)
+        self.assertEqual(int.from_bytes(frame[4:6], 'little', signed=True), -1000)
 
-    def test_mqtt_set_threshold_cd(self):
+    def test_mqtt_set_threshold_cd_sends_delta(self):
         g, q = self._make_g12_with_queue()
-        g.process_mqtt_msg('g12/set/tanks/threshold_66_pct', '2000')
+        g._threshold_cd = 40000
+        g.process_mqtt_msg('g12/set/tanks/threshold_66_pct', '42500')
         frame = q.get_nowait()['data']
         self.assertEqual(frame[2], 0xCD)
-        self.assertEqual(int.from_bytes(frame[4:6], 'little'), 2000)
+        self.assertEqual(int.from_bytes(frame[4:6], 'little', signed=True), 2500)
 
-    def test_mqtt_set_threshold_ce(self):
+    def test_mqtt_set_threshold_ce_sends_delta(self):
         g, q = self._make_g12_with_queue()
-        g.process_mqtt_msg('g12/set/tanks/threshold_100_pct', '3000')
+        g._threshold_ce = 25000
+        g.process_mqtt_msg('g12/set/tanks/threshold_100_pct', '24000')
         frame = q.get_nowait()['data']
         self.assertEqual(frame[2], 0xCE)
-        self.assertEqual(int.from_bytes(frame[4:6], 'little'), 3000)
+        self.assertEqual(int.from_bytes(frame[4:6], 'little', signed=True), -1000)
+
+    def test_mqtt_set_threshold_negative_delta_is_twos_complement(self):
+        """The wire value must match what the touchscreen sends: -1000 as 64536."""
+        g, q = self._make_g12_with_queue()
+        g._threshold_cc = 54000
+        g.process_mqtt_msg('g12/set/tanks/threshold_33_pct', '53000')
+        frame = q.get_nowait()['data']
+        self.assertEqual(int.from_bytes(frame[4:6], 'little'), 64536)
+
+    def test_mqtt_set_threshold_refuses_when_current_unknown(self):
+        """Without a known current value a delta cannot be computed, and guessing would
+        corrupt the coach's tank calibration. Refuse rather than send something wrong."""
+        g, q = self._make_g12_with_queue()
+        self.assertEqual(g._threshold_cc, "unknown")
+        g.process_mqtt_msg('g12/set/tanks/threshold_33_pct', '53000')
+        self.assertTrue(q.empty())
+
+    def test_mqtt_set_threshold_no_change_sends_nothing(self):
+        g, q = self._make_g12_with_queue()
+        g._threshold_cc = 54000
+        g.process_mqtt_msg('g12/set/tanks/threshold_33_pct', '54000')
+        self.assertTrue(q.empty())
 
     def test_mqtt_set_unknown_topic_logs_warning(self):
         g, q = self._make_g12_with_queue()
@@ -965,6 +995,79 @@ class Test_G12_Configuration(unittest.TestCase):
         # And input 10 remains active
         self.assertIn(10, g._active_inputs)
 
+    # --- selectors confirmed on hardware 2026-08-12 (Jayco B-Van, floorplan WD) ---
+
+    def test_msg_type_eb_publishes_heat_pump(self):
+        g = self._make_g12()
+        msg = {'name': 'G12_CONFIGURATION', 'source_id': '9C', 'message_type': 'EB',
+               'enabled_definition': 'on'}
+        self.assertTrue(g.process_rvc_msg(msg))
+        g.mqtt_support.client.publish.assert_called_once_with(
+            'g12/status/hvac/heat_pump', 'on', retain=True)
+
+    def test_msg_type_e4_publishes_bath_light(self):
+        g = self._make_g12()
+        msg = {'name': 'G12_CONFIGURATION', 'source_id': '9C', 'message_type': 'E4',
+               'enabled_definition': 'on'}
+        self.assertTrue(g.process_rvc_msg(msg))
+        g.mqtt_support.client.publish.assert_called_once_with(
+            'g12/status/lights/bath_light', 'on', retain=True)
+
+    def test_msg_type_0a_publishes_battery_voltage(self):
+        # 0x0A is the measured pack voltage; rvc.py has already applied the x0.05 scale.
+        g = self._make_g12()
+        msg = {'name': 'G12_CONFIGURATION', 'source_id': '9C', 'message_type': 'A',
+               'volts': 52.95}
+        self.assertTrue(g.process_rvc_msg(msg))
+        g.mqtt_support.client.publish.assert_called_once_with(
+            'g12/status/batteries/voltage', 52.95, retain=True)
+
+    def test_mqtt_set_heat_pump(self):
+        g, q = self._make_g12_with_queue()
+        g.process_mqtt_msg('g12/set/hvac/heat_pump', 'on')
+        frame = q.get_nowait()['data']
+        self.assertEqual(frame[2], 0xEB)
+        self.assertEqual(int.from_bytes(frame[4:6], 'little'), 1)
+        self.assertEqual(frame[6], 0xD1)
+
+    def test_mqtt_set_cargo_bath_light_writes_both_selectors(self):
+        """E3/E4 are mutually exclusive, so a set must write both in opposite
+        directions -- writing E3 alone reaches a state the coach never produces."""
+        g, q = self._make_g12_with_queue()
+        g.process_mqtt_msg('g12/set/lights/cargo_bath_ch25', 'on')
+
+        sets = []
+        while not q.empty():
+            frame = q.get_nowait()['data']
+            if frame[6] == 0xD1:                      # a set, not a read-back
+                sets.append((frame[2], int.from_bytes(frame[4:6], 'little')))
+
+        self.assertEqual(sets, [(0xE3, 1), (0xE4, 0)])
+
+    def test_mqtt_set_cargo_bath_light_off_selects_bath_light(self):
+        g, q = self._make_g12_with_queue()
+        g.process_mqtt_msg('g12/set/lights/cargo_bath_ch25', 'off')
+
+        sets = []
+        while not q.empty():
+            frame = q.get_nowait()['data']
+            if frame[6] == 0xD1:
+                sets.append((frame[2], int.from_bytes(frame[4:6], 'little')))
+
+        self.assertEqual(sets, [(0xE3, 0), (0xE4, 1)])
+
+    def test_mqtt_set_floorplan_full_enum(self):
+        """All ten floorplans were observed on hardware 2026-08-12; the four rvc2mqtt
+        already knew (SY/WA/WD/WT) were independently reconfirmed in the same pass."""
+        expected = {'rt': 1, 'ra': 2, 'rd': 3, 'sy': 4, 'tb': 5,
+                    'cb': 6, 'wa': 7, 'wd': 8, 'wt': 9, 'ry': 10}
+        for name, value in expected.items():
+            g, q = self._make_g12_with_queue()
+            g.process_mqtt_msg('g12/set/floorplan', name)
+            frame = q.get_nowait()['data']
+            self.assertEqual(frame[2], 0xF5, f'{name}: wrong selector')
+            self.assertEqual(int.from_bytes(frame[4:6], 'little'), value, f'{name}: wrong value')
+
 
 class Test_G12_ConfigurationHADiscovery(unittest.TestCase):
 
@@ -1093,6 +1196,41 @@ class Test_G12_ConfigurationHADiscovery(unittest.TestCase):
         g = self._make_g12_for_discovery()
         with patch.object(g, 'publish_ha_discovery_config') as mock_pub:
             g.initialize()
+            mock_pub.assert_called_once()
+
+    # --- mode-dependent parameter ranges ---
+
+    def _range_for(self, g, sub_id):
+        for c in self._get_published_configs(g):
+            if c.get('unique_id', '').endswith('_' + sub_id):
+                return c['min'], c['max']
+        self.fail(f'no discovery config for {sub_id}')
+
+    def test_ha_voltage_ranges_are_48v_under_aes(self):
+        g = self._make_g12_for_discovery()
+        g._gen_aes_mode = 'AES'
+        g.publish_ha_discovery_config()
+        self.assertEqual(self._range_for(g, 'stop_at_voltage'), (50.0, 58.8))
+        self.assertEqual(self._range_for(g, 'max_engine_run_time'), (60, 115))
+
+    def test_ha_voltage_ranges_are_12v_under_ags(self):
+        """Under AGS the same selectors describe a 12V generator system; the coach was
+        observed reporting 13.50V stop and 720 min, far outside the AES bounds."""
+        g = self._make_g12_for_discovery()
+        g._gen_aes_mode = 'AGS'
+        g.publish_ha_discovery_config()
+        lo, hi = self._range_for(g, 'stop_at_voltage')
+        self.assertLessEqual(lo, 13.50)
+        self.assertGreaterEqual(hi, 13.50)
+        self.assertGreaterEqual(self._range_for(g, 'max_engine_run_time')[1], 720)
+
+    def test_mode_change_republishes_discovery(self):
+        from unittest.mock import patch
+        g = self._make_g12_for_discovery()
+        msg = {'name': 'G12_CONFIGURATION', 'source_id': '9C', 'message_type': 'EF',
+               'mode_definition': 'AGS'}
+        with patch.object(g, 'publish_ha_discovery_config') as mock_pub:
+            g.process_rvc_msg(msg)
             mock_pub.assert_called_once()
 
 

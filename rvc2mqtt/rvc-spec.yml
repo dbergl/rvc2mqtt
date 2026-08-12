@@ -4871,18 +4871,28 @@ Z0005:
       type: uint8
       unit: hex
       values:
+        "00": unidentified (observed)
         "01": involves aes enabled
         "03": involves aes enabled
+        "04": unidentified (observed)
         "05": aes state machine
+        "06": unidentified (observed)
+        "0A": measured battery voltage
         "0C": time at start volts
         "0D": stop at voltage
         "0E": time at stop volts
+        "0F": companion of 0E (role unknown)
+        "11": unidentified (observed)
         "15": ags config (gen start retries / mode)
         "16": max engine run time
         "2B": quiet time start
         "2C": quiet time stop
+        "2E": unidentified (observed)
         "2F": ags low volts trigger
         "31": start at voltage
+        "75": unidentified (observed)
+        "92": unidentified (observed)
+        "95": unidentified (observed)
         "9B": involves aes enabled
         "CC": 0%-33% threshold
         "CD": 33%-67% threshold
@@ -4890,13 +4900,35 @@ Z0005:
         "D7": number of go power! controllers
         "D8": number of batteries
         "E3": cargo/bath light ch.25
+        "E4": bath light
         "E5": bunk accent
         "E6": progressive inverter
+        "E8": unidentified (observed)
         "E9": bath fan
+        "EB": heat pump
         "EC": black tank
+        "EE": unidentified (observed)
         "EF": generator/aes mode
+        "F1": unidentified (observed)
+        "F2": unidentified (observed)
         "F5": selected floorplan
         "F7": ags time between retries (sec)
+  # Types marked "unidentified (observed)" are broadcast by the G12 but their meaning is
+  # unknown. They are listed so they decode as recognised rather than falling through to
+  # the unhandled-type log. Observed on a Jayco B-Van (floorplan WD) 2026-08-12 by
+  # passive candump; see the firefly-firmware project's docs/BUS-BASELINE.md.
+  #
+  # E3 and E4 are MUTUALLY EXCLUSIVE — one bath-light choice, not two switches. The
+  # touchscreen writes both in a single transaction, in opposite directions. Never write
+  # one without the other.
+  #
+  # 0A is the measured pack voltage, confirmed by a load test: it tracked the AES screen
+  # from 53.0 V down to 52.1 V and back while 0D/31 held at their setpoints.
+  #
+  # CAUTION: 0A, 0D, 0E, 0F, 16 and 31 carry a DIFFERENT parameter profile depending on
+  # the mode in EF. Under AES they describe the 48 V engine/lithium system (0D = 54.40 V);
+  # under AGS they describe a 12 V generator system (0D = 13.50 V). Same encoding,
+  # different applicable range.
   # Byte 2 was observed tracking the AES enabled flag exactly (0 disabled / 1 enabled,
   # engine off) across a touchscreen toggle on 2026-08-04 — it is NOT the state machine
   # the earlier mapping assumed, and "1 = triggered" was wrong. The 3/64/131 codes below
@@ -5007,7 +5039,27 @@ Z0005:
       values:
         0: "1 battery"
         1: "2 batteries"
+  "0A":
+    - byte: 2-3
+      name: volts
+      type: uint16
+      unit: v
   "E3":
+    - byte: 2
+      name: enabled
+      type: uint8
+      values:
+        0: "off"
+        1: "on"
+  # Mutually exclusive with E3 — see the note on the message-type table above.
+  "E4":
+    - byte: 2
+      name: enabled
+      type: uint8
+      values:
+        0: "off"
+        1: "on"
+  "EB":
     - byte: 2
       name: enabled
       type: uint8
@@ -5047,18 +5099,33 @@ Z0005:
       name: mode
       type: uint8
       values:
+        0: "disabled"
         1: "AGS"
         2: "AES"
         3: "AES Single Output"
+  # Complete enum, observed 2026-08-12 by selecting every floorplan on the touchscreen
+  # of a Jayco B-Van and reading the resulting F5 write. Values 1-10 with no gaps. The
+  # screen groups these as Generator Models (RA RY RD RT CB) and Li-AES Models (WA WD WT
+  # TB SY). A "Ship Mode" button also exists; its value is deliberately unmapped.
+  #
+  # Selecting a floorplan writes a 12-selector transaction, not just F5:
+  #   F5, EF, E5, E9, E4, EB, E3, E6, D7, EC, 15, F7
+  # so the whole option profile is re-asserted on every floorplan change.
   "F5":
     - byte: 2
       name: floorplan
       type: uint8
       values:
+        1: "RT"
+        2: "RA"
+        3: "RD"
         4: "SY"
+        5: "TB"
+        6: "CB"
         7: "WA"
         8: "WD"
         9: "WT"
+        10: "RY"
   "F7":
     - byte: 2
       name: retry interval

@@ -36,6 +36,7 @@ class G12_Configuration(EntityPluginBaseClass):
 
     Message types handled:
       0x01, 0x03, 0x05, 0x9B - involves AES enabled (no parameters decoded)
+      0x0A - measured pack voltage (volts, read-only)
       0x0C - time at stop volts (duration, sec)
       0x0D - stop at voltage (volts, v)
       0x0E - time at stop volts (duration, sec)
@@ -46,6 +47,17 @@ class G12_Configuration(EntityPluginBaseClass):
       0xCC - 0%-33% tank threshold (value)
       0xCD - 33%-67% tank threshold (value)
       0xCE - 67%-100% tank threshold (value)
+      0xE4 - bath light (mutually exclusive with 0xE3)
+      0xEB - heat pump (on/off)
+
+    Note on 0xE3/0xE4: these are one bath-light choice, not two switches. Exactly one is
+    active, and the touchscreen writes both together in opposite directions. The
+    cargo_bath_light command therefore emits a paired write; 0xE4 is exposed read-only.
+
+    Note on mode-dependent parameters: 0x0A, 0x0D, 0x0E, 0x0F, 0x16 and 0x31 carry a
+    different profile depending on 0xEF. Under AES they describe the 48V engine/lithium
+    system; under AGS a 12V generator system. The Home Assistant ranges follow the mode
+    and are re-announced when it changes.
 
     Also handles INITIAL_PACKET / DATA_PACKET multi-packet transport to
     assemble and publish PRODUCT_IDENTIFICATION, filtered by source_id.
@@ -123,6 +135,9 @@ class G12_Configuration(EntityPluginBaseClass):
         self._go_power_controllers   = "unknown"  # 0xD7
         self._num_batteries          = "unknown"  # 0xD8
         self._cargo_bath_light       = "unknown"  # 0xE3
+        self._bath_light             = "unknown"  # 0xE4 (mutually exclusive with 0xE3)
+        self._heat_pump              = "unknown"  # 0xEB
+        self._battery_voltage        = "unknown"  # 0x0A (measured, read-only)
         self._bunk_accent            = "unknown"  # 0xE5
         self._progressive_inverter   = "unknown"  # 0xE6
         self._bath_fan               = "unknown"  # 0xE9
@@ -157,6 +172,9 @@ class G12_Configuration(EntityPluginBaseClass):
             self.go_power_controllers_topic  = str(f"{topic_base}/go_power/controller_count")
             self.num_batteries_topic         = str(f"{topic_base}/batteries/count")
             self.cargo_bath_light_topic      = str(f"{topic_base}/lights/cargo_bath_ch25")
+            self.bath_light_topic            = str(f"{topic_base}/lights/bath_light")
+            self.heat_pump_topic             = str(f"{topic_base}/hvac/heat_pump")
+            self.battery_voltage_topic       = str(f"{topic_base}/batteries/voltage")
             self.bunk_accent_topic           = str(f"{topic_base}/lights/bunk_accent")
             self.progressive_inverter_topic  = str(f"{topic_base}/inverter/progressive")
             self.bath_fan_topic              = str(f"{topic_base}/fans/bath")
@@ -182,6 +200,7 @@ class G12_Configuration(EntityPluginBaseClass):
             # Newly discovered settings
             self.ags_low_volts_trigger_set_topic = str(f"{topic_base}/ags/low_volts_trigger")
             self.cargo_bath_light_set_topic      = str(f"{topic_base}/lights/cargo_bath_ch25")
+            self.heat_pump_set_topic             = str(f"{topic_base}/hvac/heat_pump")
             self.bunk_accent_set_topic           = str(f"{topic_base}/lights/bunk_accent")
             self.progressive_inverter_set_topic  = str(f"{topic_base}/inverter/progressive")
             self.bath_fan_set_topic              = str(f"{topic_base}/fans/bath")
@@ -206,6 +225,7 @@ class G12_Configuration(EntityPluginBaseClass):
             self.mqtt_support.register(self.threshold_ce_set_topic, self.process_mqtt_msg)
             self.mqtt_support.register(self.ags_low_volts_trigger_set_topic, self.process_mqtt_msg)
             self.mqtt_support.register(self.cargo_bath_light_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.heat_pump_set_topic, self.process_mqtt_msg)
             self.mqtt_support.register(self.bunk_accent_set_topic, self.process_mqtt_msg)
             self.mqtt_support.register(self.progressive_inverter_set_topic, self.process_mqtt_msg)
             self.mqtt_support.register(self.bath_fan_set_topic, self.process_mqtt_msg)
@@ -630,6 +650,30 @@ class G12_Configuration(EntityPluginBaseClass):
                     self.mqtt_support.client.publish(
                         self.cargo_bath_light_topic, val, retain=True)
 
+        elif msg_type == "E4":  # 0xE4 - bath light (mutually exclusive with 0xE3)
+            val = new_message.get("enabled_definition", new_message.get("enabled"))
+            if val is not None and val != self._bath_light:
+                self._bath_light = val
+                if hasattr(self, 'bath_light_topic'):
+                    self.mqtt_support.client.publish(
+                        self.bath_light_topic, val, retain=True)
+
+        elif msg_type == "EB":  # 0xEB - heat pump
+            val = new_message.get("enabled_definition", new_message.get("enabled"))
+            if val is not None and val != self._heat_pump:
+                self._heat_pump = val
+                if hasattr(self, 'heat_pump_topic'):
+                    self.mqtt_support.client.publish(
+                        self.heat_pump_topic, val, retain=True)
+
+        elif msg_type == "A":  # 0x0A - measured pack voltage (read-only)
+            val = new_message.get("volts")
+            if val is not None and val != self._battery_voltage:
+                self._battery_voltage = val
+                if hasattr(self, 'battery_voltage_topic'):
+                    self.mqtt_support.client.publish(
+                        self.battery_voltage_topic, val, retain=True)
+
         elif msg_type == "E5":  # 0xE5 - bunk accent
             val = new_message.get("enabled_definition", new_message.get("enabled"))
             if val is not None and val != self._bunk_accent:
@@ -669,6 +713,10 @@ class G12_Configuration(EntityPluginBaseClass):
                 if hasattr(self, 'gen_aes_mode_topic'):
                     self.mqtt_support.client.publish(
                         self.gen_aes_mode_topic, val, retain=True)
+                # The voltage and run-time parameters carry a different profile per mode
+                # (48V engine under AES, 12V generator under AGS), so the HA ranges are
+                # mode-dependent and must be re-announced when the mode changes.
+                self.publish_ha_discovery_config()
 
         elif msg_type == "F5":  # 0xF5 - selected floorplan
             val = new_message.get("floorplan_definition", new_message.get("floorplan"))
@@ -754,24 +802,55 @@ class G12_Configuration(EntityPluginBaseClass):
                 raw_value = round(float(payload) / 0.05)
                 frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0x31, 0x0F, raw_value, 0xD1, 0xEA)
 
-            elif topic == self.threshold_cc_set_topic:
-                raw_value = round(float(payload))
-                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xCC, 0x0F, raw_value, 0xD1, 0xEA)
+            elif topic in (self.threshold_cc_set_topic,
+                           self.threshold_cd_set_topic,
+                           self.threshold_ce_set_topic):
+                # CC/CD/CE take a SIGNED DELTA, not an absolute value. Confirmed by
+                # capture 2026-08-12: the touchscreen arrows sent 64536 (= -1000 as
+                # int16) and 1000, and the stored value moved by exactly -1000 then
+                # +1000. Writing an absolute here would ADD that number to the current
+                # threshold and overflow uint16, corrupting tank calibration.
+                sel, current = {
+                    self.threshold_cc_set_topic: (0xCC, self._threshold_cc),
+                    self.threshold_cd_set_topic: (0xCD, self._threshold_cd),
+                    self.threshold_ce_set_topic: (0xCE, self._threshold_ce),
+                }[topic]
 
-            elif topic == self.threshold_cd_set_topic:
-                raw_value = round(float(payload))
-                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xCD, 0x0F, raw_value, 0xD1, 0xEA)
+                if not isinstance(current, int):
+                    self.Logger.warning(
+                        f"Cannot set threshold {hex(sel)}: current value unknown "
+                        f"({current!r}). A delta cannot be computed until the G12 has "
+                        f"broadcast the present value.")
+                    return
 
-            elif topic == self.threshold_ce_set_topic:
-                raw_value = round(float(payload))
-                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xCE, 0x0F, raw_value, 0xD1, 0xEA)
+                target = round(float(payload))
+                delta = target - current
+                if delta == 0:
+                    return
+                frame = struct.pack("<BBBBhBB", 0xFF, 0x96, sel, 0x0F, delta, 0xD1, 0xEA)
 
             elif topic == self.ags_low_volts_trigger_set_topic:
                 frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0x2F, 0x0F,
                                     1 if payload.lower() == 'on' else 0, 0xD1, 0xEA)
 
             elif topic == self.cargo_bath_light_set_topic:
-                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xE3, 0x0F,
+                # E3 and E4 are one mutually-exclusive bath-light choice, not two
+                # independent switches. The touchscreen always writes both, in opposite
+                # directions; writing E3 alone would produce a both-on or both-off state
+                # the coach never generates. Confirmed by capture 2026-08-12.
+                on = payload.lower() == 'on'
+                frames = [
+                    ("1FED9", struct.pack("<BBBBHBB", 0xFF, 0x96, 0xE3, 0x0F, 1 if on else 0, 0xD1, 0xEA)),
+                    ("1FED9", struct.pack("<BBBBHBB", 0xFF, 0x96, 0xE4, 0x0F, 0 if on else 1, 0xD1, 0xEA)),
+                    ("1FED9", struct.pack("<BBBBHBB", 0xFF, 0x96, 0xE3, 0x0F, 0xFFFF, 0xD3, 0xFF)),
+                    ("1FED9", struct.pack("<BBBBHBB", 0xFF, 0x96, 0xE4, 0x0F, 0xFFFF, 0xD3, 0xFF)),
+                ]
+                for dgn, f in frames:
+                    self.send_queue.put({"dgn": dgn, "data": bytearray(f)})
+                return
+
+            elif topic == self.heat_pump_set_topic:
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xEB, 0x0F,
                                     1 if payload.lower() == 'on' else 0, 0xD1, 0xEA)
 
             elif topic == self.bunk_accent_set_topic:
@@ -799,7 +878,12 @@ class G12_Configuration(EntityPluginBaseClass):
                 frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xEF, 0x0F, val, 0xD1, 0xEA)
 
             elif topic == self.selected_floorplan_set_topic:
-                fp_map = {'sy': 4, 'wa': 7, 'wd': 8, 'wt': 9}
+                # Complete enum observed on hardware 2026-08-12 by selecting every
+                # floorplan on the touchscreen. Generator models: RT RA RD CB RY.
+                # Li-AES models: SY TB WA WD WT. "Ship Mode" also exists on the
+                # screen but is deliberately unmapped.
+                fp_map = {'rt': 1, 'ra': 2, 'rd': 3, 'sy': 4, 'tb': 5,
+                          'cb': 6, 'wa': 7, 'wd': 8, 'wt': 9, 'ry': 10}
                 val = fp_map.get(payload.lower())
                 if val is None:
                     self.Logger.warning(f"Unknown floorplan: {payload}")
@@ -903,11 +987,30 @@ class G12_Configuration(EntityPluginBaseClass):
         origin = {'name': self.mqtt_support.get_bridge_ha_name()}
         cmps = {}
 
+        # The voltage and run-time parameters are mode-dependent: under AES they describe
+        # the 48V engine/lithium system, under AGS a 12V generator system. Publishing a
+        # single fixed range makes HA misrepresent and reject valid values in the other
+        # mode. Observed 2026-08-12: AGS reported 13.50V stop / 12.20V start / 720 min,
+        # all far outside the AES bounds that used to be hardcoded here.
+        #
+        # The AES bounds below are the previously established ones. The AGS bounds are
+        # PROVISIONAL — chosen to contain the observed values, not derived from the G12,
+        # which has not been asked for its limits.
+        is_ags = str(self._gen_aes_mode).upper() == 'AGS'
+        if is_ags:
+            v_stop = {'min': 10.0, 'max': 16.0, 'step': 0.1}
+            v_start = {'min': 10.0, 'max': 16.0, 'step': 0.1}
+            run_time = {'min': 0, 'max': 1440, 'step': 5}
+        else:
+            v_stop = {'min': 50.0, 'max': 58.8, 'step': 0.1}
+            v_start = {'min': 51.0, 'max': 54.8, 'step': 0.1}
+            run_time = {'min': 60, 'max': 115, 'step': 1}
+
         # --- number entities ---
         number_specs = [
             ('max_engine_run_time',  self.max_engine_run_time_topic,
              self.max_engine_run_time_set_topic if has_cmd else None,
-             'Max Engine Run Time', {'unit_of_measurement': 'min', 'min': 60, 'max': 115, 'step': 1, 'mode': 'auto'}),
+             'Max Engine Run Time', {'unit_of_measurement': 'min', 'mode': 'auto', **run_time}),
             ('time_at_start_volts',  self.time_at_start_volts_topic,
              self.time_at_start_volts_set_topic if has_cmd else None,
              'Time at Start Volts',  {'unit_of_measurement': 's',   'min': 10, 'max': 300, 'step': 10, 'mode': 'auto'}),
@@ -917,11 +1020,11 @@ class G12_Configuration(EntityPluginBaseClass):
             ('stop_at_voltage',      self.stop_at_voltage_topic,
              self.stop_at_voltage_set_topic if has_cmd else None,
              'Stop at Voltage',
-             {'unit_of_measurement': 'V', 'device_class': 'voltage', 'min': 50.0, 'max': 58.8, 'step': 0.1, 'mode': 'auto'}),
+             {'unit_of_measurement': 'V', 'device_class': 'voltage', 'mode': 'auto', **v_stop}),
             ('start_at_voltage',     self.start_at_voltage_topic,
              self.start_at_voltage_set_topic if has_cmd else None,
              'Start at Voltage',
-             {'unit_of_measurement': 'V', 'device_class': 'voltage', 'min': 51.0, 'max': 54.8, 'step': 0.1, 'mode': 'auto'}),
+             {'unit_of_measurement': 'V', 'device_class': 'voltage', 'mode': 'auto', **v_start}),
             ('threshold_33_pct',     self.threshold_cc_topic,
              self.threshold_cc_set_topic if has_cmd else None,
              'Tank Threshold 33%',   {'unit_of_measurement': '',    'min': 0, 'max': 65535, 'step': 1, 'mode': 'auto'}),
@@ -1040,6 +1143,12 @@ class G12_Configuration(EntityPluginBaseClass):
              self.ags_low_volts_trigger_set_topic if has_new_cmd else None, 'AGS Low Volts Trigger'),
             ('cargo_bath_light',      self.cargo_bath_light_topic,
              self.cargo_bath_light_set_topic if has_new_cmd else None,      'Cargo/Bath Light (CH.25)'),
+            # E4 is the other half of the cargo/bath-light choice and is always the
+            # inverse of E3. Read-only: writing it is the same action as writing E3,
+            # which the cargo_bath_light switch already performs as a paired write.
+            ('bath_light',            self.bath_light_topic, None,          'Bath Light'),
+            ('heat_pump',             self.heat_pump_topic,
+             self.heat_pump_set_topic if has_new_cmd else None,             'Heat Pump'),
             ('bunk_accent',           self.bunk_accent_topic,
              self.bunk_accent_set_topic if has_new_cmd else None,           'Bunk Accent'),
             ('progressive_inverter',  self.progressive_inverter_topic,
@@ -1061,6 +1170,13 @@ class G12_Configuration(EntityPluginBaseClass):
             cmps[sub_id] = cmp
 
         # --- newly discovered numeric settings ---
+        cmps['battery_voltage'] = {
+            'p': 'sensor', 'name': 'Battery Voltage',
+            'state_topic': self.battery_voltage_topic,
+            'unit_of_measurement': 'V', 'device_class': 'voltage',
+            'state_class': 'measurement',
+            'unique_id': self.unique_device_id + '_battery_voltage'}
+
         cmps['ags_gen_start_retries'] = {
             'p': 'sensor', 'name': 'AGS Gen Start Retries',
             'state_topic': self.ags_gen_start_retries_topic,
@@ -1113,7 +1229,7 @@ class G12_Configuration(EntityPluginBaseClass):
             'p': 'select' if has_new_cmd else 'sensor',
             'name': 'Selected Floorplan',
             'state_topic': self.selected_floorplan_topic,
-            'options': ['SY', 'WA', 'WD', 'WT'],
+            'options': ['RT', 'RA', 'RD', 'SY', 'TB', 'CB', 'WA', 'WD', 'WT', 'RY'],
             'unique_id': self.unique_device_id + '_selected_floorplan'}
         if has_new_cmd:
             cmps['selected_floorplan']['command_topic'] = self.selected_floorplan_set_topic
