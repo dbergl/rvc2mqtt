@@ -3098,6 +3098,19 @@ API_VERSION: 0
         51: flash alternate
 
 1FED9:
+  # NOTE: group 0x94 also exists on this DGN and is NOT decoded here.
+  # Only group 0x96 (G12 configuration) is handled. The touchscreen (0x9F) also emits
+  # 1FED9 frames with byte 1 = 0x94 and a DIFFERENT byte layout -- captured examples:
+  #   FF 94 FF FF FF FF F0 FF
+  #   FF 94 01 FF 1C FF E5 FF
+  #   FF 94 00 FF 1E FF E3 FF
+  # Reverse engineering of the Firefly MCF bundle identified these as STORED MESSAGES
+  # the panel replays from its own binding table, where each 8-byte RV-C payload is
+  # held byte-reversed per u32. All three payloads above were found byte-for-byte in
+  # the 13.6 MCF. The byte roles are unknown -- byte 6 holds an option selector
+  # (E3/E4/E5) in 15 entries but holds 0xE0 more often than anything else, so do not
+  # read it as a selector. Recorded so these frames are recognised rather than mistaken
+  # for corruption; not enough is known to decode them.
   name: GENERIC_INDICATOR_COMMAND
   parameters:
     - byte: 0
@@ -5103,14 +5116,30 @@ Z0005:
         1: "AGS"
         2: "AES"
         3: "AES Single Output"
-  # Complete enum, observed 2026-08-12 by selecting every floorplan on the touchscreen
-  # of a Jayco B-Van and reading the resulting F5 write. Values 1-10 with no gaps. The
-  # screen groups these as Generator Models (RA RY RD RT CB) and Li-AES Models (WA WD WT
-  # TB SY). A "Ship Mode" button also exists; its value is deliberately unmapped.
+  # PER-BUILD DATA, NOT A PROTOCOL CONSTANT. This enum was observed 2026-08-12 by
+  # selecting every floorplan on the touchscreen of a Jayco B-Van running the
+  # "Jayco B-Van V13" configuration (Firefly MCF 13.6), and reading the resulting F5
+  # write. Values 1-10 with no gaps. The screen groups these as Generator Models
+  # (RA RY RD RT CB) and Li-AES Models (WA WD WT TB SY). A "Ship Mode" button also
+  # exists; its value is deliberately unmapped.
+  #
+  # The mapping DIFFERS BETWEEN BUILDS. Decoding the other two MCF files in the same
+  # corpus gives different tables:
+  #   * "Jayco B-Van V14" (14.7): nine codes including RE, and NO RD or WD. The values
+  #     do not line up with V13's.
+  #   * "Jayco Ethos/Swift V11" (11.23): a different naming scheme entirely --
+  #     3RT / 4RT / 3WD / 4WD ... -- with no selection screen to confirm values.
+  # rvc2mqtt's original four values (4 SY, 7 WA, 8 WD, 9 WT) came from an Ethos 20DL and
+  # happen to agree with V13 where they overlap. Treat this table as correct for V13 and
+  # verify before trusting it on another coach.
   #
   # Selecting a floorplan writes a 12-selector transaction, not just F5:
   #   F5, EF, E5, E9, E4, EB, E3, E6, D7, EC, 15, F7
-  # so the whole option profile is re-asserted on every floorplan change.
+  # Those eleven other values are the NEWLY SELECTED FLOORPLAN'S DEFAULTS -- not the
+  # coach's current settings. Confirmed 2026-08-13: selecting TB wrote E5=0 and E3=0
+  # while the coach had both set to 1. An earlier reading of this as "the profile is
+  # re-asserted" was wrong; the settings only appeared to survive because the coach's
+  # own floorplan's defaults matched them. See g12_configuration.FLOORPLAN_OPTION_DEFAULTS.
   "F5":
     - byte: 2
       name: floorplan

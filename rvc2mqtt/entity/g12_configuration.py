@@ -25,6 +25,41 @@ from rvc2mqtt.mqtt import MQTT_Support
 from rvc2mqtt.entity import EntityPluginBaseClass
 
 
+# Per-floorplan option defaults for the "Jayco B-Van V13" build (Firefly MCF 13.6).
+#
+# Observed 2026-08-13 from two independent sources agreeing on all 90 values: the coach
+# owner read the defaults off the touchscreen for nine floorplans, and a CAN capture of
+# 2026-08-12 already contained them -- selecting a floorplan writes that floorplan's
+# defaults as a 12-selector transaction. WD comes from the capture only, because the
+# owner's coach was sitting on it.
+#
+# PER-BUILD DATA. The F5 enum itself differs between builds (see rvc-spec.yml), so these
+# defaults are meaningless on a coach running a different configuration.
+#
+# Used only to warn the operator what a floorplan change will overwrite. Nothing here is
+# transmitted -- see the note in the selected_floorplan handler for why.
+FLOORPLAN_OPTION_DEFAULTS = {
+    #    EB  E5  E9  E3  E4  EC     EF  E6  D7  D8
+    1:  {0xEB: 0, 0xE5: 1, 0xE9: 0, 0xE3: 1, 0xE4: 0, 0xEC: 1, 0xEF: 1, 0xE6: 1, 0xD7: 1, 0xD8: 0},  # RT
+    2:  {0xEB: 0, 0xE5: 1, 0xE9: 0, 0xE3: 1, 0xE4: 0, 0xEC: 1, 0xEF: 1, 0xE6: 1, 0xD7: 1, 0xD8: 0},  # RA
+    3:  {0xEB: 0, 0xE5: 1, 0xE9: 0, 0xE3: 1, 0xE4: 0, 0xEC: 1, 0xEF: 1, 0xE6: 1, 0xD7: 1, 0xD8: 0},  # RD
+    4:  {0xEB: 0, 0xE5: 1, 0xE9: 0, 0xE3: 1, 0xE4: 0, 0xEC: 0, 0xEF: 0, 0xE6: 0, 0xD7: 0, 0xD8: 0},  # SY
+    5:  {0xEB: 0, 0xE5: 0, 0xE9: 0, 0xE3: 0, 0xE4: 0, 0xEC: 1, 0xEF: 3, 0xE6: 0, 0xD7: 0, 0xD8: 0},  # TB
+    6:  {0xEB: 0, 0xE5: 0, 0xE9: 0, 0xE3: 0, 0xE4: 0, 0xEC: 1, 0xEF: 1, 0xE6: 1, 0xD7: 1, 0xD8: 0},  # CB
+    7:  {0xEB: 0, 0xE5: 1, 0xE9: 0, 0xE3: 1, 0xE4: 0, 0xEC: 1, 0xEF: 3, 0xE6: 0, 0xD7: 0, 0xD8: 0},  # WA
+    8:  {0xEB: 0, 0xE5: 1, 0xE9: 0, 0xE3: 1, 0xE4: 0, 0xEC: 1, 0xEF: 3, 0xE6: 0, 0xD7: 0, 0xD8: 0},  # WD
+    9:  {0xEB: 0, 0xE5: 1, 0xE9: 0, 0xE3: 1, 0xE4: 0, 0xEC: 1, 0xEF: 3, 0xE6: 0, 0xD7: 0, 0xD8: 0},  # WT
+    10: {0xEB: 0, 0xE5: 1, 0xE9: 0, 0xE3: 0, 0xE4: 0, 0xEC: 1, 0xEF: 1, 0xE6: 1, 0xD7: 1, 0xD8: 0},  # RY
+}
+
+_SELECTOR_NAMES = {
+    0xEB: "heat pump", 0xE5: "bunk accent", 0xE9: "bath fan",
+    0xE3: "cargo/bath light (ch.25)", 0xE4: "bath light", 0xEC: "black tank",
+    0xEF: "gen/AES mode", 0xE6: "progressive inverter",
+    0xD7: "go power! controllers", 0xD8: "battery count",
+}
+
+
 class G12_Configuration(EntityPluginBaseClass):
     FACTORY_MATCH_ATTRIBUTES = {"name": "G12", "type": "g12_configuration"}
 
@@ -893,16 +928,29 @@ class G12_Configuration(EntityPluginBaseClass):
                 frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xEF, 0x0F, val, 0xD1, 0xEA)
 
             elif topic == self.selected_floorplan_set_topic:
-                # Complete enum observed on hardware 2026-08-12 by selecting every
-                # floorplan on the touchscreen. Generator models: RT RA RD CB RY.
-                # Li-AES models: SY TB WA WD WT. "Ship Mode" also exists on the
-                # screen but is deliberately unmapped.
+                # PER-BUILD enum, correct for "Jayco B-Van V13" (MCF 13.6) and verified
+                # against that coach. Other builds differ -- 14.7 has nine codes
+                # including RE and no RD/WD; 11.23 uses 3RT/4RT/3WD/4WD. See rvc-spec.yml.
                 fp_map = {'rt': 1, 'ra': 2, 'rd': 3, 'sy': 4, 'tb': 5,
                           'cb': 6, 'wa': 7, 'wd': 8, 'wt': 9, 'ry': 10}
                 val = fp_map.get(payload.lower())
                 if val is None:
                     self.Logger.warning(f"Unknown floorplan: {payload}")
                     return
+
+                # Changing the floorplan is not a neutral write. The touchscreen sends a
+                # 12-selector transaction whose other eleven values are the NEW
+                # floorplan's defaults -- confirmed 2026-08-13, selecting TB wrote E5=0
+                # and E3=0 on a coach that had both set to 1.
+                #
+                # We deliberately send F5 ALONE and do not replay the defaults. Whether
+                # the G12 applies them itself on an F5 write, or only the touchscreen
+                # does, was never established -- the capture only shows the panel. Both
+                # possibilities are bad to guess at: replaying eleven inferred values
+                # would write settings we cannot verify, and staying silent would let the
+                # operator lose their configuration without notice. So we warn instead.
+                self._warn_floorplan_change_overwrites(val, payload)
+
                 frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xF5, 0x0F, val, 0xD1, 0xEA)
 
             elif topic == self.num_batteries_set_topic:
@@ -992,6 +1040,45 @@ class G12_Configuration(EntityPluginBaseClass):
 
         except Exception as e:
             self.Logger.error(f"Failed to process MQTT set message on {topic}: {e}")
+
+    def _warn_floorplan_change_overwrites(self, floorplan_value, payload):
+        """Log which option settings a floorplan change is expected to overwrite.
+
+        The touchscreen writes the new floorplan's defaults alongside F5. This compares
+        those defaults against the state we have observed and names the differences, so
+        an operator changing floorplan from Home Assistant is not surprised by a silently
+        reset configuration.
+
+        Purely informational -- it transmits nothing and never blocks the write.
+        """
+        defaults = FLOORPLAN_OPTION_DEFAULTS.get(floorplan_value)
+        if defaults is None:
+            return
+
+        observed = {
+            0xEB: self._heat_pump, 0xE5: self._bunk_accent, 0xE9: self._bath_fan,
+            0xE3: self._cargo_bath_light, 0xE4: self._bath_light,
+            0xEC: self._black_tank_setting, 0xE6: self._progressive_inverter,
+        }
+        changes = []
+        for selector, default in defaults.items():
+            current = observed.get(selector)
+            if current is None or not isinstance(current, str):
+                continue
+            want = "on" if default else "off"
+            if current != want:
+                changes.append(f"{_SELECTOR_NAMES[selector]} {current}->{want}")
+
+        if changes:
+            self.Logger.warning(
+                f"Setting floorplan to {payload.upper()} is expected to reset: "
+                f"{', '.join(sorted(changes))}. The touchscreen writes the new "
+                f"floorplan's defaults alongside F5; this bridge sends F5 alone, so the "
+                f"result depends on whether the G12 applies defaults itself.")
+        else:
+            self.Logger.info(
+                f"Setting floorplan to {payload.upper()}; its defaults match the "
+                f"currently observed option settings, so nothing should change.")
 
     def publish_ha_discovery_config(self):
         """Publish Home Assistant MQTT auto-discovery config for all G12 entities."""

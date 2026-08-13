@@ -1056,6 +1056,56 @@ class Test_G12_Configuration(unittest.TestCase):
 
         self.assertEqual(sets, [(0xE3, 0), (0xE4, 1)])
 
+    def test_floorplan_defaults_table_is_internally_consistent(self):
+        """Per-build data, observed on the coach. Guards the transcription."""
+        from rvc2mqtt.entity.g12_configuration import FLOORPLAN_OPTION_DEFAULTS as D
+        self.assertEqual(sorted(D), list(range(1, 11)))
+        selectors = {0xEB, 0xE5, 0xE9, 0xE3, 0xE4, 0xEC, 0xEF, 0xE6, 0xD7, 0xD8}
+        for value, row in D.items():
+            self.assertEqual(set(row), selectors, f"floorplan {value}")
+        # Heat pump and bath light default off on every floorplan.
+        self.assertTrue(all(r[0xEB] == 0 and r[0xE4] == 0 for r in D.values()))
+        # Progressive inverter and Go Power! count move together in every row.
+        self.assertTrue(all(r[0xE6] == r[0xD7] for r in D.values()))
+        # SY is the only floorplan defaulting to EF=0 (mode disabled).
+        self.assertEqual([v for v, r in D.items() if r[0xEF] == 0], [4])
+
+    def test_setting_floorplan_warns_about_options_it_will_reset(self):
+        """Changing floorplan is not a neutral write -- the touchscreen sends the new
+        floorplan's defaults alongside F5. The operator must be told what it costs."""
+        g, q = self._make_g12_with_queue()
+        # Coach state: bunk accent and cargo/bath on, matching WD's defaults.
+        g._bunk_accent = 'on'
+        g._cargo_bath_light = 'on'
+        g._black_tank_setting = 'on'
+        with self.assertLogs('G12_Configuration', level='WARNING') as captured:
+            g.process_mqtt_msg('g12/set/floorplan', 'tb')   # TB defaults both off
+        joined = ' '.join(captured.output)
+        self.assertIn('bunk accent on->off', joined)
+        self.assertIn('cargo/bath light (ch.25) on->off', joined)
+        self.assertNotIn('black tank', joined)   # TB also defaults black tank on
+
+        # The write itself is still F5 alone -- we do not replay inferred defaults.
+        frame = q.get_nowait()['data']
+        self.assertEqual(frame[2], 0xF5)
+        self.assertEqual(int.from_bytes(frame[4:6], 'little'), 5)
+        self.assertTrue(q.empty(), "must send F5 alone, not the 12-selector transaction")
+
+    def test_setting_floorplan_with_matching_defaults_does_not_warn(self):
+        g, q = self._make_g12_with_queue()
+        g._bunk_accent = 'on'
+        g._cargo_bath_light = 'on'
+        g._black_tank_setting = 'on'
+        g._heat_pump = 'off'
+        g._bath_fan = 'off'
+        g._bath_light = 'off'
+        g._progressive_inverter = 'off'
+        with self.assertLogs('G12_Configuration', level='INFO') as captured:
+            g.process_mqtt_msg('g12/set/floorplan', 'wd')   # WD defaults match exactly
+        joined = ' '.join(captured.output)
+        self.assertNotIn('WARNING', joined)
+        self.assertIn('nothing should change', joined)
+
     def test_mqtt_set_floorplan_full_enum(self):
         """All ten floorplans were observed on hardware 2026-08-12; the four rvc2mqtt
         already knew (SY/WA/WD/WT) were independently reconfirmed in the same pass."""
