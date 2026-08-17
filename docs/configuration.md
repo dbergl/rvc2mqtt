@@ -351,6 +351,14 @@ Overrides are matched by **`name` + `type` + `instance`** (all three; `instance`
 defaults to `null` when omitted).  Only the fields you list are changed; all other
 fields from the base entry are preserved.
 
+All three are part of the key, so an override that gets any of them wrong does not
+fail — it stops matching and is **appended as a new entry** instead (see "Add a new
+entry" below).  Omitting `type` when you meant to amend an existing entry is the
+usual way to trip this: the base entry is left untouched and the new entry cannot be
+built, producing `Unsupported entry in <base floorplan>` at startup — naming the base
+floorplan, not this file.  A warning that does name the override file is logged when
+an appended entry has no `type`.
+
 The override file is re-read on every SIGHUP reload, so changes take effect without
 restarting the container.
 

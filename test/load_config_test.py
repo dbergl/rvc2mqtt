@@ -248,6 +248,53 @@ class TestApplyOverrides:
         assert result[-1]["name"] == "TANK_STATUS"
         assert result[-1]["instance_name"] == "Gray Tank"
 
+    def test_untyped_override_that_matches_nothing_warns(self, tmp_path):
+        """A block meant to amend an existing entry but missing 'type' silently
+        becomes a new, unbuildable entry. The later "Unsupported entry" error names
+        the base floorplan, not the override, so warn here where the file is known."""
+        ovr = tmp_path / "floorplan.override.yml"
+        ovr.write_text(
+            "overrides:\n"
+            "  - name: DC_LOAD_STATUS\n"
+            "    instance: 1\n"
+            "    instance_name: Master Bedroom\n"
+        )
+        logger = MagicMock()
+        result = _apply_overrides(self.BASE, str(ovr), logger)
+        # not merged - appended, which is exactly the confusing part
+        assert len(result) == len(self.BASE) + 1
+        assert self.BASE[0]["instance_name"] == "Bedroom Light"
+        logger.warning.assert_called_once()
+        assert "type" in logger.warning.call_args[0][0]
+
+    def test_typed_new_entry_appended_without_warning(self, tmp_path):
+        """Adding a genuinely new entity is legitimate and must stay quiet."""
+        ovr = tmp_path / "floorplan.override.yml"
+        ovr.write_text(
+            "overrides:\n"
+            "  - name: TANK_STATUS\n"
+            "    type: tank_level\n"
+            "    instance: 5\n"
+        )
+        logger = MagicMock()
+        result = _apply_overrides(self.BASE, str(ovr), logger)
+        assert len(result) == len(self.BASE) + 1
+        logger.warning.assert_not_called()
+
+    def test_remove_that_matches_nothing_warns(self, tmp_path):
+        ovr = tmp_path / "floorplan.override.yml"
+        ovr.write_text(
+            "overrides:\n"
+            "  - name: DC_LOAD_STATUS\n"
+            "    type: light_switch\n"
+            "    instance: 99\n"
+            "    _remove: true\n"
+        )
+        logger = MagicMock()
+        result = _apply_overrides(self.BASE, str(ovr), logger)
+        assert len(result) == len(self.BASE)
+        logger.warning.assert_called_once()
+
     def test_remove_key_stripped_from_result(self, tmp_path):
         ovr = tmp_path / "floorplan.override.yml"
         ovr.write_text(

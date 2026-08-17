@@ -369,13 +369,32 @@ def _apply_overrides(base_entries: list, override_path: Optional[str], logger: l
             -1,
         )
         if ovr.get("_remove", False):
-            if match_idx >= 0:
+            if match_idx < 0:
+                logger.warning(
+                    f"Override file {override_path!r}: _remove entry "
+                    f"{{name: {name!r}, type: {type_!r}, instance: {instance!r}}} "
+                    f"matched no floorplan entry — nothing removed")
+            else:
                 del result[match_idx]
         else:
             update = {k: v for k, v in ovr.items() if k != "_remove"}
             if match_idx >= 0:
                 result[match_idx].update(update)
             else:
+                # Appending is legitimate — it is how new entities are added. But
+                # entries are matched on the (name, type, instance) triple, so an
+                # override meaning to amend an existing entry becomes a new one the
+                # moment any of the three differs. Without a type the factory cannot
+                # build it at all, which is a mistake worth naming here: the later
+                # "Unsupported entry" error reports the base floorplan as the source,
+                # not this file.
+                if not type_:
+                    logger.warning(
+                        f"Override file {override_path!r}: entry "
+                        f"{{name: {name!r}, instance: {instance!r}}} has no 'type' and "
+                        f"matched no floorplan entry, so it was added as a new entry "
+                        f"that cannot be built. Add the 'type' of the entry you meant "
+                        f"to amend.")
                 result.append(dict(update))
     return result
 
