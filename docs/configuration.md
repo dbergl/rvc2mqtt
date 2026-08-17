@@ -138,6 +138,26 @@ transport messages.
 `source_id` is required so that only frames from the G12 node are matched.
 `command_topic` is optional — omit it if you only want to monitor.
 
+`engine_relay_instance` is optional and opt-in. The G12 drives its engine relay as
+an ordinary dimmer channel, and the channel number varies by coach (18 on the
+Ethos/Launch/Terrain). Set it to expose `/engine/running` and `/engine/start`:
+
+```yaml
+    engine_relay_instance: 18
+```
+
+Without it, this entity ignores `DC_DIMMER_STATUS_3` entirely and publishes no
+engine entities. Do not guess the number: the entity claims that instance's
+status messages, and a wrong value would take a light's status away from its own
+`dimmer_switch` entry, since `app.py` stops at the first entity that claims a
+message.
+
+Note this key does *not* gate the AES-disable command sequence, which always
+includes an engine-relay-off frame. That sequence is replayed byte-for-byte from
+a capture of the touchscreen disabling AES, and a command frame cannot starve
+another entity. It uses `engine_relay_instance` when set and otherwise falls back
+to channel 18, which is correct for all AES 1-wire wiring.
+
 **Status topics** (relative to `status_topic`):
 
 | Sub-topic | Description |
@@ -166,7 +186,7 @@ transport messages.
 | `/fans/bath` | Bath fan setting |
 | `/lights/cargo_bath_ch25` | Cargo/bath light channel 25 |
 | `/lights/bunk_accent` | Bunk accent light setting |
-| `/engine/running` | Engine relay state (on/off) |
+| `/engine/running` | Engine relay state (on/off) — requires `engine_relay_instance` |
 | `/fault/code` | DM_RV fault code |
 | `/fault/description` | DM_RV fault description |
 | `/fault/lamp` | DM_RV lamp state |
@@ -199,7 +219,7 @@ transport messages.
 | `/lights/cargo_bath_ch25` | Set cargo/bath light channel |
 | `/lights/bunk_accent` | Set bunk accent light |
 | `/ags/retry_interval` | Set AGS retry interval |
-| `/engine/start` | Start/stop engine |
+| `/engine/start` | Start/stop engine — requires `engine_relay_instance` |
 
 **Floorplan entry example:**
 
@@ -211,6 +231,7 @@ floorplan:
     instance_name: Generator Controller
     status_topic: rvc/state/g12
     command_topic: rvc/set/g12
+    engine_relay_instance: 18   # optional; omit to disable the engine entities
 ```
 
 ### G12 DC system (`dc_system` / `DC_SOURCE_STATUS_G12`)

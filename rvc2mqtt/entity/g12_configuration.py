@@ -59,6 +59,14 @@ _SELECTOR_NAMES = {
     0xD7: "go power! controllers", 0xD8: "battery count",
 }
 
+# Dimmer channel the G12 drives as its engine relay when AES is wired for 1-wire
+# operation, which is always 18. 2-wire wiring uses a different channel and is
+# untested - such a coach must declare engine_relay_instance in the floorplan.
+# Used only as the fallback for the AES-disable command sequence below; the status
+# match never falls back, because a wrong instance there would steal a light's
+# status messages.
+AES_1WIRE_ENGINE_RELAY_INSTANCE = 18
+
 
 class G12_Configuration(EntityPluginBaseClass):
     FACTORY_MATCH_ATTRIBUTES = {"name": "G12", "type": "g12_configuration"}
@@ -97,12 +105,20 @@ class G12_Configuration(EntityPluginBaseClass):
     Also handles INITIAL_PACKET / DATA_PACKET multi-packet transport to
     assemble and publish PRODUCT_IDENTIFICATION, filtered by source_id.
 
+    Optionally exposes the engine relay (start/stop buttons + running sensor).
+    The relay is a dimmer channel the G12 drives, and the channel number is
+    coach-specific, so it is opt-in via `engine_relay_instance`. When it is
+    omitted this entity ignores DC_DIMMER_STATUS_3 entirely - claiming those
+    messages would starve the dimmer entities, since app.py stops at the first
+    entity that claims a message.
+
     Floorplan entry example:
       - name: G12
         type: g12_configuration
         source_id: '9C'
         instance_name: "Generator Controller"
         status_topic: "rvc/g12/config"
+        engine_relay_instance: 18   # optional; 18 on Ethos/Launch/Terrain
     """
 
     def __init__(self, data: dict, mqtt_support: MQTT_Support):
@@ -120,6 +136,13 @@ class G12_Configuration(EntityPluginBaseClass):
 
         self.source_id = str(data['source_id'])
 
+        # The engine relay is a DC_DIMMER_STATUS_3 / DC_DIMMER_COMMAND_2 channel that the
+        # G12 drives, so the channel number is coach-specific and must be declared in the
+        # floorplan (`engine_relay_instance: 18` on the Ethos/Launch/Terrain). Without it
+        # this entity does not touch the dimmer DGNs at all and publishes no engine
+        # entities - see _engine_relay_configured().
+        self.engine_relay_instance = data.get('engine_relay_instance')
+
         # RVC message must match the following to be this device
         self.rvc_match_g12_config     = {"name": "G12_CONFIGURATION", "source_id": self.source_id}
         self.rvc_match_initial_packet = {"name": "INITIAL_PACKET", "source_id": self.source_id}
@@ -128,8 +151,15 @@ class G12_Configuration(EntityPluginBaseClass):
         self.rvc_match_input_status   = {"name": "G12_INPUT_STATUS", "source_id": self.source_id}
         # 1FED9 comes from touchscreen (0x9F), not G12 (0x9C) — no source_id filter
         self.rvc_match_g12_indicator  = {"name": "GENERIC_INDICATOR_COMMAND"}
-        # DC_DIMMER_STATUS_3 (1FEDA) from G12 — instance 18 = engine relay
-        self.rvc_match_engine_status  = {"name": "DC_DIMMER_STATUS_3", "source_id": self.source_id}
+        # DC_DIMMER_STATUS_3 (1FEDA) from G12 — the configured engine relay channel.
+        # The instance is part of the match on purpose: the G12 broadcasts this DGN for
+        # every dimmer channel it drives, and app.py hands a message to the first entity
+        # that claims it. Matching on source_id alone would swallow every light's status.
+        self.rvc_match_engine_status = None
+        if self._engine_relay_configured():
+            self.rvc_match_engine_status = {
+                "name": "DC_DIMMER_STATUS_3", "source_id": self.source_id,
+                "instance": self.engine_relay_instance}
 
         # DM_RV
         self._fault_code = "unknown"
@@ -218,7 +248,8 @@ class G12_Configuration(EntityPluginBaseClass):
             self.selected_floorplan_topic    = str(f"{topic_base}/floorplan")
             self.ags_retry_interval_topic    = str(f"{topic_base}/ags/retry_interval")
             self.aes_enabled_topic           = str(f"{topic_base}/aes/enabled")
-            self.engine_running_topic        = str(f"{topic_base}/engine/running")
+            if self._engine_relay_configured():
+                self.engine_running_topic    = str(f"{topic_base}/engine/running")
 
         if 'command_topic' in data:
             topic_base = str(data['command_topic'])
@@ -246,7 +277,8 @@ class G12_Configuration(EntityPluginBaseClass):
             self.go_power_controllers_set_topic  = str(f"{topic_base}/go_power/controller_count")
             self.ags_retry_interval_set_topic    = str(f"{topic_base}/ags/retry_interval")
             self.aes_enabled_set_topic           = str(f"{topic_base}/aes/enabled")
-            self.engine_start_set_topic          = str(f"{topic_base}/engine/start")
+            if self._engine_relay_configured():
+                self.engine_start_set_topic      = str(f"{topic_base}/engine/start")
 
             self.mqtt_support.register(self.max_engine_run_time_set_topic, self.process_mqtt_msg)
             self.mqtt_support.register(self.time_at_start_volts_set_topic, self.process_mqtt_msg)
@@ -271,7 +303,33 @@ class G12_Configuration(EntityPluginBaseClass):
             self.mqtt_support.register(self.go_power_controllers_set_topic, self.process_mqtt_msg)
             self.mqtt_support.register(self.ags_retry_interval_set_topic, self.process_mqtt_msg)
             self.mqtt_support.register(self.aes_enabled_set_topic, self.process_mqtt_msg)
-            self.mqtt_support.register(self.engine_start_set_topic, self.process_mqtt_msg)
+            if self._engine_relay_configured():
+                self.mqtt_support.register(self.engine_start_set_topic, self.process_mqtt_msg)
+
+    def _engine_relay_configured(self) -> bool:
+        """True when the floorplan declared which dimmer channel is the engine relay.
+
+        Everything engine-related is opt-in: the channel number varies by coach, so
+        without it this entity must not claim DC_DIMMER_STATUS_3 messages (they belong
+        to the dimmer entities) or advertise engine controls it cannot drive.
+        """
+        return self.engine_relay_instance is not None
+
+    def _engine_relay_frame(self, on: bool, instance: int = None) -> bytes:
+        """Build the DC_DIMMER_COMMAND_2 (1FEDB) frame that drives the engine relay.
+
+        on  -> level 100%, command 1 (on_duration)
+        off -> level 0%,   command 3 (off)
+
+        instance defaults to the floorplan's engine_relay_instance; callers pass it
+        explicitly only for the AES-disable sequence, which has a 1-wire fallback.
+        """
+        if instance is None:
+            instance = self.engine_relay_instance
+        instance = int(instance)
+        if on:
+            return struct.pack("<BBBBBBBB", instance, 0xFF, 0xC8, 0x01, 0xFF, 0x00, 0xFF, 0xFF)
+        return struct.pack("<BBBBBBBB", instance, 0xFF, 0x00, 0x03, 0xFF, 0x00, 0xFF, 0xFF)
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming RVC message and determine if it is of interest.
@@ -422,15 +480,15 @@ class G12_Configuration(EntityPluginBaseClass):
                 # (not mistakenly treated as a new GND-type activation).
             return True
 
-        if self._is_entry_match(self.rvc_match_engine_status, new_message):
-            # DC_DIMMER_STATUS_3 instance 18 = engine relay state
-            if int(new_message.get("instance", -1)) == 18:
-                val = "on" if new_message.get("operating_status_brightness", 0) > 0 else "off"
-                if val != self._engine_running:
-                    self._engine_running = val
-                    if hasattr(self, 'engine_running_topic'):
-                        self.mqtt_support.client.publish(
-                            self.engine_running_topic, val, retain=True)
+        if (self.rvc_match_engine_status is not None
+                and self._is_entry_match(self.rvc_match_engine_status, new_message)):
+            # DC_DIMMER_STATUS_3 on the configured engine relay channel
+            val = "on" if new_message.get("operating_status_brightness", 0) > 0 else "off"
+            if val != self._engine_running:
+                self._engine_running = val
+                if hasattr(self, 'engine_running_topic'):
+                    self.mqtt_support.client.publish(
+                        self.engine_running_topic, val, retain=True)
             return True
 
         if self._is_entry_match(self.rvc_match_g12_indicator, new_message):
@@ -1008,12 +1066,20 @@ class G12_Configuration(EntityPluginBaseClass):
                         ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x58, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF)),
                         ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x4F, 0x0F, 0x00, 0x00, 0xD1, 0xEA)),
                         ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0xB8, 0x0F, 0x00, 0x00, 0xD1, 0xEA)),
-                        # Engine relay off (DC_DIMMER_COMMAND_2 instance 18)
-                        ("1FEDB", struct.pack("<BBBBBBBB", 0x12, 0xFF, 0x00, 0x03, 0xFF, 0x00, 0xFF, 0xFF)),
                         ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x01, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF)),
                         ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x9B, 0x0F, 0x00, 0x00, 0xD1, 0xFF)),
                         ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x9B, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF)),
                     ]
+                    # The captured touchscreen sequence interleaves an engine-relay off
+                    # (DC_DIMMER_COMMAND_2) after the 0xB8 frame. Always send it: it is
+                    # part of a byte-verified capture, and unlike the status match a
+                    # command frame cannot starve another entity. Falls back to the
+                    # 1-wire channel when the floorplan didn't name one.
+                    relay_instance = (self.engine_relay_instance
+                                      if self._engine_relay_configured()
+                                      else AES_1WIRE_ENGINE_RELAY_INSTANCE)
+                    frames.insert(6, ("1FEDB", self._engine_relay_frame(
+                        on=False, instance=relay_instance)))
                 for dgn, f in frames:
                     self.send_queue.put({"dgn": dgn, "data": bytearray(f)})
                 # The CAN thread does not echo our own frames back to us, so nothing
@@ -1022,13 +1088,9 @@ class G12_Configuration(EntityPluginBaseClass):
                 self._publish_aes_enabled("on" if enable else "off")
                 return
 
-            elif topic == self.engine_start_set_topic:
-                if payload.lower() == 'on':
-                    # Start engine: DC_DIMMER_COMMAND_2 instance=18, level=100%, command=on_duration
-                    frame = struct.pack("<BBBBBBBB", 0x12, 0xFF, 0xC8, 0x01, 0xFF, 0x00, 0xFF, 0xFF)
-                else:
-                    # Stop engine: DC_DIMMER_COMMAND_2 instance=18, level=0%, command=off
-                    frame = struct.pack("<BBBBBBBB", 0x12, 0xFF, 0x00, 0x03, 0xFF, 0x00, 0xFF, 0xFF)
+            elif (self._engine_relay_configured()
+                    and topic == self.engine_start_set_topic):
+                frame = self._engine_relay_frame(on=payload.lower() == 'on')
                 self.send_queue.put({"dgn": "1FEDB", "data": bytearray(frame)})
                 return
 

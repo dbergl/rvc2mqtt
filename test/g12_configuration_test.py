@@ -28,14 +28,17 @@ from rvc2mqtt.entity.g12_configuration import G12_Configuration
 
 class Test_G12_Configuration(unittest.TestCase):
 
-    def _make_g12(self, source_id='9C'):
+    def _make_g12(self, source_id='9C', engine_relay_instance=None):
         mock = MagicMock()
         mock.mqtt_support.make_device_topic_string.return_value = 'topic_string'
-        return G12_Configuration(
-            {'instance': 1, 'instance_name': "test g12", 'source_id': source_id,
-             'status_topic': 'g12/status', 'command_topic': 'g12/set'},
-            mock
-        )
+        data = {'instance': 1, 'instance_name': "test g12", 'source_id': source_id,
+                'status_topic': 'g12/status', 'command_topic': 'g12/set'}
+        if engine_relay_instance is not None:
+            data['engine_relay_instance'] = engine_relay_instance
+        return G12_Configuration(data, mock)
+
+    def _make_g12_with_engine(self, source_id='9C', engine_relay_instance=18):
+        return self._make_g12(source_id, engine_relay_instance)
 
     def test_basic(self):
         g = self._make_g12()
@@ -260,7 +263,7 @@ class Test_G12_Configuration(unittest.TestCase):
                            if 'fault/code' in c[0][0]]
         self.assertEqual(len(fault_publishes), 1)
 
-    # --- Engine relay (DC_DIMMER_STATUS_3 instance 18) tests ---
+    # --- Engine relay (DC_DIMMER_STATUS_3 on engine_relay_instance) tests ---
 
     def _make_engine_relay_msg(self, source_id='9C', instance=18, brightness=100.0):
         return {
@@ -271,7 +274,7 @@ class Test_G12_Configuration(unittest.TestCase):
         }
 
     def test_engine_relay_on_when_brightness_nonzero(self):
-        g = self._make_g12()
+        g = self._make_g12_with_engine()
         result = g.process_rvc_msg(self._make_engine_relay_msg(brightness=100.0))
         self.assertTrue(result)
         publish_calls = {c[0][0]: c[0][1]
@@ -279,33 +282,115 @@ class Test_G12_Configuration(unittest.TestCase):
         self.assertEqual(publish_calls.get('g12/status/engine/running'), 'on')
 
     def test_engine_relay_off_when_brightness_zero(self):
-        g = self._make_g12()
+        g = self._make_g12_with_engine()
         result = g.process_rvc_msg(self._make_engine_relay_msg(brightness=0))
         self.assertTrue(result)
         publish_calls = {c[0][0]: c[0][1]
                          for c in g.mqtt_support.client.publish.call_args_list}
         self.assertEqual(publish_calls.get('g12/status/engine/running'), 'off')
 
+    def test_engine_relay_honours_configured_instance(self):
+        g = self._make_g12_with_engine(engine_relay_instance=7)
+        self.assertTrue(g.process_rvc_msg(self._make_engine_relay_msg(instance=7)))
+        # 18 is no longer special once the floorplan names a different channel
+        self.assertFalse(g.process_rvc_msg(self._make_engine_relay_msg(instance=18)))
+
     def test_engine_relay_wrong_instance_ignored(self):
-        g = self._make_g12()
-        g.process_rvc_msg(self._make_engine_relay_msg(instance=1, brightness=100.0))
+        g = self._make_g12_with_engine()
+        # Must return False: the G12 broadcasts DC_DIMMER_STATUS_3 for every dimmer
+        # channel and app.py stops at the first entity that claims a message, so
+        # claiming these would starve the dimmer entities of their own status.
+        result = g.process_rvc_msg(self._make_engine_relay_msg(instance=1, brightness=100.0))
+        self.assertFalse(result)
         publish_calls = {c[0][0]: c[0][1]
                          for c in g.mqtt_support.client.publish.call_args_list}
         self.assertNotIn('g12/status/engine/running', publish_calls)
 
     def test_engine_relay_wrong_source_id_ignored(self):
-        g = self._make_g12()
+        g = self._make_g12_with_engine()
         result = g.process_rvc_msg(self._make_engine_relay_msg(source_id='FF', brightness=100.0))
         self.assertFalse(result)
 
     def test_engine_relay_no_publish_when_state_unchanged(self):
-        g = self._make_g12()
+        g = self._make_g12_with_engine()
         g.process_rvc_msg(self._make_engine_relay_msg(brightness=100.0))
         g.mqtt_support.client.publish.reset_mock()
         g.process_rvc_msg(self._make_engine_relay_msg(brightness=50.0))  # still on
         publish_calls = {c[0][0]: c[0][1]
                          for c in g.mqtt_support.client.publish.call_args_list}
         self.assertNotIn('g12/status/engine/running', publish_calls)
+
+    # --- Engine relay not declared in the floorplan: fully opt-in ---
+
+    def test_no_engine_relay_instance_does_not_claim_dimmer_status(self):
+        g = self._make_g12()
+        for instance in (1, 15, 18, 32):
+            self.assertFalse(
+                g.process_rvc_msg(self._make_engine_relay_msg(instance=instance)),
+                f"instance {instance} must fall through to the dimmer entities")
+        g.mqtt_support.client.publish.assert_not_called()
+
+    def test_no_engine_relay_instance_creates_no_engine_topics(self):
+        g = self._make_g12()
+        self.assertFalse(hasattr(g, 'engine_running_topic'))
+        self.assertFalse(hasattr(g, 'engine_start_set_topic'))
+
+    def test_engine_start_command_uses_configured_instance(self):
+        g = self._make_g12_with_engine(engine_relay_instance=7)
+        g.set_rvc_send_queue(queue.Queue())
+        g.process_mqtt_msg('g12/set/engine/start', 'on')
+        sent = g.send_queue.get_nowait()
+        self.assertEqual(sent['dgn'], '1FEDB')
+        self.assertEqual(sent['data'][0], 7)   # instance byte
+        self.assertEqual(sent['data'][3], 0x01)  # command = on_duration
+
+    def test_engine_stop_command_uses_configured_instance(self):
+        g = self._make_g12_with_engine(engine_relay_instance=7)
+        g.set_rvc_send_queue(queue.Queue())
+        g.process_mqtt_msg('g12/set/engine/start', 'off')
+        sent = g.send_queue.get_nowait()
+        self.assertEqual(sent['data'][0], 7)
+        self.assertEqual(sent['data'][3], 0x03)  # command = off
+
+    # --- AES disable frame sequence (captured from the touchscreen) ---
+
+    def _drain(self, g):
+        out = []
+        while not g.send_queue.empty():
+            out.append(g.send_queue.get_nowait())
+        return out
+
+    def test_aes_disable_sends_engine_relay_off_without_floorplan_key(self):
+        """The engine-relay off frame is part of a byte-verified capture, so it is
+        sent even when the floorplan never declared engine_relay_instance. AES
+        1-wire operation always uses channel 18."""
+        g = self._make_g12()
+        g.set_rvc_send_queue(queue.Queue())
+        g.process_mqtt_msg('g12/set/aes/enabled', 'off')
+        sent = self._drain(g)
+        self.assertEqual([s['dgn'] for s in sent],
+                         ['1FED9'] * 6 + ['1FEDB'] + ['1FED9'] * 3)
+        relay = sent[6]
+        self.assertEqual(relay['data'][0], 18)
+        self.assertEqual(relay['data'][3], 0x03)  # command = off
+
+    def test_aes_disable_engine_relay_frame_uses_configured_instance(self):
+        """A 2-wire coach declares its own channel; the AES sequence must follow it."""
+        g = self._make_g12_with_engine(engine_relay_instance=7)
+        g.set_rvc_send_queue(queue.Queue())
+        g.process_mqtt_msg('g12/set/aes/enabled', 'off')
+        sent = self._drain(g)
+        self.assertEqual([s['dgn'] for s in sent],
+                         ['1FED9'] * 6 + ['1FEDB'] + ['1FED9'] * 3)
+        self.assertEqual(sent[6]['data'][0], 7)
+
+    def test_aes_enable_sends_no_engine_relay_frame(self):
+        g = self._make_g12_with_engine()
+        g.set_rvc_send_queue(queue.Queue())
+        g.process_mqtt_msg('g12/set/aes/enabled', 'on')
+        sent = self._drain(g)
+        self.assertTrue(sent)
+        self.assertEqual({s['dgn'] for s in sent}, {'1FED9'})
 
     # --- INITIAL_PACKET / DATA_PACKET / product_id tests ---
 
@@ -1121,7 +1206,7 @@ class Test_G12_Configuration(unittest.TestCase):
 
 class Test_G12_ConfigurationHADiscovery(unittest.TestCase):
 
-    def _make_g12_for_discovery(self):
+    def _make_g12_for_discovery(self, engine_relay_instance=None):
         mock = MagicMock()
         mock.make_device_topic_string.return_value = 'topic_string'
         mock.make_ha_auto_discovery_config_topic.return_value = 'ha/config/topic'
@@ -1129,12 +1214,26 @@ class Test_G12_ConfigurationHADiscovery(unittest.TestCase):
         mock.bridge_state_topic = 'rvc2mqtt/bridge/state'
         mock.TOPIC_BASE = 'rvc2mqtt'
         mock.client_id = 'bridge'
-        return G12_Configuration(
-            {'instance': 1, 'instance_name': 'Generator Controller',
-             'source_id': '9C',
-             'status_topic': 'g12/status', 'command_topic': 'g12/set'},
-            mock
-        )
+        data = {'instance': 1, 'instance_name': 'Generator Controller',
+                'source_id': '9C',
+                'status_topic': 'g12/status', 'command_topic': 'g12/set'}
+        if engine_relay_instance is not None:
+            data['engine_relay_instance'] = engine_relay_instance
+        return G12_Configuration(data, mock)
+
+    def test_discovery_omits_engine_components_without_relay_instance(self):
+        g = self._make_g12_for_discovery()
+        g.publish_ha_discovery_config()
+        uids = [c.get('unique_id', '') for c in self._get_published_configs(g)]
+        self.assertEqual([u for u in uids if 'engine_st' in u], [])
+
+    def test_discovery_includes_engine_components_with_relay_instance(self):
+        g = self._make_g12_for_discovery(engine_relay_instance=18)
+        g.publish_ha_discovery_config()
+        uids = [c.get('unique_id', '') for c in self._get_published_configs(g)]
+        for suffix in ('_engine_status', '_engine_start', '_engine_stop'):
+            self.assertTrue(any(u.endswith(suffix) for u in uids),
+                            f"missing {suffix} in {uids}")
 
     def _make_g12_no_status_topic(self):
         mock = MagicMock()

@@ -135,6 +135,17 @@ floorplan:
     command_topic: "rvc/g12/set"
 ```
 
+**Message dispatch is first-match-wins.** `app.py` hands each decoded message to
+`entity_list` in floorplan order and stops at the first `process_rvc_msg` that returns
+`True`. So an entity's match dict must be as narrow as the messages it actually consumes
+— a match on `source_id` alone silently starves every later entity on that DGN. Entries
+added via the `.override.yml` file are *appended after* the whole base floorplan, so they
+are the most likely victims. Return `False` for messages you don't handle.
+
+When an entity needs a second DGN whose instance differs from its own, declare that index
+in the floorplan rather than hardcoding it (`driver_index`, `tank_status_instance`,
+`engine_relay_instance`) — the coupling is otherwise invisible to whoever writes the YAML.
+
 ### Dev Tools (`tools/`)
 
 - **`rvc_decode.py`** — Decode a raw DGN + hex payload from the command line: `python3 tools/rvc_decode.py 1FFBD FF00FF00FF00FF00`
