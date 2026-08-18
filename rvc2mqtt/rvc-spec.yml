@@ -5265,18 +5265,35 @@ Z0005:
 
 0FF01:
   comment: >
-    Broadcast in Ethos 20DL by the G12 (source 9C). Shares the addressing of 0FF02:
-    byte 0 is a bank, byte 1 an instance (01, 02, or FF for all). Only a handful of
-    distinct payloads observed, so this looks like a periodic status to 0FF02's
-    parameter dump. Not decoded.
+    Broadcast in Ethos 20DL by the G12 (source 9C), as 4 frames following every
+    1FED8 (GENERIC_CONFIGURATION_STATUS) -- both the roughly-14 s periodic one and
+    any sent in reply to a REQUEST_FOR_DGN. Shares 0FF02's addressing: byte 0 is a
+    bank, byte 1 an instance (01, 02, or FF for all). Only 4 distinct payloads seen,
+    one per bank/instance pair. Not decoded. See 0FF02.
   name: UNKNOWN-0FF01
 
 0FF02:
   comment: >
-    Broadcast in Ethos 20DL by the G12 (source 9C), in bursts of tens to hundreds of
-    frames in a single second, seen at coach/G12 power-up and during a Lyra firmware
-    update -- consistent with the G12 dumping its parameters rather than a periodic
-    status. Not seen between bursts.
+    Sent in a burst by the G12 (source 9C) in response to a REQUEST_FOR_DGN for
+    1FED8 (GENERIC_CONFIGURATION_STATUS) that is addressed to the G12, i.e. a PDU1
+    frame with destination 9C (0EA9C) rather than the broadcast 0EAFF. Never seen
+    otherwise -- there is no periodic 0FF02.
+
+    Trigger confirmed on the coach 2026-08-17 by sending the request both ways and
+    counting the replies:
+      dest FF (broadcast)  ->  1FED8 + 4x 0FF01, no 0FF02
+      dest 9C (directed)   ->  1FED8 + 4x 0FF01 + 29x 0FF02
+    Priority (5 or 6) and the request's instance byte (00 or FF) make no difference;
+    only the destination does. The G12 also emits 1FED8 + 4x 0FF01 on its own about
+    every 14 s, which is why 0FF01 is common in logs and 0FF02 is rare.
+
+    To reproduce:  cansend can_rvc 18EA9C82#D8FE01FFFFFFFFFF
+
+    The bursts originally seen in the log came from node F9 issuing the directed
+    request; F9 was present on the bus for only 22 s during a Lyra firmware update
+    and claimed no address, so it was not identified. The touchscreen (9F) issues the
+    same request 67 times in the same logs but always broadcast, and never triggers a
+    dump.
 
     Structure inferred from captures 2026-08-13 through 2026-08-17, NOT decoded and
     not confirmed against the device:
