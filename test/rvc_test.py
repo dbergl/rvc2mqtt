@@ -225,6 +225,39 @@ class Test_RVC_Decoder(unittest.TestCase):
         rvc = RVC_Decoder()
         self.assertEqual(rvc._convert_unit(0xFFFF, "j1939rpm", "uint16"), "n/a")
 
+    def test_0ff02_is_named_not_unknown_dgn(self):
+        """The G12 dumps parameters on 0FF02 in bursts; it needs a spec entry so the
+        decoder does not treat every frame as an unrecognised DGN."""
+        rvc = RVC_Decoder()
+        rvc.load_rvc_spec(rvc_spec_file_path)
+        result = rvc.rvc_decode(int("18ff029c", 16), '00010A0064000000')
+        self.assertEqual(result["dgn"], "0FF02")
+        self.assertEqual(result["name"], "UNKNOWN-0FF02")
+
+    def test_missing_dgn_warns_only_once_per_dgn(self):
+        """A parameter dump puts hundreds of frames on one unknown DGN in a single
+        second. Warning per frame buries the rest of the log."""
+        rvc = RVC_Decoder()
+        rvc.load_rvc_spec(rvc_spec_file_path)
+        with self.assertLogs('rvc2mqtt.rvc', level='WARNING') as cm:
+            for _ in range(50):
+                rvc.rvc_decode(int("18fe019c", 16), '0011223344556677')
+            rvc.rvc_decode(int("18fe039c", 16), '0011223344556677')
+        # one per distinct DGN, not one per frame
+        self.assertEqual(len(cm.output), 2)
+        self.assertIn("0FE01", cm.output[0])
+        self.assertIn("0FE03", cm.output[1])
+
+    def test_missing_dgn_reported_again_after_spec_reload(self):
+        rvc = RVC_Decoder()
+        rvc.load_rvc_spec(rvc_spec_file_path)
+        with self.assertLogs('rvc2mqtt.rvc', level='WARNING'):
+            rvc.rvc_decode(int("18fe019c", 16), '0011223344556677')
+        rvc.load_rvc_spec(rvc_spec_file_path)
+        with self.assertLogs('rvc2mqtt.rvc', level='WARNING') as cm:
+            rvc.rvc_decode(int("18fe019c", 16), '0011223344556677')
+        self.assertEqual(len(cm.output), 1)
+
 
 if __name__ == '__main__':
     unittest.main()

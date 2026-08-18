@@ -5264,8 +5264,31 @@ Z0005:
   alias: 0EEFF
 
 0FF01:
-  comment: Broadcast in Ethos 20DL
+  comment: >
+    Broadcast in Ethos 20DL by the G12 (source 9C). Shares the addressing of 0FF02:
+    byte 0 is a bank, byte 1 an instance (01, 02, or FF for all). Only a handful of
+    distinct payloads observed, so this looks like a periodic status to 0FF02's
+    parameter dump. Not decoded.
   name: UNKNOWN-0FF01
+
+0FF02:
+  comment: >
+    Broadcast in Ethos 20DL by the G12 (source 9C), in bursts of tens to hundreds of
+    frames in a single second, seen at coach/G12 power-up and during a Lyra firmware
+    update -- consistent with the G12 dumping its parameters rather than a periodic
+    status. Not seen between bursts.
+
+    Structure inferred from captures 2026-08-13 through 2026-08-17, NOT decoded and
+    not confirmed against the device:
+      byte 0    bank (00, 01)
+      byte 1    instance (01, 02, or FF for all)
+      byte 2-3  selector, little-endian (01, 02, 04, 07, 08, 09, 0A..0E, 40, 80..82)
+      byte 4-7  value, little-endian uint32 (FFFFFFFF = unavailable)
+    e.g. 00010A0064000000 -> bank 0, instance 1, selector 0x0A, value 100.
+
+    Named here only so the decoder stops warning per frame; add parameters if the
+    selectors are ever mapped.
+  name: UNKNOWN-0FF02
 
 1AAFD:
   name: DC_SOURCE_STATUS_G12

@@ -49,6 +49,11 @@ class RVC_Decoder(object):
         """
         self.Logger = logging.getLogger(__name__)
         self.spec = {}
+        # DGNs already reported as missing from the spec. A device dumping its
+        # parameters emits hundreds of frames on one unknown DGN in a burst, and
+        # warning per frame buries everything else in the log - the DGN is what is
+        # worth knowing, not each occurrence.
+        self._unknown_dgns_reported = set()
 
     def load_rvc_spec(self, filepath: PathLike) -> None:
         """load the rvc specification yaml file so that messages can be decoded"""
@@ -61,6 +66,8 @@ class RVC_Decoder(object):
             except YAML.YAMLError as err:
                 self.Logger.error("Yaml Load Error.\n" + err)
                 raise (err)
+        # A reload may add the DGNs that were missing, so report against the new spec.
+        self._unknown_dgns_reported.clear()
 
     def rvc_decode(self, can_arbitration_id: int, data: str) -> dict:
         result = {"arbitration_id": hex(can_arbitration_id), "data": data}
@@ -75,7 +82,15 @@ class RVC_Decoder(object):
             dgn = result["dgn_h"]
 
             if dgn not in self.spec:
-                self.Logger.warning(f"Failed to find DGN {result['dgn']} in loaded specification")
+                missing = result["dgn"]
+                if missing not in self._unknown_dgns_reported:
+                    self._unknown_dgns_reported.add(missing)
+                    self.Logger.warning(
+                        f"Failed to find DGN {missing} in loaded specification "
+                        f"(further occurrences logged at debug level)")
+                else:
+                    self.Logger.debug(
+                        f"Failed to find DGN {missing} in loaded specification")
                 return result
 
         decoder = self.spec[dgn]
