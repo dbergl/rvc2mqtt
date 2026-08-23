@@ -222,6 +222,9 @@ class app(object):
         for entity in self.entity_list:
             entity.teardown()
         self.entity_list = []
+        # Entities are rebuilt below; reset tick-failure suppression so a fresh
+        # instance with the same id gets its failures logged again.
+        self._tick_failed_ids = set()
 
         # 5. Reload floorplan files
         new_fp = []

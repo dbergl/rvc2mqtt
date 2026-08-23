@@ -1328,7 +1328,7 @@ Mirror topic names (relative to `topic_base`), matching `entity/inverter.py` and
 | field(s) | topic | payload |
 |---|---|---|
 | status (+fault) | `status` | RV-C status int |
-| | `status_definition` | e.g. `invert` |
+| | `status_definition` | e.g. `Invert` |
 | enabled | `onoff` | `on` / `off` |
 | fault | `fault` | `on` / `off` |
 | ac_in_voltage | `line1/input/rms_voltage` | float, 2 dp |
@@ -1355,7 +1355,7 @@ class Test_Mirror(unittest.TestCase):
         self._feed(e, mock, 'modbus/inverter/state/status', '5')
         pubs = _state_publishes(mock)
         self.assertIn(('rvc/state/inverter/status', 1, True), pubs)
-        self.assertIn(('rvc/state/inverter/status_definition', 'invert', True), pubs)
+        self.assertIn(('rvc/state/inverter/status_definition', 'Invert', True), pubs)
 
     def test_onoff_and_fault_mirror(self):
         e, mock, _ = _make_entity()
@@ -1372,7 +1372,7 @@ class Test_Mirror(unittest.TestCase):
         self._feed(e, mock, 'modbus/inverter/state/fault', '1')
         pubs = _state_publishes(mock)
         self.assertIn(('rvc/state/inverter/status', 0, True), pubs)
-        self.assertIn(('rvc/state/inverter/status_definition', 'disabled', True), pubs)
+        self.assertIn(('rvc/state/inverter/status_definition', 'Disabled', True), pubs)
 
     def test_numeric_mirror_topics(self):
         e, mock, _ = _make_entity({'fields': {
@@ -1495,7 +1495,7 @@ Add these class-level tables and methods to `VirtualInverter`:
         if self.values['status'] is not None or self.values['fault'] is not None:
             status = self.rvc_status()
             out[f"{self.topic_base}/status"] = status
-            out[f"{self.topic_base}/status_definition"] = RVC_STATUS_DEFINITION.get(status, "unknown")
+            out[f"{self.topic_base}/status_definition"] = RVC_STATUS_DEFINITION.get(status, "unknown").title()
         if self.values['enabled'] is not None:
             out[f"{self.topic_base}/onoff"] = self._onoff(self.values['enabled'])
         if self.values['fault'] is not None:
@@ -1534,7 +1534,7 @@ Add these class-level tables and methods to `VirtualInverter`:
             "name": self.name + " status",
             "state_topic": f"{self.topic_base}/status_definition",
             "device_class": "enum",
-            "options": list(RVC_STATUS_DEFINITION.values()) + ["unknown"]})
+            "options": [v.title() for v in RVC_STATUS_DEFINITION.values()] + ["Unknown"]})
         self._publish_discovery("binary_sensor", "fault", {
             "name": self.name + " fault",
             "state_topic": f"{self.topic_base}/fault",
@@ -1799,14 +1799,14 @@ sleep 2                        # candump should now show 19FFD442 / 19FFD742 ×2
 mosquitto_sub -h localhost -t 'modbus/inverter/set/#' -C 1 &
 cansend vcan0 19FFD39F#0110FFFFFFFFFF11   # INVERTER_COMMAND disable from source 9F
 sleep 1                        # mosquitto_sub should print "0"
-mosquitto_sub -h localhost -t 'rvc/state/inverter/#' -v -C 3   # status 1 / invert / onoff on
+mosquitto_sub -h localhost -t 'rvc/state/inverter/#' -v -C 3   # status 1 / Invert / onoff on
 kill $APP
 ```
 
 Expected:
 - After the status/onoff publishes: `candump` shows `19FFD442 [8] 01 01 1x FF FF FF FF FF` and the AC/DC frames once per second.
 - After `cansend`: `modbus/inverter/set/onoff 0`.
-- `rvc/state/inverter/status 1`, `…/status_definition invert`, `…/onoff on`.
+- `rvc/state/inverter/status 1`, `…/status_definition Invert`, `…/onoff on`.
 
 - [ ] **Step 3: Run the full suite one more time**
 

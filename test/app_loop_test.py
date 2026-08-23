@@ -168,3 +168,22 @@ class Test_InstanceCollision(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Test_ReloadClearsTickFailures(unittest.TestCase):
+
+    def test_do_reload_resets_tick_failure_suppression(self):
+        """Entities are rebuilt on reload, so a previously failing entity id
+        must be logged again if its fresh instance also fails."""
+        a = AppClass.__new__(AppClass)
+        a.Logger = MagicMock()
+        a._reload_requested = threading.Event()
+        a._floorplan_path1 = None
+        a._floorplan_path2 = None
+        a._entity_factory_list = []
+        a.tx_RVC_Buffer = MagicMock()
+        a.mqtt_client = None
+        a.entity_list = []
+        a._tick_failed_ids = {"broken-entity"}
+        a._do_reload()
+        self.assertEqual(a._tick_failed_ids, set())
