@@ -100,10 +100,17 @@ class VirtualInverter(EntityPluginBaseClass):
         self.name = data.get('instance_name', f"virtual inverter {self.rvc_instance}")
         self.source_topic_base = str(data.get('source_topic_base', 'modbus/inverter')).rstrip('/')
         self.interval = float(data.get('interval', 1.0))
-        self.stale_timeout = float(data.get('stale_timeout', 30.0))
+        # Liveness comes from <source_topic_base>/connected (modbus2mqtt sets
+        # it offline on poll failures and via its MQTT last-will).  Message
+        # recency is NOT liveness — modbus2mqtt publishes on change only, so a
+        # healthy-but-steady inverter can be silent on MQTT indefinitely.
+        # stale_timeout is therefore disabled by default; set it only when the
+        # source has no connected/LWT topic.
+        raw_stale = data.get('stale_timeout', None)
+        self.stale_timeout = None if raw_stale is None else float(raw_stale)
         if self.interval <= 0:
             raise ValueError(f"interval must be > 0, got {self.interval}")
-        if self.stale_timeout <= 0:
+        if self.stale_timeout is not None and self.stale_timeout <= 0:
             raise ValueError(f"stale_timeout must be > 0, got {self.stale_timeout}")
         self.source_id = str(data.get('source_id', DEFAULT_INVERTER_SOURCE_ID))
         self.field_topics = self._resolve_fields(data.get('fields') or {})
@@ -429,7 +436,13 @@ class VirtualInverter(EntityPluginBaseClass):
         self.publish_ha_discovery_config()
 
     def _should_transmit(self, now: float) -> bool:
-        return self.connected and (now - self.last_status_update) <= self.stale_timeout
+        if not self.connected:
+            return False
+        if self.last_status_update == float('-inf'):
+            return False  # never seen a status; nothing real to announce
+        if self.stale_timeout is not None and (now - self.last_status_update) > self.stale_timeout:
+            return False
+        return True
 
     def tick(self, now: float):
         if now < self.next_tx:
@@ -438,7 +451,12 @@ class VirtualInverter(EntityPluginBaseClass):
         if not self._should_transmit(now):
             if not self._silent:
                 self._silent = True
-                reason = "modbus source offline" if not self.connected else "status stale"
+                if not self.connected:
+                    reason = "modbus source offline"
+                elif self.last_status_update == float('-inf'):
+                    reason = "no status received yet"
+                else:
+                    reason = "status stale"
                 self.Logger.info(f"{self.name}: going silent on RV-C ({reason})")
             return
         if self._silent:

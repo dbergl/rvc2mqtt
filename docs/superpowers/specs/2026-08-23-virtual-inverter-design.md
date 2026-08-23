@@ -32,6 +32,14 @@ Goal: make the Renogy inverter appear on the RV-C bus as a normal inverter node
   dashboards are model-agnostic.
 - Periodic transmit is driven by a new **`tick()` hook** called from the app
   main loop (no threads).
+- **Liveness (amended post-deploy):** transmission stops when
+  `modbus/inverter/connected` is `offline` (modbus2mqtt sets it on poll
+  failures and via MQTT last-will) or before the first status arrives.
+  Message recency is NOT liveness — modbus2mqtt publishes on change only, so
+  a steady healthy inverter is silent on MQTT indefinitely; the original
+  30 s `stale_timeout` default made the panel drop it after ~30 s.
+  `stale_timeout` is now an opt-in guard for sources without a
+  `connected`/LWT topic.
 - Docker: no compose changes. rvc2mqtt already runs `network_mode: host` and
   owns `can_rvc`; modbus2mqtt stays on the bridge network.
 
@@ -62,7 +70,7 @@ bridge default `0x82`. No address-claim work in this change.
   command_topic: rvc/set/inverter         # entity subscribes to <base>/enable
   source_topic_base: modbus/inverter      # default
   interval: 1.0                           # seconds between frame sets, default 1.0
-  stale_timeout: 30.0                     # seconds, default 30.0
+  stale_timeout: ~                        # disabled by default (opt-in seconds; see Decisions)
   source_id: "42"                         # hex, default "42" (inverter address expected by the Lyra panel)
   fields:                                 # every key optional; defaults shown
     status:           {topic: state/status}
@@ -85,7 +93,7 @@ bridge default `0x82`. No address-claim work in this change.
   apply `/10` only for HA display; raw MQTT payloads are unscaled).
 - Unknown key under `fields:` → `ValueError` at construction (surfaces through
   `entity_factory` as an "Unsupported entry" error).
-- `interval` and `stale_timeout` must be `> 0`.
+- `interval` must be `> 0`; `stale_timeout` is `null`/omitted (disabled, the default) or `> 0`.
 
 The entity also subscribes to `<source_topic_base>/connected`
 (`online`/`offline`, published by modbus2mqtt).
@@ -176,8 +184,9 @@ fault", red lamp), SPN 0, FMI 11 ("failure not identifiable"), bytes 5-7
 instance field).
 
 **`tick(now)`**: if `now < next_tx` return. Set `next_tx = now + interval`.
-If `not connected` or `now - last_status_update > stale_timeout` return
-(logging the transition into/out of silence at info level once). Otherwise
+If `not connected`, or no status has ever arrived, or (`stale_timeout` set
+and `now - last_status_update > stale_timeout`) return (logging the
+transition into/out of silence at info level once). Otherwise
 put the four frames on `send_queue` as `{"dgn", "data", "source_id"}` dicts
 (the existing tx contract; `app.py` fills `arbitration_id`).
 

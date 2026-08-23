@@ -70,7 +70,7 @@ class Test_Construction(unittest.TestCase):
         self.assertEqual(e.rvc_instance, 1)
         self.assertEqual(e.source_topic_base, 'modbus/inverter')
         self.assertEqual(e.interval, 1.0)
-        self.assertEqual(e.stale_timeout, 30.0)
+        self.assertIsNone(e.stale_timeout)  # disabled: connected/LWT is the liveness signal
         self.assertEqual(e.source_id, '42')
         self.assertEqual(e.topic_base, 'rvc/state/inverter')
         self.assertEqual(e.command_topic, 'rvc/set/inverter/enable')
@@ -124,6 +124,12 @@ class Test_Construction(unittest.TestCase):
             _make_entity({'interval': 0})
         with self.assertRaises(ValueError):
             _make_entity({'stale_timeout': -1})
+        with self.assertRaises(ValueError):
+            _make_entity({'stale_timeout': 0})
+
+    def test_stale_timeout_null_means_disabled(self):
+        e, _, _ = _make_entity({'stale_timeout': None})
+        self.assertIsNone(e.stale_timeout)
 
     def test_custom_source_base_and_source_id(self):
         e, _, _ = _make_entity({'source_topic_base': 'mb/inv/', 'source_id': 'A0'})
@@ -403,8 +409,8 @@ class Test_DmRv(unittest.TestCase):
 
 class Test_Tick(unittest.TestCase):
 
-    def _ready(self, now=100.0):
-        e, mock, clock = _make_entity(now=now)
+    def _ready(self, now=100.0, extra=None):
+        e, mock, clock = _make_entity(extra, now=now)
         e.initialize()
         # a fresh status arrived "now"
         _registered(mock)['modbus/inverter/state/status'][0]('modbus/inverter/state/status', '5')
@@ -443,15 +449,26 @@ class Test_Tick(unittest.TestCase):
         e.tick(105.0)
         self.assertEqual(len(_drain(e.send_queue)), 5)
 
-    def test_silent_when_stale(self):
-        e, _, clock = self._ready(100.0)
+    def test_steady_state_keeps_transmitting_by_default(self):
+        """modbus2mqtt publishes on change only: an unchanged-but-healthy
+        inverter must keep being announced on RV-C indefinitely."""
+        e, _, _ = self._ready(100.0)
+        e.tick(100.0)
+        self.assertEqual(len(_drain(e.send_queue)), 5)
+        e.tick(131.0)   # >30 s with no MQTT traffic
+        self.assertEqual(len(_drain(e.send_queue)), 5)
+        e.tick(3700.0)  # an hour later, still nothing changed
+        self.assertEqual(len(_drain(e.send_queue)), 5)
+
+    def test_silent_when_stale_opt_in(self):
+        e, _, clock = self._ready(100.0, {'stale_timeout': 30.0})
         e.tick(100.0)
         _drain(e.send_queue)
         e.tick(131.0)  # > stale_timeout (30 s) since last status
         self.assertEqual(_drain(e.send_queue), [])
 
     def test_resumes_after_fresh_status(self):
-        e, mock, clock = self._ready(100.0)
+        e, mock, clock = self._ready(100.0, {'stale_timeout': 30.0})
         e.tick(131.0)
         self.assertEqual(_drain(e.send_queue), [])
         clock['now'] = 131.5
@@ -469,7 +486,7 @@ class Test_Tick(unittest.TestCase):
         self.assertEqual(len(_drain(e.send_queue)), 5)
 
     def test_silence_transition_logged_once(self):
-        e, _, _ = self._ready(100.0)
+        e, _, _ = self._ready(100.0, {'stale_timeout': 30.0})
         e.Logger = MagicMock()
         e.tick(100.0)
         e.tick(131.0)
