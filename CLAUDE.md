@@ -146,6 +146,11 @@ When an entity needs a second DGN whose instance differs from its own, declare t
 in the floorplan rather than hardcoding it (`driver_index`, `tank_status_instance`,
 `engine_relay_instance`) — the coupling is otherwise invisible to whoever writes the YAML.
 
+Plugin-loaded entity classes (via `PluginSupport`'s `importlib.util.spec_from_file_location`)
+are distinct class objects from the same classes imported directly from `rvc2mqtt.entity.*`
+elsewhere in the codebase, so never `isinstance()` against them in `app.py` — match on
+`FACTORY_MATCH_ATTRIBUTES` instead.
+
 ### Dev Tools (`tools/`)
 
 - **`rvc_decode.py`** — Decode a raw DGN + hex payload from the command line: `python3 tools/rvc_decode.py 1FFBD FF00FF00FF00FF00`

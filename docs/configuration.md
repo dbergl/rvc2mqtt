@@ -302,7 +302,7 @@ overrides:
 | `source_topic_base` | no | modbus2mqtt device base topic. The entity subscribes to `<base>/connected` and writes `<base>/set/onoff`. Default `modbus/inverter` |
 | `interval` | no | Seconds between RV-C status transmissions. Default `1.0` |
 | `stale_timeout` | no | Stop transmitting if no `status`/`enabled` update arrives for this many seconds, or if `<base>/connected` is `offline`. Silence is how RV-C signals absence. Default `30.0` |
-| `source_id` | no | Hex source address used for transmitted frames. Default `42`, the inverter address the Lyra panel expects; the bridge's other frames stay on `82` |
+| `source_id` | no | Hex source address used for transmitted frames. Default `42`, the inverter address the Lyra panel expects; the bridge's other frames stay on `82`. The virtual inverter does not perform RV-C address claiming, so nothing on the bus will contest a duplicate — confirm `42` (or whatever you set) is unclaimed on your coach before deploying, e.g. `candump can0 | grep -iE '[0-9a-f]{6}42\b'` (arbitration IDs ending in the source address byte) |
 | `fields` | no | Map of RV-C field → MQTT topic. A value is either a topic string (scale 1.0) or `{topic: …, scale: …}`. Relative topics are joined to `source_topic_base`. Set a field to `~` to unmap it. Unmapped fields are sent as RV-C "not available" |
 
 Fields, with defaults:

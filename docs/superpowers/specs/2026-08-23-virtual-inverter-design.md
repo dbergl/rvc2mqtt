@@ -205,8 +205,10 @@ the topic collision obvious.
 
 ## Lifecycle
 
-- `initialize()`: `next_tx = 0`, `last_status_update = -inf`, so the first
-  tick sends nothing until modbus2mqtt has published a status.
+- `initialize()` only publishes HA discovery; it must NOT reset
+  `next_tx`/`last_status_update`, because subscriptions are made in
+  `__init__` and a retained status may already have arrived on the paho
+  thread before `initialize()` runs.
 - `teardown()`: base behaviour only; no timers or threads to stop.
 - Floorplan reload: existing path unsubscribes and rebuilds entities.
 
