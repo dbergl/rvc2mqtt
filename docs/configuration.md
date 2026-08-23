@@ -260,6 +260,83 @@ floorplan:
     status_topic: rvc/state/g12/battery
 ```
 
+### Virtual inverter (`virtual_inverter`)
+
+Presents an inverter that only speaks Modbus (published on MQTT by
+[modbus2mqtt](https://github.com/dbergl/modbus2mqtt)) as an RV-C inverter, so
+the coach panel can show and switch it.  rvc2mqtt transmits
+`INVERTER_STATUS`, `INVERTER_AC_STATUS_1` (line 1 input and output) and
+`INVERTER_DC_STATUS` every `interval` seconds, and answers `INVERTER_COMMAND`
+(inverter enable/disable) by writing modbus2mqtt's `set/onoff` topic.  State is
+also mirrored to the same `rvc/state/inverter/*` topics the real `inverter`
+entity uses, and `rvc/set/inverter/enable` (`on`/`off`) works the same way.
+
+A coach has either a real RV-C inverter or a virtual one on a given instance,
+never both.  On Lithium coaches put this in the override floorplan and
+`_remove` the factory `INVERTER_STATUS` entry.
+
+```yaml
+overrides:
+  - name: INVERTER_STATUS
+    type: inverter
+    instance: 1
+    _remove: true
+
+  - name: VIRTUAL_INVERTER
+    type: virtual_inverter
+    instance: 1
+    instance_name: renogy
+    status_topic: rvc/state/inverter
+    command_topic: rvc/set/inverter
+    source_topic_base: modbus/inverter     # default
+    interval: 1.0                          # seconds between transmissions (default 1.0)
+    stale_timeout: 30.0                    # seconds (default 30.0)
+    source_id: "42"                        # RV-C source address, hex (default "42")
+    fields:
+      dc_voltage: {topic: state/battery_voltage, scale: 0.1}
+      dc_current: state/battery_current
+```
+
+| Field | Required | Description |
+|---|---|---|
+| `source_topic_base` | no | modbus2mqtt device base topic. The entity subscribes to `<base>/connected` and writes `<base>/set/onoff`. Default `modbus/inverter` |
+| `interval` | no | Seconds between RV-C status transmissions. Default `1.0` |
+| `stale_timeout` | no | Stop transmitting if no `status`/`enabled` update arrives for this many seconds, or if `<base>/connected` is `offline`. Silence is how RV-C signals absence. Default `30.0` |
+| `source_id` | no | Hex source address used for transmitted frames. Default `42`, the inverter address the Lyra panel expects; the bridge's other frames stay on `82` |
+| `fields` | no | Map of RV-C field → MQTT topic. A value is either a topic string (scale 1.0) or `{topic: …, scale: …}`. Relative topics are joined to `source_topic_base`. Set a field to `~` to unmap it. Unmapped fields are sent as RV-C "not available" |
+
+Fields, with defaults:
+
+| Field | Default topic | Scale | Used in |
+|---|---|---|---|
+| `status` | `state/status` | — | `INVERTER_STATUS.status` (SRNE code, see below) |
+| `enabled` | `state/onoff` | — | `INVERTER_STATUS` inverter-enabled bits |
+| `fault` | `state/fault` | — | forces status `disabled`; mirrored to `…/fault` |
+| `ac_in_voltage` | `state/AC_Input_Voltage` | `0.1` | `INVERTER_AC_STATUS_1` (input) |
+| `ac_out_voltage` | unmapped | `1.0` | `INVERTER_AC_STATUS_1` (output) |
+| `ac_out_current` | unmapped | `1.0` | `INVERTER_AC_STATUS_1` (output) |
+| `ac_out_frequency` | unmapped | `1.0` | `INVERTER_AC_STATUS_1` (output) |
+| `dc_voltage` | unmapped | `1.0` | `INVERTER_DC_STATUS` |
+| `dc_current` | unmapped | `1.0` | `INVERTER_DC_STATUS` |
+
+`scale` multiplies the raw MQTT payload (modbus2mqtt publishes raw register
+values; the `/10` in the CSV templates only affects Home Assistant display).
+
+Modbus status code (SRNE register 4405) → RV-C status:
+
+| Code | Meaning | RV-C status |
+|---|---|---|
+| 4 | Mains powered operation | 2 `ac passthru` |
+| 5 | Inverter powered operation | 1 `invert` |
+| 3, 6, 7 | Soft start / transitions | 5 `waiting to invert` |
+| 0, 1, 2, 10 | Power-up, waiting, init, shutdown | 0 `disabled` |
+| 11 or `fault` on | Fault | 0 `disabled` |
+| other | unknown (warned once) | 0 `disabled` |
+
+Mirrored topics under `status_topic`: `status`, `status_definition`, `onoff`,
+`fault`, `line1/input/rms_voltage`, `line1/output/{rms_voltage,rms_current,frequency}`,
+`dc_voltage`, `dc_amperage` — only for fields that are mapped.
+
 ### Example
 
 ``` yaml
