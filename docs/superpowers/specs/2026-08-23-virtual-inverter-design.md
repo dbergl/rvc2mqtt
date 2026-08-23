@@ -186,7 +186,7 @@ accepts `on/off/1/0/true/false` → publish to `set/onoff` as above.
 
 **Mirror** (`<status_topic>/…`, retained, publish on change only), names
 matching `entity/inverter.py`: `status` (RV-C code), `status_definition`,
-`enabled` (`on`/`off`), `fault` (`on`/`off`), `line1/input/rms_voltage`,
+`onoff` (`on`/`off`), `fault` (`on`/`off`, new), `line1/input/rms_voltage`,
 `line1/output/rms_voltage`, `line1/output/rms_current`,
 `line1/output/frequency`, `dc_voltage`, `dc_amperage`. Unmapped fields are
 never published.
