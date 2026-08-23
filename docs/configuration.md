@@ -313,6 +313,7 @@ Fields, with defaults:
 | `enabled` | `state/onoff` | — | `INVERTER_STATUS` inverter-enabled bits |
 | `fault` | `state/fault` | — | forces status `disabled`; mirrored to `…/fault` |
 | `ac_in_voltage` | `state/AC_Input_Voltage` | `0.1` | `INVERTER_AC_STATUS_1` (input) |
+| `ac_in_current` | unmapped | `1.0` | `INVERTER_AC_STATUS_1` (input) |
 | `ac_out_voltage` | unmapped | `1.0` | `INVERTER_AC_STATUS_1` (output) |
 | `ac_out_current` | unmapped | `1.0` | `INVERTER_AC_STATUS_1` (output) |
 | `ac_out_frequency` | unmapped | `1.0` | `INVERTER_AC_STATUS_1` (output) |
@@ -341,7 +342,7 @@ Modbus status code (SRNE register 4405) → RV-C status:
 | other | unknown (warned once) | 0 `disabled` |
 
 Mirrored topics under `status_topic`: `status`, `status_definition`, `onoff`,
-`fault`, `line1/input/rms_voltage`, `line1/output/{rms_voltage,rms_current,frequency}`,
+`fault`, `line1/input/{rms_voltage,rms_current}`, `line1/output/{rms_voltage,rms_current,frequency}`,
 `dc_voltage`, `dc_amperage` — only for fields that are mapped.
 
 ### Example

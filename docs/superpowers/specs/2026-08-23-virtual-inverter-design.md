@@ -166,7 +166,8 @@ If `fault` is `True` the RV-C status is forced to 0.
 - byte 0: `instance & 0x0F | line(00) << 4 | io << 6` with io `00` input / `01` output
 - bytes 1-2 rms voltage, 3-4 rms current, 5-6 frequency (`encode_*`)
 - byte 7: `0xFF` (faults n/a)
-- input frame uses `ac_in_voltage` only (current/frequency n/a)
+- input frame uses `ac_in_voltage` and `ac_in_current` (added post-deploy;
+  frequency n/a)
 - output frame uses `ac_out_voltage`, `ac_out_current`, `ac_out_frequency`
 - a frame whose three values are all `None` is still sent (panel sees the
   instance exists) — only stale/offline suppresses frames.

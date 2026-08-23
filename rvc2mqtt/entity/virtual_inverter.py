@@ -42,6 +42,7 @@ FIELD_DEFAULTS = {
     "enabled":          {"topic": "state/onoff", "scale": 1.0},
     "fault":            {"topic": "state/fault", "scale": 1.0},
     "ac_in_voltage":    {"topic": "state/AC_Input_Voltage", "scale": 0.1},
+    "ac_in_current":    None,
     "ac_out_voltage":   None,
     "ac_out_current":   None,
     "ac_out_frequency": None,
@@ -232,6 +233,7 @@ class VirtualInverter(EntityPluginBaseClass):
     # numeric field -> (mirror sub-topic, HA device_class, unit)
     _NUMERIC_MIRROR = {
         "ac_in_voltage":    ("line1/input/rms_voltage",  "voltage",   "V"),
+        "ac_in_current":    ("line1/input/rms_current",  "current",   "A"),
         "ac_out_voltage":   ("line1/output/rms_voltage", "voltage",   "V"),
         "ac_out_current":   ("line1/output/rms_current", "current",   "A"),
         "ac_out_frequency": ("line1/output/frequency",   "frequency", "Hz"),
@@ -385,7 +387,8 @@ class VirtualInverter(EntityPluginBaseClass):
             amps = self.values['ac_out_current']
             hz = self.values['ac_out_frequency']
         else:
-            volts, amps, hz = self.values['ac_in_voltage'], None, None
+            # input frequency is not polled; stays "not available"
+            volts, amps, hz = self.values['ac_in_voltage'], self.values['ac_in_current'], None
         byte0 = (self.rvc_instance & 0x0F) | (0b00 << 4) | ((0b01 if output else 0b00) << 6)
         data = (bytes([byte0])
                 + u16_le(encode_voltage_u16(volts))

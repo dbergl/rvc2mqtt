@@ -84,8 +84,8 @@ class Test_Construction(unittest.TestCase):
         self.assertEqual(e.field_topics['fault'], ('modbus/inverter/state/fault', 1.0))
         self.assertEqual(e.field_topics['ac_in_voltage'],
                          ('modbus/inverter/state/AC_Input_Voltage', 0.1))
-        for f in ('ac_out_voltage', 'ac_out_current', 'ac_out_frequency',
-                  'dc_voltage', 'dc_current'):
+        for f in ('ac_in_current', 'ac_out_voltage', 'ac_out_current',
+                  'ac_out_frequency', 'dc_voltage', 'dc_current'):
             self.assertNotIn(f, e.field_topics)
 
     def test_state_topics_registered_with_retain_ok(self):
@@ -305,6 +305,25 @@ class Test_Frames(unittest.TestCase):
         self.assertEqual(msg['rms_current'], 'n/a')
         self.assertEqual(msg['frequency'], 0xFFFF)  # decoder returns raw 0xFFFF for Hz n/a
         self.assertEqual(msg['data'][14:], 'FF')
+
+    def test_ac_status_input_frame_with_current_mapped(self):
+        e, mock, _ = _make_entity({'fields': {'ac_in_current': {'topic': 'state/AC_Input_Current', 'scale': 0.01}}})
+        _registered(mock)['modbus/inverter/state/AC_Input_Voltage'][0](
+            'modbus/inverter/state/AC_Input_Voltage', '1208')
+        _registered(mock)['modbus/inverter/state/AC_Input_Current'][0](
+            'modbus/inverter/state/AC_Input_Current', '1250')
+        msg = _decode(e.build_frames()[1])
+        self.assertEqual(msg['input_output_definition'], 'input')
+        self.assertEqual(msg['rms_voltage'], 120.8)
+        self.assertEqual(msg['rms_current'], 12.5)
+        self.assertEqual(msg['frequency'], 0xFFFF)  # input frequency stays n/a
+
+    def test_ac_in_current_does_not_leak_into_output_frame(self):
+        e, mock, _ = _make_entity({'fields': {'ac_in_current': 'state/ic'}})
+        _registered(mock)['modbus/inverter/state/ic'][0]('modbus/inverter/state/ic', '5')
+        msg = _decode(e.build_frames()[2])
+        self.assertEqual(msg['input_output_definition'], 'output')
+        self.assertEqual(msg['rms_current'], 'n/a')
 
     def test_ac_status_output_frame(self):
         e, _, _ = _make_entity()
@@ -606,9 +625,11 @@ class Test_Mirror(unittest.TestCase):
 
     def test_numeric_mirror_topics(self):
         e, mock, _ = _make_entity({'fields': {
+            'ac_in_current': {'topic': 'state/ic', 'scale': 0.01},
             'ac_out_voltage': 'state/ov', 'ac_out_current': 'state/oc',
             'ac_out_frequency': 'state/of', 'dc_voltage': 'state/dv', 'dc_current': 'state/dc'}})
         self._feed(e, mock, 'modbus/inverter/state/AC_Input_Voltage', '1208')
+        self._feed(e, mock, 'modbus/inverter/state/ic', '1250')
         self._feed(e, mock, 'modbus/inverter/state/ov', '119.5')
         self._feed(e, mock, 'modbus/inverter/state/oc', '3.8')
         self._feed(e, mock, 'modbus/inverter/state/of', '60')
@@ -616,6 +637,7 @@ class Test_Mirror(unittest.TestCase):
         self._feed(e, mock, 'modbus/inverter/state/dc', '-12.5')
         pubs = {t: p for (t, p, _r) in _state_publishes(mock)}
         self.assertEqual(pubs['rvc/state/inverter/line1/input/rms_voltage'], 120.8)
+        self.assertEqual(pubs['rvc/state/inverter/line1/input/rms_current'], 12.5)
         self.assertEqual(pubs['rvc/state/inverter/line1/output/rms_voltage'], 119.5)
         self.assertEqual(pubs['rvc/state/inverter/line1/output/rms_current'], 3.8)
         self.assertEqual(pubs['rvc/state/inverter/line1/output/frequency'], 60.0)
