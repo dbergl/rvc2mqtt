@@ -306,5 +306,89 @@ class Test_Frames(unittest.TestCase):
         self.assertEqual(msg['dc_amperage'], 'n/a')
 
 
+def _drain(q: queue.Queue) -> list:
+    out = []
+    while not q.empty():
+        out.append(q.get())
+    return out
+
+
+class Test_Tick(unittest.TestCase):
+
+    def _ready(self, now=100.0):
+        e, mock, clock = _make_entity(now=now)
+        e.initialize()
+        # a fresh status arrived "now"
+        _registered(mock)['modbus/inverter/state/status'][0]('modbus/inverter/state/status', '5')
+        return e, mock, clock
+
+    def test_nothing_before_first_status(self):
+        e, _, _ = _make_entity(now=100.0)
+        e.initialize()
+        e.tick(100.0)
+        e.tick(200.0)
+        self.assertEqual(_drain(e.send_queue), [])
+
+    def test_first_tick_sends_full_set(self):
+        e, _, _ = self._ready(100.0)
+        e.tick(100.0)
+        frames = _drain(e.send_queue)
+        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FEE8'])
+
+    def test_respects_interval(self):
+        e, _, _ = self._ready(100.0)
+        e.tick(100.0)
+        _drain(e.send_queue)
+        e.tick(100.5)
+        self.assertEqual(_drain(e.send_queue), [])
+        e.tick(101.0)
+        self.assertEqual(len(_drain(e.send_queue)), 4)
+
+    def test_custom_interval(self):
+        e, mock, clock = _make_entity({'interval': 5.0}, now=100.0)
+        e.initialize()
+        _registered(mock)['modbus/inverter/state/status'][0]('modbus/inverter/state/status', '4')
+        e.tick(100.0)
+        _drain(e.send_queue)
+        e.tick(104.9)
+        self.assertEqual(_drain(e.send_queue), [])
+        e.tick(105.0)
+        self.assertEqual(len(_drain(e.send_queue)), 4)
+
+    def test_silent_when_stale(self):
+        e, _, clock = self._ready(100.0)
+        e.tick(100.0)
+        _drain(e.send_queue)
+        e.tick(131.0)  # > stale_timeout (30 s) since last status
+        self.assertEqual(_drain(e.send_queue), [])
+
+    def test_resumes_after_fresh_status(self):
+        e, mock, clock = self._ready(100.0)
+        e.tick(131.0)
+        self.assertEqual(_drain(e.send_queue), [])
+        clock['now'] = 131.5
+        _registered(mock)['modbus/inverter/state/onoff'][0]('modbus/inverter/state/onoff', '1')
+        e.tick(132.0)
+        self.assertEqual(len(_drain(e.send_queue)), 4)
+
+    def test_silent_when_offline(self):
+        e, mock, _ = self._ready(100.0)
+        _registered(mock)['modbus/inverter/connected'][0]('modbus/inverter/connected', 'offline')
+        e.tick(100.0)
+        self.assertEqual(_drain(e.send_queue), [])
+        _registered(mock)['modbus/inverter/connected'][0]('modbus/inverter/connected', 'online')
+        e.tick(101.0)
+        self.assertEqual(len(_drain(e.send_queue)), 4)
+
+    def test_silence_transition_logged_once(self):
+        e, _, _ = self._ready(100.0)
+        e.Logger = MagicMock()
+        e.tick(100.0)
+        e.tick(131.0)
+        e.tick(132.0)
+        e.tick(133.0)
+        self.assertEqual(e.Logger.info.call_count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

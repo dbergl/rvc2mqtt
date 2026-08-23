@@ -274,3 +274,30 @@ class VirtualInverter(EntityPluginBaseClass):
                 self._ac_status_frame(output=False),
                 self._ac_status_frame(output=True),
                 self._dc_status_frame()]
+
+    # ---- lifecycle ------------------------------------------------------
+
+    def initialize(self):
+        # Do NOT reset last_status_update/next_tx here: subscriptions were made
+        # in __init__, so a retained status may already have arrived on the
+        # paho thread before initialize() runs.
+        self.publish_ha_discovery_config()
+
+    def _should_transmit(self, now: float) -> bool:
+        return self.connected and (now - self.last_status_update) <= self.stale_timeout
+
+    def tick(self, now: float):
+        if now < self.next_tx:
+            return
+        self.next_tx = now + self.interval
+        if not self._should_transmit(now):
+            if not self._silent:
+                self._silent = True
+                reason = "modbus source offline" if not self.connected else "status stale"
+                self.Logger.info(f"{self.name}: going silent on RV-C ({reason})")
+            return
+        if self._silent:
+            self._silent = False
+            self.Logger.info(f"{self.name}: resuming RV-C transmission")
+        for frame in self.build_frames():
+            self.send_queue.put(frame)
