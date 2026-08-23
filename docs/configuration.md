@@ -265,8 +265,8 @@ floorplan:
 Presents an inverter that only speaks Modbus (published on MQTT by
 [modbus2mqtt](https://github.com/dbergl/modbus2mqtt)) as an RV-C inverter, so
 the coach panel can show and switch it.  rvc2mqtt transmits
-`INVERTER_STATUS`, `INVERTER_AC_STATUS_1` (line 1 input and output) and
-`INVERTER_DC_STATUS` every `interval` seconds, and answers `INVERTER_COMMAND`
+`INVERTER_STATUS`, `INVERTER_AC_STATUS_1` (line 1 input and output),
+`INVERTER_DC_STATUS` and `DM_RV` every `interval` seconds, and answers `INVERTER_COMMAND`
 (inverter enable/disable) by writing modbus2mqtt's `set/onoff` topic.  State is
 also mirrored to the same `rvc/state/inverter/*` topics the real `inverter`
 entity uses, and `rvc/set/inverter/enable` (`on`/`off`) works the same way.
@@ -321,6 +321,13 @@ Fields, with defaults:
 
 `scale` multiplies the raw MQTT payload (modbus2mqtt publishes raw register
 values; the `/10` in the CSV templates only affects Home Assistant display).
+
+The `DM_RV` diagnostic frame reports "on normal"/"off normal" with lamps off
+and no active fault (SPN/FMI all-1s) while healthy, and "off fault" with the
+red lamp plus FMI 11 (*failure not identifiable*) when the `fault` field is on
+or the Modbus status is 11.  Panels latch fault codes until the device's DM_RV
+says all-clear, so this also releases stale faults (e.g. an E2 held from a
+previous configuration) once the virtual inverter is on the bus.
 
 Modbus status code (SRNE register 4405) → RV-C status:
 

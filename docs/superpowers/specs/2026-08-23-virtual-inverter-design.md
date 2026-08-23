@@ -166,6 +166,15 @@ If `fault` is `True` the RV-C status is forced to 0.
 `INVERTER_DC_STATUS` (DGN `1FEE8`): byte 0 instance, 1-2 `dc_voltage`,
 3-4 `dc_current`, 5-7 `0xFF`.
 
+`DM_RV` (DGN `1FECA`), added post-deploy: panels latch fault codes until the
+device's DM_RV clears them, so the virtual inverter broadcasts one per tick.
+Healthy: byte 0 = `0x05` ("on normal") when RV-C status != 0 else `0x04`
+("off normal"), byte 1 = DSA 66 (inverter), bytes 2-7 `0xFF` (no active
+fault). Faulted (`fault` true or Modbus status 11): byte 0 = `0x40` ("off
+fault", red lamp), SPN 0, FMI 11 ("failure not identifiable"), bytes 5-7
+`0xFF`. Our own DM_RV echo is swallowed by source address (DM_RV has no
+instance field).
+
 **`tick(now)`**: if `now < next_tx` return. Set `next_tx = now + interval`.
 If `not connected` or `now - last_status_update > stale_timeout` return
 (logging the transition into/out of silence at info level once). Otherwise

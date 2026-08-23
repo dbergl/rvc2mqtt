@@ -67,6 +67,13 @@ RVC_STATUS_DEFINITION = {0: "disabled", 1: "invert", 2: "ac passthru",
                          5: "waiting to invert"}
 RVC_STATUS_PASSTHRU = 2
 
+# DM_RV (1FECA) constants.  DSA 66 is the RV-C default service address class
+# for inverters; panels key latched faults on it, so the virtual inverter must
+# broadcast an all-clear (or the fault) every interval or the panel holds the
+# last fault it ever saw (e.g. a stale E2 over-voltage).
+DM_RV_DSA_INVERTER = 66
+DM_RV_FMI_NOT_IDENTIFIABLE = 11
+
 # RV-C source address the virtual inverter transmits from.  The Lyra panel
 # looks for the inverter on 0x42; the bridge's own frames stay on 0x82.
 DEFAULT_INVERTER_SOURCE_ID = "42"
@@ -308,6 +315,13 @@ class VirtualInverter(EntityPluginBaseClass):
     _OWN_STATUS_DGNS = ("INVERTER_STATUS", "INVERTER_AC_STATUS_1", "INVERTER_DC_STATUS")
 
     def process_rvc_msg(self, new_message: dict) -> bool:
+        # DM_RV carries no instance field; claim only our own echo (matched
+        # by source address) so it stays out of the unhandled log while DM_RV
+        # from every other node flows on to the entities that watch it.
+        if (new_message.get("name") == "DM_RV"
+                and new_message.get("source_id", "").lower() == self.source_id.lower()):
+            self.Logger.debug(f"{self.name}: ignoring our own DM_RV echo")
+            return True
         if new_message.get("instance") != self.rvc_instance:
             return False
         name = new_message.get("name")
@@ -380,12 +394,31 @@ class VirtualInverter(EntityPluginBaseClass):
                 + bytes([0xFF, 0xFF, 0xFF]))
         return {"dgn": "1FEE8", "data": data, "source_id": self.source_id}
 
+    def _dm_rv_frame(self) -> dict:
+        """Diagnostic message: red lamp + generic fault while faulted,
+        otherwise an all-clear so panels release latched fault codes."""
+        faulted = self.values.get('fault') is True or self.values.get('status') == 11
+        if faulted:
+            # byte0: operating status 0000 "off fault", red lamp 01
+            # SPN 0 with FMI "failure not identifiable" — the Modbus fault
+            # flag carries no more detail than "faulted".
+            data = bytes([0x40, DM_RV_DSA_INVERTER, 0x00, 0x00,
+                          DM_RV_FMI_NOT_IDENTIFIABLE, 0xFF, 0xFF, 0xFF])
+        else:
+            # byte0: "on normal" (0101) while inverting/passthru/waiting,
+            # "off normal" (0100) while disabled; lamps off; SPN/FMI all-1s
+            # = no active fault.
+            on = 0x05 if self.rvc_status() != 0 else 0x04
+            data = bytes([on, DM_RV_DSA_INVERTER, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
+        return {"dgn": "1FECA", "data": data, "source_id": self.source_id}
+
     def build_frames(self) -> list:
         """The full status set transmitted each interval."""
         return [self._inverter_status_frame(),
                 self._ac_status_frame(output=False),
                 self._ac_status_frame(output=True),
-                self._dc_status_frame()]
+                self._dc_status_frame(),
+                self._dm_rv_frame()]
 
     # ---- lifecycle ------------------------------------------------------
 

@@ -181,7 +181,7 @@ class Test_Ingest(unittest.TestCase):
         self._feed(e, mock, 'modbus/inverter/state/status', '5')
         e.tick(1000.0)
         frames = _drain(e.send_queue)
-        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FEE8'])
+        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FEE8', '1FECA'])
 
     def test_connected_topic(self):
         e, mock, _ = _make_entity()
@@ -254,7 +254,7 @@ class Test_Frames(unittest.TestCase):
     def test_four_frames_with_source_id(self):
         e, _, _ = _make_entity({'source_id': 'A5'})
         frames = e.build_frames()
-        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FEE8'])
+        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FEE8', '1FECA'])
         for f in frames:
             self.assertEqual(f['source_id'], 'A5')
             self.assertEqual(len(f['data']), 8)
@@ -339,6 +339,68 @@ def _drain(q: queue.Queue) -> list:
     return out
 
 
+class Test_DmRv(unittest.TestCase):
+    """DM_RV (1FECA) diagnostic frame: all-clear while healthy, red lamp + fault while faulted."""
+
+    def _dm_rv(self, e):
+        frame = e.build_frames()[4]
+        self.assertEqual(frame['dgn'], '1FECA')
+        return frame, _decode(frame)
+
+    def test_running_sends_on_normal_all_clear(self):
+        e, _, _ = _make_entity()
+        e.values.update(status=5, enabled=True)
+        frame, msg = self._dm_rv(e)
+        self.assertEqual(bytes(frame['data']).hex().upper(), '0542FFFFFFFFFFFF')
+        self.assertEqual(msg['operating_status_definition'], 'on normal')
+        self.assertEqual(msg['red_lamp_status'], '00')
+        self.assertEqual(msg['yellow_lamp_status'], '00')
+        self.assertEqual(msg['dsa'], 66)
+        self.assertEqual(msg['fmi_definition'], 'failure mode not available')
+
+    def test_passthru_counts_as_on_normal(self):
+        e, _, _ = _make_entity()
+        e.values.update(status=4, enabled=True)
+        _, msg = self._dm_rv(e)
+        self.assertEqual(msg['operating_status_definition'], 'on normal')
+
+    def test_disabled_sends_off_normal(self):
+        e, _, _ = _make_entity()
+        e.values.update(status=10, enabled=False)
+        frame, msg = self._dm_rv(e)
+        self.assertEqual(bytes(frame['data']).hex().upper(), '0442FFFFFFFFFFFF')
+        self.assertEqual(msg['operating_status_definition'], 'off normal')
+        self.assertEqual(msg['red_lamp_status'], '00')
+
+    def test_fault_flag_sends_off_fault_red_lamp(self):
+        e, _, _ = _make_entity()
+        e.values.update(status=5, enabled=True, fault=True)
+        frame, msg = self._dm_rv(e)
+        self.assertEqual(bytes(frame['data']).hex().upper(), '404200000BFFFFFF')
+        self.assertEqual(msg['operating_status_definition'], 'off fault')
+        self.assertEqual(msg['red_lamp_status'], '01')
+        self.assertEqual(msg['fmi_definition'], 'failure not identifiable')
+
+    def test_status_11_counts_as_fault(self):
+        e, _, _ = _make_entity()
+        e.values.update(status=11)
+        _, msg = self._dm_rv(e)
+        self.assertEqual(msg['operating_status_definition'], 'off fault')
+        self.assertEqual(msg['red_lamp_status'], '01')
+
+    def test_source_id_carried(self):
+        e, _, _ = _make_entity({'source_id': 'A5'})
+        e.values.update(status=5)
+        frame, _ = self._dm_rv(e)
+        self.assertEqual(frame['source_id'], 'A5')
+
+    def test_dm_rv_from_other_sources_not_swallowed(self):
+        """DM_RV from real nodes must flow on to the entities that watch it."""
+        e, _, _ = _make_entity()
+        msg = {'name': 'DM_RV', 'dgn': '1FECA', 'source_id': '9c', 'dsa': 66}
+        self.assertFalse(e.process_rvc_msg(msg))
+
+
 class Test_Tick(unittest.TestCase):
 
     def _ready(self, now=100.0):
@@ -359,7 +421,7 @@ class Test_Tick(unittest.TestCase):
         e, _, _ = self._ready(100.0)
         e.tick(100.0)
         frames = _drain(e.send_queue)
-        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FEE8'])
+        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FEE8', '1FECA'])
 
     def test_respects_interval(self):
         e, _, _ = self._ready(100.0)
@@ -368,7 +430,7 @@ class Test_Tick(unittest.TestCase):
         e.tick(100.5)
         self.assertEqual(_drain(e.send_queue), [])
         e.tick(101.0)
-        self.assertEqual(len(_drain(e.send_queue)), 4)
+        self.assertEqual(len(_drain(e.send_queue)), 5)
 
     def test_custom_interval(self):
         e, mock, clock = _make_entity({'interval': 5.0}, now=100.0)
@@ -379,7 +441,7 @@ class Test_Tick(unittest.TestCase):
         e.tick(104.9)
         self.assertEqual(_drain(e.send_queue), [])
         e.tick(105.0)
-        self.assertEqual(len(_drain(e.send_queue)), 4)
+        self.assertEqual(len(_drain(e.send_queue)), 5)
 
     def test_silent_when_stale(self):
         e, _, clock = self._ready(100.0)
@@ -395,7 +457,7 @@ class Test_Tick(unittest.TestCase):
         clock['now'] = 131.5
         _registered(mock)['modbus/inverter/state/onoff'][0]('modbus/inverter/state/onoff', '1')
         e.tick(132.0)
-        self.assertEqual(len(_drain(e.send_queue)), 4)
+        self.assertEqual(len(_drain(e.send_queue)), 5)
 
     def test_silent_when_offline(self):
         e, mock, _ = self._ready(100.0)
@@ -404,7 +466,7 @@ class Test_Tick(unittest.TestCase):
         self.assertEqual(_drain(e.send_queue), [])
         _registered(mock)['modbus/inverter/connected'][0]('modbus/inverter/connected', 'online')
         e.tick(101.0)
-        self.assertEqual(len(_drain(e.send_queue)), 4)
+        self.assertEqual(len(_drain(e.send_queue)), 5)
 
     def test_silence_transition_logged_once(self):
         e, _, _ = self._ready(100.0)
