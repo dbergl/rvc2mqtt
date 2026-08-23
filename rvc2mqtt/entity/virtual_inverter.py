@@ -214,3 +214,63 @@ class VirtualInverter(EntityPluginBaseClass):
     def process_rvc_msg(self, new_message: dict) -> bool:
         # Implemented in Task 6
         return False
+
+    # ---- RV-C out -------------------------------------------------------
+
+    def rvc_status(self) -> int:
+        """Map the Modbus status code (plus fault flag) to INVERTER_STATUS.status."""
+        if self.values.get('fault') is True:
+            return 0
+        code = self.values.get('status')
+        if code in SRNE_TO_RVC_STATUS:
+            return SRNE_TO_RVC_STATUS[code]
+        if code is not None and code not in self._warned_codes:
+            self._warned_codes.add(code)
+            self.Logger.warning(f"{self.name}: unknown modbus status code {code}; reporting disabled")
+        return 0
+
+    @staticmethod
+    def _bit2(value) -> int:
+        """RV-C 2-bit field: 00 off, 01 on, 11 not available."""
+        if value is None:
+            return 0b11
+        return 0b01 if value else 0b00
+
+    def _inverter_status_frame(self) -> dict:
+        status = self.rvc_status()
+        byte2 = (0b11                                   # bits 0-1 battery temp sensor: n/a
+                 | (0b11 << 2)                          # bits 2-3 load sense: n/a
+                 | (self._bit2(self.values['enabled']) << 4)   # bits 4-5 inverter enabled
+                 | ((0b01 if status == RVC_STATUS_PASSTHRU else 0b00) << 6))  # bits 6-7 pass-through
+        data = bytes([self.rvc_instance & 0xFF, status & 0xFF, byte2,
+                      0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
+        return {"dgn": "1FFD4", "data": data, "source_id": self.source_id}
+
+    def _ac_status_frame(self, output: bool) -> dict:
+        if output:
+            volts = self.values['ac_out_voltage']
+            amps = self.values['ac_out_current']
+            hz = self.values['ac_out_frequency']
+        else:
+            volts, amps, hz = self.values['ac_in_voltage'], None, None
+        byte0 = (self.rvc_instance & 0x0F) | (0b00 << 4) | ((0b01 if output else 0b00) << 6)
+        data = (bytes([byte0])
+                + u16_le(encode_voltage_u16(volts))
+                + u16_le(encode_current_u16(amps))
+                + u16_le(encode_frequency_u16(hz))
+                + bytes([0xFF]))
+        return {"dgn": "1FFD7", "data": data, "source_id": self.source_id}
+
+    def _dc_status_frame(self) -> dict:
+        data = (bytes([self.rvc_instance & 0xFF])
+                + u16_le(encode_voltage_u16(self.values['dc_voltage']))
+                + u16_le(encode_current_u16(self.values['dc_current']))
+                + bytes([0xFF, 0xFF, 0xFF]))
+        return {"dgn": "1FEE8", "data": data, "source_id": self.source_id}
+
+    def build_frames(self) -> list:
+        """The full status set transmitted each interval."""
+        return [self._inverter_status_frame(),
+                self._ac_status_frame(output=False),
+                self._ac_status_frame(output=True),
+                self._dc_status_frame()]

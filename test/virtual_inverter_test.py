@@ -178,5 +178,133 @@ class Test_Ingest(unittest.TestCase):
         self.assertTrue(e.connected)
 
 
+SPEC = os.path.join(os.path.dirname(rvc2mqtt.__file__), 'rvc-spec.yml')
+
+
+def _decoder():
+    d = RVC_Decoder()
+    d.load_rvc_spec(SPEC)
+    return d
+
+
+def _decode(frame: dict) -> dict:
+    d = _decoder()
+    arb = d._rvc_to_can_frame(frame)
+    return d.rvc_decode(arb, bytes(frame["data"]).hex().upper())
+
+
+class Test_StatusMapping(unittest.TestCase):
+
+    def _with_status(self, code, fault=None):
+        e, _, _ = _make_entity()
+        e.values['status'] = code
+        e.values['fault'] = fault
+        return e
+
+    def test_table(self):
+        expected = {0: 0, 1: 0, 2: 0, 3: 5, 4: 2, 5: 1, 6: 5, 7: 5, 10: 0, 11: 0}
+        for code, want in expected.items():
+            self.assertEqual(self._with_status(code).rvc_status(), want, code)
+
+    def test_unknown_and_none_are_disabled(self):
+        self.assertEqual(self._with_status(None).rvc_status(), 0)
+        self.assertEqual(self._with_status(8).rvc_status(), 0)
+        self.assertEqual(self._with_status(99).rvc_status(), 0)
+
+    def test_fault_forces_disabled(self):
+        self.assertEqual(self._with_status(5, fault=True).rvc_status(), 0)
+        self.assertEqual(self._with_status(5, fault=False).rvc_status(), 1)
+
+    def test_unknown_code_warns_once(self):
+        e = self._with_status(42)
+        e.Logger = MagicMock()
+        e.rvc_status()
+        e.rvc_status()
+        self.assertEqual(e.Logger.warning.call_count, 1)
+
+
+class Test_Frames(unittest.TestCase):
+
+    def test_four_frames_with_source_id(self):
+        e, _, _ = _make_entity({'source_id': 'A5'})
+        frames = e.build_frames()
+        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FEE8'])
+        for f in frames:
+            self.assertEqual(f['source_id'], 'A5')
+            self.assertEqual(len(f['data']), 8)
+
+    def test_inverter_status_inverting_enabled(self):
+        e, _, _ = _make_entity()
+        e.values.update(status=5, enabled=True)
+        msg = _decode(e.build_frames()[0])
+        self.assertEqual(msg['name'], 'INVERTER_STATUS')
+        self.assertEqual(msg['instance'], 1)
+        self.assertEqual(msg['status_definition'], 'invert')
+        self.assertEqual(msg['inverter_enabled'], '01')
+        self.assertEqual(msg['pass-through_enabled'], '00')
+        self.assertEqual(msg['load_sense_enabled'], '11')
+        self.assertEqual(msg['battery_temperature_sensor_present'], '11')
+        self.assertEqual(msg['generator_support_enabled'], '11')
+        self.assertEqual(msg['data'][6:], 'FFFFFFFFFF')  # bytes 3-7 (byte 3 = 0xFF incl. gen support bits)
+
+    def test_inverter_status_passthru_disabled(self):
+        e, _, _ = _make_entity()
+        e.values.update(status=4, enabled=False)
+        msg = _decode(e.build_frames()[0])
+        self.assertEqual(msg['status_definition'], 'ac passthru')
+        self.assertEqual(msg['inverter_enabled'], '00')
+        self.assertEqual(msg['pass-through_enabled'], '01')
+
+    def test_inverter_status_unknown_enabled_is_11(self):
+        e, _, _ = _make_entity()
+        e.values.update(status=0)
+        msg = _decode(e.build_frames()[0])
+        self.assertEqual(msg['inverter_enabled'], '11')
+
+    def test_ac_status_input_frame(self):
+        e, _, _ = _make_entity()
+        e.values.update(ac_in_voltage=120.8)
+        msg = _decode(e.build_frames()[1])
+        self.assertEqual(msg['name'], 'INVERTER_AC_STATUS_1')
+        self.assertEqual(msg['instance'], 1)
+        self.assertEqual(msg['line_definition'], 1)
+        self.assertEqual(msg['input_output_definition'], 'input')
+        self.assertEqual(msg['rms_voltage'], 120.8)
+        self.assertEqual(msg['rms_current'], 'n/a')
+        self.assertEqual(msg['frequency'], 0xFFFF)  # decoder returns raw 0xFFFF for Hz n/a
+        self.assertEqual(msg['data'][14:], 'FF')
+
+    def test_ac_status_output_frame(self):
+        e, _, _ = _make_entity()
+        e.values.update(ac_out_voltage=119.5, ac_out_current=3.8, ac_out_frequency=60.0)
+        msg = _decode(e.build_frames()[2])
+        self.assertEqual(msg['input_output_definition'], 'output')
+        self.assertEqual(msg['rms_voltage'], 119.5)
+        self.assertEqual(msg['rms_current'], 3.8)
+        self.assertEqual(msg['frequency'], 60.0)
+
+    def test_ac_status_all_unmapped_still_sent(self):
+        e, _, _ = _make_entity()
+        msg = _decode(e.build_frames()[2])
+        self.assertEqual(msg['rms_voltage'], 'n/a')
+        self.assertEqual(msg['rms_current'], 'n/a')
+
+    def test_dc_status_frame(self):
+        e, _, _ = _make_entity()
+        e.values.update(dc_voltage=52.0, dc_current=-12.5)
+        msg = _decode(e.build_frames()[3])
+        self.assertEqual(msg['name'], 'INVERTER_DC_STATUS')
+        self.assertEqual(msg['instance'], 1)
+        self.assertEqual(msg['dc_voltage'], 52.0)
+        self.assertEqual(msg['dc_amperage'], -12.5)
+        self.assertEqual(msg['data'][10:], 'FFFFFF')
+
+    def test_dc_status_not_available(self):
+        e, _, _ = _make_entity()
+        msg = _decode(e.build_frames()[3])
+        self.assertEqual(msg['dc_voltage'], 'n/a')
+        self.assertEqual(msg['dc_amperage'], 'n/a')
+
+
 if __name__ == "__main__":
     unittest.main()
