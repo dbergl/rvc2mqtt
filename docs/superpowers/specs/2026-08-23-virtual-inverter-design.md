@@ -46,9 +46,10 @@ INVERTER_COMMAND (panel) ◀──RV-C───────┤
                                        └──▶ rvc/state/inverter/*        (MQTT mirror, retained)
 ```
 
-rvc2mqtt remains **one RV-C node**. Frames are sent with rvc2mqtt's existing
-default source address `0x82` unless the entry overrides `source_id`. No
-address-claim work in this change.
+Frames from the virtual inverter are sent with their own source address,
+default **`0x42`** (the address the coach's Lyra panel expects an inverter on),
+overridable per entry via `source_id`. rvc2mqtt's other transmissions keep the
+bridge default `0x82`. No address-claim work in this change.
 
 ## Floorplan entry
 
@@ -62,7 +63,7 @@ address-claim work in this change.
   source_topic_base: modbus/inverter      # default
   interval: 1.0                           # seconds between frame sets, default 1.0
   stale_timeout: 30.0                     # seconds, default 30.0
-  source_id: "82"                         # hex, default = RVC_Decoder.DEFAULT_SOURCE_ID
+  source_id: "42"                         # hex, default "42" (inverter address expected by the Lyra panel)
   fields:                                 # every key optional; defaults shown
     status:           {topic: state/status}
     enabled:          {topic: state/onoff}

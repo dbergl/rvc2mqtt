@@ -20,7 +20,7 @@
 - DGN ids: `INVERTER_STATUS` = `1FFD4`, `INVERTER_COMMAND` = `1FFD3`, `INVERTER_AC_STATUS_1` = `1FFD7`, `INVERTER_DC_STATUS` = `1FEE8`.
 - Send-queue contract (unchanged): entities `put` dicts `{"dgn": "<hex str>", "data": <bytes/bytearray len 8>, "source_id": "<hex str>"}`; `app.message_tx_loop` computes `arbitration_id`.
 - State topics that we subscribe to **must** be registered with `retain_ok=True`; `MQTT_Support.register(topic, func)` with the default `retain_ok=False` publishes an empty retained payload to the topic, which would wipe modbus2mqtt's retained state.
-- Default source address is `RVC_Decoder.DEFAULT_SOURCE_ID` (`'82'`).
+- The virtual inverter's default transmit source address is `'42'` (module constant `DEFAULT_INVERTER_SOURCE_ID`), NOT the bridge default `'82'`; the Lyra panel expects the inverter on 0x42. `source_id` in the entry overrides it.
 
 ---
 
@@ -345,10 +345,11 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Test: `test/virtual_inverter_test.py`
 
 **Interfaces:**
-- Consumes: `EntityPluginBaseClass`, `MQTT_Support.register(topic, func, retain_ok=...)`, `RVC_Decoder.DEFAULT_SOURCE_ID`.
+- Consumes: `EntityPluginBaseClass`, `MQTT_Support.register(topic, func, retain_ok=...)`.
 - Produces (used by Tasks 4-7):
   - class `VirtualInverter(EntityPluginBaseClass)`, `FACTORY_MATCH_ATTRIBUTES = {"name": "VIRTUAL_INVERTER", "type": "virtual_inverter"}`
   - module constants `FIELD_DEFAULTS: dict`, `NUMERIC_FIELDS: tuple`, `BOOL_FIELDS: tuple`
+  - module constant `DEFAULT_INVERTER_SOURCE_ID = "42"`
   - attributes: `rvc_instance: int`, `name: str`, `source_topic_base: str`, `interval: float`, `stale_timeout: float`, `source_id: str`, `field_topics: dict[str, tuple[str, float]]`, `values: dict[str, object]`, `connected: bool`, `last_status_update: float`, `next_tx: float`, `topic_base: str` (mirror base), `command_topic: str`, `connected_topic: str`, `onoff_set_topic: str`, `_clock: callable` (defaults to `time.monotonic`; tests replace it)
   - `process_mqtt_msg(topic, payload, properties=None)`
   - `_ingest(field: str, payload: str) -> bool` (True if state changed)
@@ -429,7 +430,7 @@ class Test_Construction(unittest.TestCase):
         self.assertEqual(e.source_topic_base, 'modbus/inverter')
         self.assertEqual(e.interval, 1.0)
         self.assertEqual(e.stale_timeout, 30.0)
-        self.assertEqual(e.source_id, '82')
+        self.assertEqual(e.source_id, '42')
         self.assertEqual(e.topic_base, 'rvc/state/inverter')
         self.assertEqual(e.command_topic, 'rvc/set/inverter/enable')
         self.assertEqual(e.onoff_set_topic, 'modbus/inverter/set/onoff')
@@ -570,7 +571,6 @@ import logging
 import time
 from rvc2mqtt.mqtt import MQTT_Support
 from rvc2mqtt.entity import EntityPluginBaseClass
-from rvc2mqtt.rvc import RVC_Decoder
 from rvc2mqtt.rvc_encode import (
     encode_voltage_u16, encode_current_u16, encode_frequency_u16, u16_le)
 
@@ -608,6 +608,10 @@ RVC_STATUS_DEFINITION = {0: "disabled", 1: "invert", 2: "ac passthru",
                          5: "waiting to invert"}
 RVC_STATUS_PASSTHRU = 2
 
+# RV-C source address the virtual inverter transmits from.  The Lyra panel
+# looks for the inverter on 0x42; the bridge's own frames stay on 0x82.
+DEFAULT_INVERTER_SOURCE_ID = "42"
+
 
 def _parse_bool(payload: str) -> bool:
     p = str(payload).strip().lower()
@@ -635,7 +639,7 @@ class VirtualInverter(EntityPluginBaseClass):
             raise ValueError(f"interval must be > 0, got {self.interval}")
         if self.stale_timeout <= 0:
             raise ValueError(f"stale_timeout must be > 0, got {self.stale_timeout}")
-        self.source_id = str(data.get('source_id', RVC_Decoder.DEFAULT_SOURCE_ID))
+        self.source_id = str(data.get('source_id', DEFAULT_INVERTER_SOURCE_ID))
         self.field_topics = self._resolve_fields(data.get('fields') or {})
 
         # Runtime state.  MQTT callbacks (paho thread) write single items into
@@ -1720,7 +1724,7 @@ overrides:
     source_topic_base: modbus/inverter     # default
     interval: 1.0                          # seconds between transmissions (default 1.0)
     stale_timeout: 30.0                    # seconds (default 30.0)
-    source_id: "82"                        # RV-C source address, hex (default: bridge's own)
+    source_id: "42"                        # RV-C source address, hex (default "42")
     fields:
       dc_voltage: {topic: state/battery_voltage, scale: 0.1}
       dc_current: state/battery_current
@@ -1731,7 +1735,7 @@ overrides:
 | `source_topic_base` | no | modbus2mqtt device base topic. The entity subscribes to `<base>/connected` and writes `<base>/set/onoff`. Default `modbus/inverter` |
 | `interval` | no | Seconds between RV-C status transmissions. Default `1.0` |
 | `stale_timeout` | no | Stop transmitting if no `status`/`enabled` update arrives for this many seconds, or if `<base>/connected` is `offline`. Silence is how RV-C signals absence. Default `30.0` |
-| `source_id` | no | Hex source address used for transmitted frames. Default `82` |
+| `source_id` | no | Hex source address used for transmitted frames. Default `42`, the inverter address the Lyra panel expects; the bridge's other frames stay on `82` |
 | `fields` | no | Map of RV-C field → MQTT topic. A value is either a topic string (scale 1.0) or `{topic: …, scale: …}`. Relative topics are joined to `source_topic_base`. Set a field to `~` to unmap it. Unmapped fields are sent as RV-C "not available" |
 
 Fields, with defaults:
@@ -1791,7 +1795,7 @@ sleep 2
 candump vcan0 -n 8 &          # should print nothing yet (no status received)
 mosquitto_pub -h localhost -t modbus/inverter/state/status -m 5 -r
 mosquitto_pub -h localhost -t modbus/inverter/state/onoff -m 1 -r
-sleep 2                        # candump should now show 19FFD482 / 19FFD782 ×2 / 19FEE882 each second
+sleep 2                        # candump should now show 19FFD442 / 19FFD742 ×2 / 19FEE842 each second
 mosquitto_sub -h localhost -t 'modbus/inverter/set/#' -C 1 &
 cansend vcan0 19FFD39F#0110FFFFFFFFFF11   # INVERTER_COMMAND disable from source 9F
 sleep 1                        # mosquitto_sub should print "0"
@@ -1800,7 +1804,7 @@ kill $APP
 ```
 
 Expected:
-- After the status/onoff publishes: `candump` shows `19FFD482 [8] 01 01 1x FF FF FF FF FF` and the AC/DC frames once per second.
+- After the status/onoff publishes: `candump` shows `19FFD442 [8] 01 01 1x FF FF FF FF FF` and the AC/DC frames once per second.
 - After `cansend`: `modbus/inverter/set/onoff 0`.
 - `rvc/state/inverter/status 1`, `…/status_definition invert`, `…/onoff on`.
 
