@@ -138,6 +138,8 @@ class app(object):
                 obj.initialize()
                 self.entity_list.append(obj)
 
+        self._warn_instance_collisions()
+
         # Request product identification from all devices on the network
         self.tx_RVC_Buffer.put({
             "dgn": "0EAFF",
@@ -159,6 +161,21 @@ class app(object):
         for entity in self.entity_list:
             entity.tick(now)
         self.message_tx_loop()
+
+    def _warn_instance_collisions(self):
+        """A VirtualInverter and a real INVERTER_STATUS entity on the same
+        instance would both own rvc/state/inverter/*; the override floorplan
+        should _remove the real one.  Both are kept loaded; just make it loud."""
+        from rvc2mqtt.entity.virtual_inverter import VirtualInverter
+        from rvc2mqtt.entity.inverter import InverterCharger_INVERTER_STATUS
+        virtual = {e.rvc_instance for e in self.entity_list if isinstance(e, VirtualInverter)}
+        real = {e.rvc_instance for e in self.entity_list
+                if isinstance(e, InverterCharger_INVERTER_STATUS)}
+        for instance in sorted(virtual & real):
+            self.Logger.error(
+                f"Floorplan has both a VIRTUAL_INVERTER and an INVERTER_STATUS entity on "
+                f"instance {instance}; they will fight over the same MQTT topics. "
+                f"Remove one (override: `_remove: true`).")
 
     def _do_reload(self):
         self._reload_requested.clear()
@@ -225,6 +242,8 @@ class app(object):
                 obj.set_rvc_send_queue(self.tx_RVC_Buffer)
                 obj.initialize()
                 self.entity_list.append(obj)
+
+        self._warn_instance_collisions()
 
         # 7. Remove discovery topics for entities that were not re-published (removed from floorplan)
         if self.mqtt_client:

@@ -68,5 +68,48 @@ class Test_BaseTick(unittest.TestCase):
         Dummy().tick(0.0)  # must not raise
 
 
+def _mock_support():
+    mock = MagicMock()
+    mock.make_device_topic_string.return_value = 'test/topic'
+    mock.TOPIC_BASE = 'rvc2mqtt'
+    mock.client_id = 'bridge'
+    mock.get_bridge_ha_name.return_value = 'bridge'
+    mock.bridge_state_topic = 'rvc2mqtt/bridge/state'
+    return mock
+
+
+class Test_InstanceCollision(unittest.TestCase):
+
+    def _virtual(self, instance):
+        from rvc2mqtt.entity.virtual_inverter import VirtualInverter
+        return VirtualInverter({'instance': instance, 'instance_name': 'v'}, _mock_support())
+
+    def _real(self, instance):
+        from rvc2mqtt.entity.inverter import InverterCharger_INVERTER_STATUS
+        return InverterCharger_INVERTER_STATUS(
+            {'instance': instance, 'instance_name': 'r',
+             'status_topic': 'rvc/state/inverter', 'command_topic': 'rvc/set/inverter'},
+            _mock_support())
+
+    def test_same_instance_logs_error(self):
+        a = _make_app()
+        a.entity_list = [self._real(1), self._virtual(1)]
+        a._warn_instance_collisions()
+        a.Logger.error.assert_called_once()
+        self.assertIn("instance 1", a.Logger.error.call_args[0][0])
+
+    def test_different_instances_silent(self):
+        a = _make_app()
+        a.entity_list = [self._real(1), self._virtual(2)]
+        a._warn_instance_collisions()
+        a.Logger.error.assert_not_called()
+
+    def test_virtual_alone_silent(self):
+        a = _make_app()
+        a.entity_list = [self._virtual(1)]
+        a._warn_instance_collisions()
+        a.Logger.error.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
