@@ -183,8 +183,11 @@ class VirtualInverter(EntityPluginBaseClass):
             self.Logger.info(f"{self.name}: modbus source is "
                              f"{'online' if self.connected else 'offline'}")
             return
+        changed = False
         for field in self._topic_fields.get(topic, ()):
-            self._ingest(field, payload)
+            changed = self._ingest(field, payload) or changed
+        if changed:
+            self._publish_mirror()
 
     def _ingest(self, field: str, payload) -> bool:
         """Parse payload for field; update self.values.  Returns True if changed."""
@@ -204,6 +207,83 @@ class VirtualInverter(EntityPluginBaseClass):
         changed = self.values[field] != value
         self.values[field] = value
         return changed
+
+    # numeric field -> (mirror sub-topic, HA device_class, unit)
+    _NUMERIC_MIRROR = {
+        "ac_in_voltage":    ("line1/input/rms_voltage",  "voltage",   "V"),
+        "ac_out_voltage":   ("line1/output/rms_voltage", "voltage",   "V"),
+        "ac_out_current":   ("line1/output/rms_current", "current",   "A"),
+        "ac_out_frequency": ("line1/output/frequency",   "frequency", "Hz"),
+        "dc_voltage":       ("dc_voltage",               "voltage",   "V"),
+        "dc_current":       ("dc_amperage",              "current",   "A"),
+    }
+
+    # ---- MQTT mirror ----------------------------------------------------
+
+    @staticmethod
+    def _onoff(value) -> str:
+        return "on" if value else "off"
+
+    def _mirror_values(self) -> dict:
+        """Current mirror topic -> payload for every field that has a value."""
+        out = {}
+        if self.values['status'] is not None or self.values['fault'] is not None:
+            status = self.rvc_status()
+            out[f"{self.topic_base}/status"] = status
+            out[f"{self.topic_base}/status_definition"] = RVC_STATUS_DEFINITION.get(status, "unknown")
+        if self.values['enabled'] is not None:
+            out[f"{self.topic_base}/onoff"] = self._onoff(self.values['enabled'])
+        if self.values['fault'] is not None:
+            out[f"{self.topic_base}/fault"] = self._onoff(self.values['fault'])
+        for field, (sub, _dc, _unit) in self._NUMERIC_MIRROR.items():
+            value = self.values[field]
+            if value is not None:
+                out[f"{self.topic_base}/{sub}"] = round(value, 2)
+        return out
+
+    def _publish_mirror(self):
+        for topic, payload in self._mirror_values().items():
+            if self._mirror_cache.get(topic) != payload:
+                self._mirror_cache[topic] = payload
+                self.mqtt_support.client.publish(topic, payload, retain=True)
+
+    # ---- Home Assistant -------------------------------------------------
+
+    def _publish_discovery(self, component: str, sub: str, config: dict):
+        config = dict(config)
+        config["unique_id"] = self.unique_device_id + "_" + sub
+        config["device"] = self.device
+        config.update(self.get_availability_discovery_info_for_ha())
+        topic = self.mqtt_support.make_ha_auto_discovery_config_topic(
+            self.unique_device_id, component, sub)
+        self.mqtt_support.client.publish(topic, json.dumps(config), retain=False)
+
+    def publish_ha_discovery_config(self):
+        self._publish_discovery("switch", "enable", {
+            "name": self.name + " power",
+            "state_topic": f"{self.topic_base}/onoff",
+            "command_topic": self.command_topic,
+            "payload_on": "on", "payload_off": "off",
+            "qos": 1, "retain": False})
+        self._publish_discovery("sensor", "status", {
+            "name": self.name + " status",
+            "state_topic": f"{self.topic_base}/status_definition",
+            "device_class": "enum",
+            "options": list(RVC_STATUS_DEFINITION.values()) + ["unknown"]})
+        self._publish_discovery("binary_sensor", "fault", {
+            "name": self.name + " fault",
+            "state_topic": f"{self.topic_base}/fault",
+            "device_class": "problem",
+            "payload_on": "on", "payload_off": "off"})
+        for field, (sub, device_class, unit) in self._NUMERIC_MIRROR.items():
+            if field not in self.field_topics:
+                continue
+            self._publish_discovery("sensor", field, {
+                "name": self.name + " " + field.replace("_", " "),
+                "state_topic": f"{self.topic_base}/{sub}",
+                "device_class": device_class,
+                "unit_of_measurement": unit,
+                "state_class": "measurement"})
 
     def _set_onoff(self, enable: bool):
         payload = "1" if enable else "0"

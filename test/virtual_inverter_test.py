@@ -1,6 +1,7 @@
 """
 Unit tests for the virtual inverter entity.
 """
+import json
 import os
 import queue
 import unittest
@@ -462,6 +463,116 @@ class Test_Command(unittest.TestCase):
         _registered(mock)['rvc/set/inverter/enable'][0]('rvc/set/inverter/enable', 'maybe')
         self.assertEqual(_onoff_publishes(mock), [])
         e.Logger.warning.assert_called_once()
+
+
+def _state_publishes(mock):
+    return [(t, p, r) for (t, p, r) in _published(mock) if t.startswith('rvc/state/inverter/')]
+
+
+class Test_Mirror(unittest.TestCase):
+
+    def _feed(self, e, mock, topic, payload):
+        _registered(mock)[topic][0](topic, payload)
+
+    def test_status_mirrors_code_and_definition(self):
+        e, mock, _ = _make_entity()
+        self._feed(e, mock, 'modbus/inverter/state/status', '5')
+        pubs = _state_publishes(mock)
+        self.assertIn(('rvc/state/inverter/status', 1, True), pubs)
+        self.assertIn(('rvc/state/inverter/status_definition', 'invert', True), pubs)
+
+    def test_onoff_and_fault_mirror(self):
+        e, mock, _ = _make_entity()
+        self._feed(e, mock, 'modbus/inverter/state/onoff', '1')
+        self._feed(e, mock, 'modbus/inverter/state/fault', '0')
+        pubs = _state_publishes(mock)
+        self.assertIn(('rvc/state/inverter/onoff', 'on', True), pubs)
+        self.assertIn(('rvc/state/inverter/fault', 'off', True), pubs)
+
+    def test_fault_changes_mirrored_status(self):
+        e, mock, _ = _make_entity()
+        self._feed(e, mock, 'modbus/inverter/state/status', '5')
+        mock.client.publish.reset_mock()
+        self._feed(e, mock, 'modbus/inverter/state/fault', '1')
+        pubs = _state_publishes(mock)
+        self.assertIn(('rvc/state/inverter/status', 0, True), pubs)
+        self.assertIn(('rvc/state/inverter/status_definition', 'disabled', True), pubs)
+
+    def test_numeric_mirror_topics(self):
+        e, mock, _ = _make_entity({'fields': {
+            'ac_out_voltage': 'state/ov', 'ac_out_current': 'state/oc',
+            'ac_out_frequency': 'state/of', 'dc_voltage': 'state/dv', 'dc_current': 'state/dc'}})
+        self._feed(e, mock, 'modbus/inverter/state/AC_Input_Voltage', '1208')
+        self._feed(e, mock, 'modbus/inverter/state/ov', '119.5')
+        self._feed(e, mock, 'modbus/inverter/state/oc', '3.8')
+        self._feed(e, mock, 'modbus/inverter/state/of', '60')
+        self._feed(e, mock, 'modbus/inverter/state/dv', '52')
+        self._feed(e, mock, 'modbus/inverter/state/dc', '-12.5')
+        pubs = {t: p for (t, p, _r) in _state_publishes(mock)}
+        self.assertEqual(pubs['rvc/state/inverter/line1/input/rms_voltage'], 120.8)
+        self.assertEqual(pubs['rvc/state/inverter/line1/output/rms_voltage'], 119.5)
+        self.assertEqual(pubs['rvc/state/inverter/line1/output/rms_current'], 3.8)
+        self.assertEqual(pubs['rvc/state/inverter/line1/output/frequency'], 60.0)
+        self.assertEqual(pubs['rvc/state/inverter/dc_voltage'], 52.0)
+        self.assertEqual(pubs['rvc/state/inverter/dc_amperage'], -12.5)
+
+    def test_unchanged_value_not_republished(self):
+        e, mock, _ = _make_entity()
+        self._feed(e, mock, 'modbus/inverter/state/status', '5')
+        mock.client.publish.reset_mock()
+        self._feed(e, mock, 'modbus/inverter/state/status', '5')
+        self.assertEqual(_state_publishes(mock), [])
+
+    def test_unmapped_fields_never_published(self):
+        e, mock, _ = _make_entity()
+        self._feed(e, mock, 'modbus/inverter/state/status', '5')
+        topics = [t for (t, _p, _r) in _state_publishes(mock)]
+        self.assertNotIn('rvc/state/inverter/dc_voltage', topics)
+        self.assertNotIn('rvc/state/inverter/line1/output/rms_voltage', topics)
+
+
+class Test_HADiscovery(unittest.TestCase):
+
+    def _configs(self, mock):
+        out = {}
+        for (t, p, _r) in _published(mock):
+            if t.startswith('homeassistant/'):
+                out[t] = json.loads(p)
+        return out
+
+    def test_core_components(self):
+        e, mock, _ = _make_entity()
+        e.publish_ha_discovery_config()
+        cfgs = self._configs(mock)
+        uid = e.unique_device_id
+        self.assertIn(f'homeassistant/switch/{uid}/enable/config', cfgs)
+        self.assertIn(f'homeassistant/sensor/{uid}/status/config', cfgs)
+        self.assertIn(f'homeassistant/binary_sensor/{uid}/fault/config', cfgs)
+        self.assertIn(f'homeassistant/sensor/{uid}/ac_in_voltage/config', cfgs)
+        sw = cfgs[f'homeassistant/switch/{uid}/enable/config']
+        self.assertEqual(sw['command_topic'], 'rvc/set/inverter/enable')
+        self.assertEqual(sw['state_topic'], 'rvc/state/inverter/onoff')
+        self.assertEqual(sw['payload_on'], 'on')
+        self.assertEqual(sw['unique_id'], uid + '_enable')
+        self.assertEqual(sw['availability_topic'], 'rvc2mqtt/bridge/state')
+        self.assertEqual(sw['device']['identifiers'], uid)
+
+    def test_numeric_sensors_only_for_mapped_fields(self):
+        e, mock, _ = _make_entity({'fields': {'dc_voltage': 'state/dv', 'ac_in_voltage': None}})
+        e.publish_ha_discovery_config()
+        cfgs = self._configs(mock)
+        uid = e.unique_device_id
+        self.assertIn(f'homeassistant/sensor/{uid}/dc_voltage/config', cfgs)
+        self.assertNotIn(f'homeassistant/sensor/{uid}/ac_in_voltage/config', cfgs)
+        dv = cfgs[f'homeassistant/sensor/{uid}/dc_voltage/config']
+        self.assertEqual(dv['state_topic'], 'rvc/state/inverter/dc_voltage')
+        self.assertEqual(dv['device_class'], 'voltage')
+        self.assertEqual(dv['unit_of_measurement'], 'V')
+
+    def test_initialize_publishes_discovery(self):
+        e, mock, _ = _make_entity()
+        e.initialize()
+        self.assertTrue(self._configs(mock))
 
 
 if __name__ == "__main__":
