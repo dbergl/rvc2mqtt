@@ -205,14 +205,39 @@ class VirtualInverter(EntityPluginBaseClass):
         self.values[field] = value
         return changed
 
+    def _set_onoff(self, enable: bool):
+        payload = "1" if enable else "0"
+        self.Logger.info(f"{self.name}: writing {self.onoff_set_topic} = {payload}")
+        self.mqtt_support.client.publish(self.onoff_set_topic, payload, retain=False)
+
     def _handle_enable_command(self, payload):
-        # Implemented in Task 6
-        pass
+        try:
+            self._set_onoff(_parse_bool(payload))
+        except ValueError:
+            self.Logger.warning(f"{self.name}: invalid payload {payload!r} for {self.command_topic}")
 
     # ---- RV-C in --------------------------------------------------------
 
+    _OWN_STATUS_DGNS = ("INVERTER_STATUS", "INVERTER_AC_STATUS_1", "INVERTER_DC_STATUS")
+
     def process_rvc_msg(self, new_message: dict) -> bool:
-        # Implemented in Task 6
+        if new_message.get("instance") != self.rvc_instance:
+            return False
+        name = new_message.get("name")
+        if name == "INVERTER_COMMAND":
+            self.Logger.debug(f"{self.name}: INVERTER_COMMAND {new_message}")
+            enable = new_message.get("inverter_enable")
+            if enable == "01":
+                self._set_onoff(True)
+            elif enable == "00":
+                self._set_onoff(False)
+            return True
+        if name in self._OWN_STATUS_DGNS:
+            # Our own echo (or a misconfigured real node at this instance):
+            # keep it out of the unhandled log.
+            self.Logger.debug(f"{self.name}: ignoring {name} for our instance from "
+                              f"source {new_message.get('source_id')}")
+            return True
         return False
 
     # ---- RV-C out -------------------------------------------------------

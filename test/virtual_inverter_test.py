@@ -390,5 +390,79 @@ class Test_Tick(unittest.TestCase):
         self.assertEqual(e.Logger.info.call_count, 1)
 
 
+def _cmd(instance=1, enable='01'):
+    """A decoded INVERTER_COMMAND dict as produced by RVC_Decoder."""
+    return {'name': 'INVERTER_COMMAND', 'dgn': '1FFD3', 'instance': instance,
+            'inverter_enable': enable, 'load_sense_enable': '00',
+            'pass-through_enable': '01', 'inverter_enable_on_startup': '01',
+            'source_id': '9F'}
+
+
+def _onoff_publishes(mock):
+    return [(t, p) for (t, p, _r) in _published(mock) if t == 'modbus/inverter/set/onoff']
+
+
+class Test_Command(unittest.TestCase):
+
+    def test_rvc_enable_writes_1(self):
+        e, mock, _ = _make_entity()
+        self.assertTrue(e.process_rvc_msg(_cmd(enable='01')))
+        self.assertEqual(_onoff_publishes(mock), [('modbus/inverter/set/onoff', '1')])
+
+    def test_rvc_disable_writes_0(self):
+        e, mock, _ = _make_entity()
+        self.assertTrue(e.process_rvc_msg(_cmd(enable='00')))
+        self.assertEqual(_onoff_publishes(mock), [('modbus/inverter/set/onoff', '0')])
+
+    def test_rvc_no_change_bits_do_not_write(self):
+        e, mock, _ = _make_entity()
+        self.assertTrue(e.process_rvc_msg(_cmd(enable='11')))
+        self.assertTrue(e.process_rvc_msg(_cmd(enable='10')))
+        self.assertEqual(_onoff_publishes(mock), [])
+
+    def test_other_instance_not_handled(self):
+        e, mock, _ = _make_entity()
+        self.assertFalse(e.process_rvc_msg(_cmd(instance=2)))
+        self.assertEqual(_onoff_publishes(mock), [])
+
+    def test_onoff_publish_is_not_retained(self):
+        e, mock, _ = _make_entity()
+        e.process_rvc_msg(_cmd(enable='01'))
+        retained = [r for (t, _p, r) in _published(mock) if t == 'modbus/inverter/set/onoff']
+        self.assertEqual(retained, [False])
+
+    def test_own_status_dgns_swallowed(self):
+        e, mock, _ = _make_entity()
+        e.values.update(status=5, enabled=True)
+        for frame in e.build_frames():
+            self.assertTrue(e.process_rvc_msg(_decode(frame)))
+        self.assertEqual(_onoff_publishes(mock), [])
+
+    def test_other_instance_status_not_swallowed(self):
+        e, _, _ = _make_entity()
+        msg = {'name': 'INVERTER_STATUS', 'dgn': '1FFD4', 'instance': 2}
+        self.assertFalse(e.process_rvc_msg(msg))
+
+    def test_unrelated_dgn_not_handled(self):
+        e, _, _ = _make_entity()
+        self.assertFalse(e.process_rvc_msg({'name': 'DC_SOURCE_STATUS_1', 'instance': 1}))
+
+    def test_mqtt_enable_topic(self):
+        e, mock, _ = _make_entity()
+        cb = _registered(mock)['rvc/set/inverter/enable'][0]
+        for payload, want in (('on', '1'), ('OFF', '0'), ('1', '1'), ('0', '0'),
+                              ('true', '1'), ('false', '0')):
+            mock.client.publish.reset_mock()
+            cb('rvc/set/inverter/enable', payload)
+            self.assertEqual(_onoff_publishes(mock), [('modbus/inverter/set/onoff', want)], payload)
+
+    def test_mqtt_enable_bad_payload_warns_no_write(self):
+        e, mock, _ = _make_entity()
+        e.Logger = MagicMock()
+        _registered(mock)['rvc/set/inverter/enable'][0]('rvc/set/inverter/enable', 'maybe')
+        self.assertEqual(_onoff_publishes(mock), [])
+        e.Logger.warning.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()
