@@ -20,11 +20,21 @@ Inverse of RVC_Decoder._convert_unit for the uint16 types used by the
 virtual inverter.  See RV-C spec table 5.3.
 """
 
+import math
+
 U16_NA = 0xFFFF
 
 
 def _clamp_u16(value: float) -> int:
-    """Clamp to the valid data range; 0xFFFF is reserved for 'not available'."""
+    """Clamp to the valid data range; 0xFFFF is reserved for 'not available'.
+
+    Never raises on a non-finite float: NaN maps to "not available", and
+    +/-inf clamp to the same range boundary a huge-but-finite value would.
+    """
+    if math.isnan(value):
+        return U16_NA
+    if math.isinf(value):
+        return 0 if value < 0 else 0xFFFE
     return max(0, min(0xFFFE, int(round(value))))
 
 

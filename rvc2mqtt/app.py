@@ -159,18 +159,36 @@ class app(object):
         # process any received messages
         self.message_rx_loop()
         for entity in self.entity_list:
-            entity.tick(now)
+            try:
+                entity.tick(now)
+            except Exception:
+                # Isolate one entity's failure from the rest of the loop, and
+                # log it only once per entity id to avoid flooding the log at
+                # the ~1ms poll rate. Lazily init so AppClass.__new__-built
+                # test apps (which skip main()/__init__) keep working.
+                failed_ids = getattr(self, "_tick_failed_ids", None)
+                if failed_ids is None:
+                    failed_ids = set()
+                    self._tick_failed_ids = failed_ids
+                if entity.id not in failed_ids:
+                    failed_ids.add(entity.id)
+                    self.Logger.exception(f"entity {entity.id} tick() failed; disabling further logging for it")
         self.message_tx_loop()
 
     def _warn_instance_collisions(self):
         """A VirtualInverter and a real INVERTER_STATUS entity on the same
         instance would both own rvc/state/inverter/*; the override floorplan
-        should _remove the real one.  Both are kept loaded; just make it loud."""
-        from rvc2mqtt.entity.virtual_inverter import VirtualInverter
-        from rvc2mqtt.entity.inverter import InverterCharger_INVERTER_STATUS
-        virtual = {e.rvc_instance for e in self.entity_list if isinstance(e, VirtualInverter)}
-        real = {e.rvc_instance for e in self.entity_list
-                if isinstance(e, InverterCharger_INVERTER_STATUS)}
+        should _remove the real one.  Both are kept loaded; just make it loud.
+
+        Entities are loaded by PluginSupport via importlib.util.spec_from_file_location
+        under bare module names, so classes it produces are distinct objects from
+        the same classes imported normally here — isinstance() against a directly
+        imported class is always False for a production-loaded entity. Match on
+        the FACTORY_MATCH_ATTRIBUTES contract instead."""
+        def _entity_type(e):
+            return getattr(e, "FACTORY_MATCH_ATTRIBUTES", {}).get("type")
+        virtual = {int(e.rvc_instance) for e in self.entity_list if _entity_type(e) == "virtual_inverter"}
+        real = {int(e.rvc_instance) for e in self.entity_list if _entity_type(e) == "inverter"}
         for instance in sorted(virtual & real):
             self.Logger.error(
                 f"Floorplan has both a VIRTUAL_INVERTER and an INVERTER_STATUS entity on "

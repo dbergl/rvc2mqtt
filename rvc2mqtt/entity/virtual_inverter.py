@@ -28,6 +28,7 @@ limitations under the License.
 
 import json
 import logging
+import math
 import time
 from rvc2mqtt.mqtt import MQTT_Support
 from rvc2mqtt.entity import EntityPluginBaseClass
@@ -48,8 +49,6 @@ FIELD_DEFAULTS = {
     "dc_current":       None,
 }
 BOOL_FIELDS = ("enabled", "fault")
-NUMERIC_FIELDS = ("ac_in_voltage", "ac_out_voltage", "ac_out_current",
-                  "ac_out_frequency", "dc_voltage", "dc_current")
 
 # Modbus (SRNE register 4405) status code -> RV-C INVERTER_STATUS.status
 SRNE_TO_RVC_STATUS = {
@@ -103,8 +102,12 @@ class VirtualInverter(EntityPluginBaseClass):
         self.field_topics = self._resolve_fields(data.get('fields') or {})
 
         # Runtime state.  MQTT callbacks (paho thread) write single items into
-        # self.values; tick() (main thread) reads them one at a time.  Single
-        # dict-item assignment is atomic in CPython, so no lock is needed.
+        # self.values, self.connected, self.last_status_update, and
+        # self._warned_codes; tick() (main thread) reads them one at a time.
+        # Single dict-item assignment, plain attribute assignment, and
+        # set.add are all atomic in CPython, so no lock is needed. (Worst
+        # case for _warned_codes: a duplicate warning if two threads race
+        # adding the same code — harmless.)
         self.values = {name: None for name in FIELD_DEFAULTS}
         self.connected = True
         self.last_status_update = float('-inf')
@@ -179,9 +182,11 @@ class VirtualInverter(EntityPluginBaseClass):
             self._handle_enable_command(payload)
             return
         if topic == self.connected_topic:
-            self.connected = str(payload).strip().lower() == "online"
-            self.Logger.info(f"{self.name}: modbus source is "
-                             f"{'online' if self.connected else 'offline'}")
+            new_connected = str(payload).strip().lower() == "online"
+            if new_connected != self.connected:
+                self.connected = new_connected
+                self.Logger.info(f"{self.name}: modbus source is "
+                                 f"{'online' if self.connected else 'offline'}")
             return
         changed = False
         for field in self._topic_fields.get(topic, ()):
@@ -199,6 +204,8 @@ class VirtualInverter(EntityPluginBaseClass):
             else:
                 _topic, scale = self.field_topics[field]
                 value = float(str(payload).strip()) * scale
+                if not math.isfinite(value):
+                    raise ValueError(f"non-finite value {value!r} for {field}")
         except (ValueError, TypeError):
             self.Logger.warning(f"{self.name}: ignoring bad payload {payload!r} for {field}")
             return False
@@ -230,7 +237,7 @@ class VirtualInverter(EntityPluginBaseClass):
         if self.values['status'] is not None or self.values['fault'] is not None:
             status = self.rvc_status()
             out[f"{self.topic_base}/status"] = status
-            out[f"{self.topic_base}/status_definition"] = RVC_STATUS_DEFINITION.get(status, "unknown")
+            out[f"{self.topic_base}/status_definition"] = RVC_STATUS_DEFINITION.get(status, "unknown").title()
         if self.values['enabled'] is not None:
             out[f"{self.topic_base}/onoff"] = self._onoff(self.values['enabled'])
         if self.values['fault'] is not None:
@@ -269,7 +276,7 @@ class VirtualInverter(EntityPluginBaseClass):
             "name": self.name + " status",
             "state_topic": f"{self.topic_base}/status_definition",
             "device_class": "enum",
-            "options": list(RVC_STATUS_DEFINITION.values()) + ["unknown"]})
+            "options": [v.title() for v in RVC_STATUS_DEFINITION.values()] + ["Unknown"]})
         self._publish_discovery("binary_sensor", "fault", {
             "name": self.name + " fault",
             "state_topic": f"{self.topic_base}/fault",

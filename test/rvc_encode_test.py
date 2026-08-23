@@ -37,6 +37,11 @@ class Test_Encoders(unittest.TestCase):
         self.assertEqual(encode_current_u16(-2000), 0)
         self.assertEqual(encode_frequency_u16(99999), 0xFFFE)
 
+    def test_non_finite_values_do_not_raise(self):
+        self.assertEqual(encode_voltage_u16(float('nan')), U16_NA)
+        self.assertEqual(encode_voltage_u16(float('inf')), 0xFFFE)
+        self.assertEqual(encode_current_u16(float('-inf')), 0)
+
     def test_u16_le(self):
         self.assertEqual(u16_le(0x0410), b"\x10\x04")
         self.assertEqual(u16_le(U16_NA), b"\xff\xff")

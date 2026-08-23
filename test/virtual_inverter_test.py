@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import context  # add rvc2mqtt package to the python path using local reference
 import rvc2mqtt
 from rvc2mqtt.rvc import RVC_Decoder
-from rvc2mqtt.entity.virtual_inverter import VirtualInverter, FIELD_DEFAULTS
+from rvc2mqtt.entity.virtual_inverter import VirtualInverter
 
 
 def _make_mock():
@@ -170,6 +170,19 @@ class Test_Ingest(unittest.TestCase):
         self._feed(e, mock, 'modbus/inverter/state/AC_Input_Voltage', '')
         self.assertIsNone(e.values['ac_in_voltage'])
 
+    def test_non_finite_numeric_payloads_ignored(self):
+        e, mock, _ = _make_entity(now=1000.0)
+        e.initialize()
+        e.Logger = MagicMock()
+        for payload in ('nan', 'inf', '-inf', '1e999'):
+            self._feed(e, mock, 'modbus/inverter/state/AC_Input_Voltage', payload)
+            self.assertIsNone(e.values['ac_in_voltage'], payload)
+        self.assertEqual(e.Logger.warning.call_count, 4)
+        self._feed(e, mock, 'modbus/inverter/state/status', '5')
+        e.tick(1000.0)
+        frames = _drain(e.send_queue)
+        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FEE8'])
+
     def test_connected_topic(self):
         e, mock, _ = _make_entity()
         self.assertTrue(e.connected)
@@ -177,6 +190,18 @@ class Test_Ingest(unittest.TestCase):
         self.assertFalse(e.connected)
         self._feed(e, mock, 'modbus/inverter/connected', 'online')
         self.assertTrue(e.connected)
+
+    def test_connected_repeated_payload_not_logged(self):
+        e, mock, _ = _make_entity()
+        e.Logger = MagicMock()
+        # Already connected=True; an "online" payload repeats the current
+        # state and should not log a transition.
+        self._feed(e, mock, 'modbus/inverter/connected', 'online')
+        e.Logger.info.assert_not_called()
+        self._feed(e, mock, 'modbus/inverter/connected', 'offline')
+        self.assertEqual(e.Logger.info.call_count, 1)
+        self._feed(e, mock, 'modbus/inverter/connected', 'offline')
+        self.assertEqual(e.Logger.info.call_count, 1)
 
 
 SPEC = os.path.join(os.path.dirname(rvc2mqtt.__file__), 'rvc-spec.yml')
@@ -479,7 +504,9 @@ class Test_Mirror(unittest.TestCase):
         self._feed(e, mock, 'modbus/inverter/state/status', '5')
         pubs = _state_publishes(mock)
         self.assertIn(('rvc/state/inverter/status', 1, True), pubs)
-        self.assertIn(('rvc/state/inverter/status_definition', 'invert', True), pubs)
+        # Matches the real inverter entity's .title() casing (inverter.py
+        # publishes status_definition via new_message.get(...).title()).
+        self.assertIn(('rvc/state/inverter/status_definition', 'Invert', True), pubs)
 
     def test_onoff_and_fault_mirror(self):
         e, mock, _ = _make_entity()
@@ -496,7 +523,7 @@ class Test_Mirror(unittest.TestCase):
         self._feed(e, mock, 'modbus/inverter/state/fault', '1')
         pubs = _state_publishes(mock)
         self.assertIn(('rvc/state/inverter/status', 0, True), pubs)
-        self.assertIn(('rvc/state/inverter/status_definition', 'disabled', True), pubs)
+        self.assertIn(('rvc/state/inverter/status_definition', 'Disabled', True), pubs)
 
     def test_numeric_mirror_topics(self):
         e, mock, _ = _make_entity({'fields': {
@@ -556,6 +583,11 @@ class Test_HADiscovery(unittest.TestCase):
         self.assertEqual(sw['unique_id'], uid + '_enable')
         self.assertEqual(sw['availability_topic'], 'rvc2mqtt/bridge/state')
         self.assertEqual(sw['device']['identifiers'], uid)
+        status = cfgs[f'homeassistant/sensor/{uid}/status/config']
+        # Title-cased to match the mirrored status_definition value and the
+        # real inverter entity's .title() casing.
+        self.assertEqual(sorted(status['options']),
+                         sorted(['Disabled', 'Invert', 'Ac Passthru', 'Waiting To Invert', 'Unknown']))
 
     def test_numeric_sensors_only_for_mapped_fields(self):
         e, mock, _ = _make_entity({'fields': {'dc_voltage': 'state/dv', 'ac_in_voltage': None}})
