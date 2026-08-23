@@ -146,12 +146,19 @@ class app(object):
 
         # Our RVC message loop here
         while True:
-            if self._reload_requested.is_set():
-                self._do_reload()
-            # process any received messages
-            self.message_rx_loop()
-            self.message_tx_loop()
+            self._loop_once(time.monotonic())
             time.sleep(0.001)
+
+    def _loop_once(self, now: float):
+        """One iteration of the main loop: reload if requested, drain rx,
+        give every entity a periodic tick, then drain tx."""
+        if self._reload_requested.is_set():
+            self._do_reload()
+        # process any received messages
+        self.message_rx_loop()
+        for entity in self.entity_list:
+            entity.tick(now)
+        self.message_tx_loop()
 
     def _do_reload(self):
         self._reload_requested.clear()

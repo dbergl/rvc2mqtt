@@ -82,6 +82,14 @@ class EntityPluginBaseClass(object):
         """
         pass
 
+    def tick(self, now: float):
+        """ Optional function
+        Called once per main-loop iteration with time.monotonic() seconds.
+        Entities that transmit periodically override this; the default does nothing.
+        Keep it cheap: it runs roughly every millisecond.
+        """
+        pass
+
     def teardown(self):
         """Called before entity is removed (e.g., on floorplan reload).
         Flushes any pending override writes and cancels the debounce timer.
