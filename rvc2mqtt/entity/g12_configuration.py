@@ -57,6 +57,7 @@ _SELECTOR_NAMES = {
     0xE3: "cargo/bath light (ch.25)", 0xE4: "bath light", 0xEC: "black tank",
     0xEF: "gen/AES mode", 0xE6: "progressive inverter",
     0xD7: "go power! controllers", 0xD8: "battery count",
+    0x92: "max charge rate",
 }
 
 # Dimmer channel the G12 drives as its engine relay when AES is wired for 1-wire
@@ -172,14 +173,11 @@ class G12_Configuration(EntityPluginBaseClass):
         self._mp_packets = {}
         self._product_id = None
 
-        # G12_INPUT_STATUS (1FBDA) — set of input numbers currently active (empty = idle)
-        self._active_inputs = set()
-        # Inputs currently active that were seen with aux_12v_active=1.  These need an
-        # explicit aux=0 deactivation frame rather than disappearing from the cycle.
-        self._12v_inputs = set()
-        # Input numbers ever confirmed as 12V-type (persists across deactivations so that
-        # trailing AA00 frames after FB00 are still recognised as deactivation, not activation).
-        self._known_12v_codes = set()
+        # G12_INPUT_STATUS (1FBDA) -- last published state per input number.  Each frame
+        # carries one instance and that instance's own state, so no cross-input bookkeeping
+        # is needed: a pin's state changes only when its own instance says so.  Absent =
+        # never heard from, which is UNKNOWN rather than inactive.
+        self._input_state = {}
 
         # Internal state - initialized to "unknown" so first received value always publishes
         self._max_engine_run_time = "unknown"
@@ -212,6 +210,7 @@ class G12_Configuration(EntityPluginBaseClass):
         self._ags_retry_interval     = "unknown"  # 0xF7
         self._aes_enabled            = "unknown"  # 0x9B (on/off)
         self._engine_running         = "unknown"  # engine on/off (from DC_DIMMER_STATUS_3 instance 18)
+        self._max_charge_rate        = "unknown"  # 0x92 (percent; raw is 0.5%/bit)
 
         if 'status_topic' in data:
             topic_base = str(data['status_topic'])
@@ -247,6 +246,7 @@ class G12_Configuration(EntityPluginBaseClass):
             self.gen_aes_mode_topic          = str(f"{topic_base}/gen/mode")
             self.selected_floorplan_topic    = str(f"{topic_base}/floorplan")
             self.ags_retry_interval_topic    = str(f"{topic_base}/ags/retry_interval")
+            self.max_charge_rate_topic       = str(f"{topic_base}/charger/max_charge_rate")
             self.aes_enabled_topic           = str(f"{topic_base}/aes/enabled")
             if self._engine_relay_configured():
                 self.engine_running_topic    = str(f"{topic_base}/engine/running")
@@ -423,61 +423,38 @@ class G12_Configuration(EntityPluginBaseClass):
 
         if self._is_entry_match(self.rvc_match_input_status, new_message):
             self.Logger.debug(f"Msg Match G12_INPUT_STATUS: {str(new_message)}")
-            code = int(new_message["active_input_code"])
-            aux = int(new_message.get("aux_12v_active", 0))
+            # Byte 0 is the instance, byte 1 is THAT instance's own state.  Confirmed on the
+            # coach 2026-08-24 (firefly-firmware BUS-BASELINE.md PC.24); see rvc-spec.yml for
+            # the earlier reading this replaced and why it looked right.
+            #
+            # A held input refreshes every 1.000 s, so most frames repeat a state we already
+            # published.  The change check below is what makes that a no-op -- there is no
+            # heartbeat to suppress, because a refresh is indistinguishable from, and means
+            # exactly the same as, the original edge.
+            instance = int(new_message["instance"])
+            state = int(new_message.get("input_state", 0))
 
-            if 0xA1 <= code <= 0xAF:
-                n = code & 0x0F
-                if aux:
-                    # aux_12v_active=1: the 12V line is energized — either by this input
-                    # itself OR by another simultaneously-held 12V input (e.g. ignition).
-                    # Record it as a known-12V code so the matching aux=0 frame is later
-                    # recognised as deactivation rather than a GND-type activation.
-                    self._known_12v_codes.add(n)
-                    if n not in self._active_inputs:
-                        self._active_inputs.add(n)
-                        self._12v_inputs.add(n)
-                        if hasattr(self, '_input_topic_base'):
-                            self.mqtt_support.client.publish(
-                                f"{self._input_topic_base}/inputs/{n}/active", "true", retain=True)
-                    # Already active — repeated heartbeat frame, ignore.
-                else:
-                    if n in self._known_12v_codes:
-                        # Known 12V-type input with aux dropped — deactivation frame.
-                        # Publish false only if it was actually still marked active (avoids
-                        # double-publish when FB00 already cleared it before AA00 arrives).
-                        was_active = n in self._active_inputs
-                        self._active_inputs.discard(n)
-                        self._12v_inputs.discard(n)
-                        if was_active and hasattr(self, '_input_topic_base'):
-                            self.mqtt_support.client.publish(
-                                f"{self._input_topic_base}/inputs/{n}/active", "false", retain=True)
-                    else:
-                        # GND-type input (aux=0 is normal while active) — mark as active.
-                        if n not in self._active_inputs:
-                            self._active_inputs.add(n)
-                            if hasattr(self, '_input_topic_base'):
-                                self.mqtt_support.client.publish(
-                                    f"{self._input_topic_base}/inputs/{n}/active", "true", retain=True)
+            # 0xFB is a second instance for pin 10 (ignition), byte-identical to its 0xAA
+            # frames apart from the instance.  One sense line reported twice: fold it onto
+            # pin 10 so the two can never disagree, and so the 1 Hz pair does not publish
+            # twice per second.
+            if instance == 0xFB:
+                n = 10
+            elif 0xA1 <= instance <= 0xAA:
+                n = instance & 0x0F
             else:
-                # Idle or unknown code.
-                if aux and self._12v_inputs:
-                    # At least one 12V input is still held — this is the G12's normal
-                    # heartbeat alternation.  Suppress until the 12V input sends its
-                    # own aux=0 deactivation frame.
-                    return True
-                if code != 0xFB:
-                    self.Logger.debug(f"G12_INPUT_STATUS code {hex(code)}, treating as idle")
-                # All inputs released — clear everything active.
+                # 0xBF lands here.  It is not an input -- its payload tail is all zeros
+                # rather than 0xFF -- and nothing decodes it, so do not act on it.
+                self.Logger.debug(
+                    f"G12_INPUT_STATUS instance {hex(instance)} is not an input, ignoring")
+                return True
+
+            active = "true" if state else "false"
+            if self._input_state.get(n) != active:
+                self._input_state[n] = active
                 if hasattr(self, '_input_topic_base'):
-                    for prev in self._active_inputs:
-                        self.mqtt_support.client.publish(
-                            f"{self._input_topic_base}/inputs/{prev}/active", "false", retain=True)
-                self._active_inputs.clear()
-                self._12v_inputs.clear()
-                # _known_12v_codes is intentionally preserved so that any trailing AA00
-                # frames that arrive after FB00 are still recognised as deactivation
-                # (not mistakenly treated as a new GND-type activation).
+                    self.mqtt_support.client.publish(
+                        f"{self._input_topic_base}/inputs/{n}/active", active, retain=True)
             return True
 
         if (self.rvc_match_engine_status is not None
@@ -719,6 +696,24 @@ class G12_Configuration(EntityPluginBaseClass):
                     self.mqtt_support.client.publish(
                         self.ags_low_volts_trigger_topic, val, retain=True)
 
+        elif msg_type == "92":  # 0x92 - max charge rate
+            # Identified 2026-08-24 (firefly-firmware docs/RVC-GAPS.md section 1): the
+            # touchscreen control is labelled "Max Chrge Rate" with unit %, and the G12
+            # relays this value to 1FF95 payload[1], instance 1. Raw is RV-C 0.5 %/bit,
+            # so the panel divides by 2 to display it -- raw 200 = 100 %.
+            #
+            # Read-only on purpose. 0x92 is a confirmed SIGNED-DELTA selector (PC.23), so a
+            # write would have to compute target-current the way the CC/CD/CE path does,
+            # and that round trip has never been driven from this code.
+            raw = new_message.get("max_charge_rate_raw")
+            if raw is not None:
+                val = raw / 2
+                if val != self._max_charge_rate:
+                    self._max_charge_rate = val
+                    if hasattr(self, 'max_charge_rate_topic'):
+                        self.mqtt_support.client.publish(
+                            self.max_charge_rate_topic, val, retain=True)
+
         elif msg_type == "D7":  # 0xD7 - number of Go Power! controllers
             val = new_message.get("controller_count")
             if val is not None and val != self._go_power_controllers:
@@ -898,6 +893,13 @@ class G12_Configuration(EntityPluginBaseClass):
             elif topic in (self.threshold_cc_set_topic,
                            self.threshold_cd_set_topic,
                            self.threshold_ce_set_topic):
+                # DELTA vs ABSOLUTE is per selector and cannot be guessed -- see the 1FED9
+                # notes in rvc-spec.yml for the full list. Confirmed delta: CC/CD/CE and
+                # 82/86/88/92/99. Confirmed absolute: 16. Everything else this method
+                # writes -- 0C, 0D, 0E, 31 and the option toggles -- is UNTESTED; it is
+                # written as an absolute here and the coach has not contradicted that, but
+                # no probe has confirmed it. Test before adding a write for a new selector.
+                #
                 # CC/CD/CE take a SIGNED DELTA, not an absolute value. Confirmed by
                 # capture 2026-08-12: the touchscreen arrows sent 64536 (= -1000 as
                 # int16) and 1000, and the stored value moved by exactly -1000 then
@@ -1381,6 +1383,12 @@ class G12_Configuration(EntityPluginBaseClass):
             'unique_id': self.unique_device_id + '_num_batteries'}
         if has_new_cmd:
             cmps['num_batteries']['command_topic'] = self.num_batteries_set_topic
+
+        cmps['max_charge_rate'] = {
+            'p': 'sensor', 'name': 'Max Charge Rate',
+            'state_topic': self.max_charge_rate_topic,
+            'unit_of_measurement': '%',
+            'unique_id': self.unique_device_id + '_max_charge_rate'}
 
         cmps['ags_config_mode'] = {
             'p': 'sensor', 'name': 'AGS Config Mode',
