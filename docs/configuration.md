@@ -192,7 +192,15 @@ to channel 18, which is correct for all AES 1-wire wiring.
 | `/fault/description` | DM_RV fault description |
 | `/fault/lamp` | DM_RV lamp state |
 | `/product_id` | Product identification string |
-| `/input/<n>/active` | G12 input n active state |
+| `/inputs/<n>/active` | G12 physical input n — `true`/`false`, see note below |
+
+`/inputs/<n>/active` tracks the G12's physical input pins (`1FBDA`). Three things to know:
+a pin is published only once it has been heard from, so **absent means unknown, not
+inactive** — an idle pin is silent. A held pin refreshes once a second, which republishes
+nothing because the state has not changed. And pin **10 is the ignition sense**, which the
+G12 broadcasts under two instances (`0xAA` and `0xFB`); both are folded onto pin 10, so they
+can never disagree. Confirmed on the coach 2026-08-24 — firefly-firmware `BUS-BASELINE.md`
+PC.24.
 
 `/charger/max_charge_rate` has no command topic. The selector behind it (`0x92`) takes a
 *signed delta* rather than an absolute value, so a write would have to compute

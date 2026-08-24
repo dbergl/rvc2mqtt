@@ -173,14 +173,11 @@ class G12_Configuration(EntityPluginBaseClass):
         self._mp_packets = {}
         self._product_id = None
 
-        # G12_INPUT_STATUS (1FBDA) — set of input numbers currently active (empty = idle)
-        self._active_inputs = set()
-        # Inputs currently active that were seen with aux_12v_active=1.  These need an
-        # explicit aux=0 deactivation frame rather than disappearing from the cycle.
-        self._12v_inputs = set()
-        # Input numbers ever confirmed as 12V-type (persists across deactivations so that
-        # trailing AA00 frames after FB00 are still recognised as deactivation, not activation).
-        self._known_12v_codes = set()
+        # G12_INPUT_STATUS (1FBDA) -- last published state per input number.  Each frame
+        # carries one instance and that instance's own state, so no cross-input bookkeeping
+        # is needed: a pin's state changes only when its own instance says so.  Absent =
+        # never heard from, which is UNKNOWN rather than inactive.
+        self._input_state = {}
 
         # Internal state - initialized to "unknown" so first received value always publishes
         self._max_engine_run_time = "unknown"
@@ -426,61 +423,38 @@ class G12_Configuration(EntityPluginBaseClass):
 
         if self._is_entry_match(self.rvc_match_input_status, new_message):
             self.Logger.debug(f"Msg Match G12_INPUT_STATUS: {str(new_message)}")
-            code = int(new_message["active_input_code"])
-            aux = int(new_message.get("aux_12v_active", 0))
+            # Byte 0 is the instance, byte 1 is THAT instance's own state.  Confirmed on the
+            # coach 2026-08-24 (firefly-firmware BUS-BASELINE.md PC.24); see rvc-spec.yml for
+            # the earlier reading this replaced and why it looked right.
+            #
+            # A held input refreshes every 1.000 s, so most frames repeat a state we already
+            # published.  The change check below is what makes that a no-op -- there is no
+            # heartbeat to suppress, because a refresh is indistinguishable from, and means
+            # exactly the same as, the original edge.
+            instance = int(new_message["instance"])
+            state = int(new_message.get("input_state", 0))
 
-            if 0xA1 <= code <= 0xAF:
-                n = code & 0x0F
-                if aux:
-                    # aux_12v_active=1: the 12V line is energized — either by this input
-                    # itself OR by another simultaneously-held 12V input (e.g. ignition).
-                    # Record it as a known-12V code so the matching aux=0 frame is later
-                    # recognised as deactivation rather than a GND-type activation.
-                    self._known_12v_codes.add(n)
-                    if n not in self._active_inputs:
-                        self._active_inputs.add(n)
-                        self._12v_inputs.add(n)
-                        if hasattr(self, '_input_topic_base'):
-                            self.mqtt_support.client.publish(
-                                f"{self._input_topic_base}/inputs/{n}/active", "true", retain=True)
-                    # Already active — repeated heartbeat frame, ignore.
-                else:
-                    if n in self._known_12v_codes:
-                        # Known 12V-type input with aux dropped — deactivation frame.
-                        # Publish false only if it was actually still marked active (avoids
-                        # double-publish when FB00 already cleared it before AA00 arrives).
-                        was_active = n in self._active_inputs
-                        self._active_inputs.discard(n)
-                        self._12v_inputs.discard(n)
-                        if was_active and hasattr(self, '_input_topic_base'):
-                            self.mqtt_support.client.publish(
-                                f"{self._input_topic_base}/inputs/{n}/active", "false", retain=True)
-                    else:
-                        # GND-type input (aux=0 is normal while active) — mark as active.
-                        if n not in self._active_inputs:
-                            self._active_inputs.add(n)
-                            if hasattr(self, '_input_topic_base'):
-                                self.mqtt_support.client.publish(
-                                    f"{self._input_topic_base}/inputs/{n}/active", "true", retain=True)
+            # 0xFB is a second instance for pin 10 (ignition), byte-identical to its 0xAA
+            # frames apart from the instance.  One sense line reported twice: fold it onto
+            # pin 10 so the two can never disagree, and so the 1 Hz pair does not publish
+            # twice per second.
+            if instance == 0xFB:
+                n = 10
+            elif 0xA1 <= instance <= 0xAA:
+                n = instance & 0x0F
             else:
-                # Idle or unknown code.
-                if aux and self._12v_inputs:
-                    # At least one 12V input is still held — this is the G12's normal
-                    # heartbeat alternation.  Suppress until the 12V input sends its
-                    # own aux=0 deactivation frame.
-                    return True
-                if code != 0xFB:
-                    self.Logger.debug(f"G12_INPUT_STATUS code {hex(code)}, treating as idle")
-                # All inputs released — clear everything active.
+                # 0xBF lands here.  It is not an input -- its payload tail is all zeros
+                # rather than 0xFF -- and nothing decodes it, so do not act on it.
+                self.Logger.debug(
+                    f"G12_INPUT_STATUS instance {hex(instance)} is not an input, ignoring")
+                return True
+
+            active = "true" if state else "false"
+            if self._input_state.get(n) != active:
+                self._input_state[n] = active
                 if hasattr(self, '_input_topic_base'):
-                    for prev in self._active_inputs:
-                        self.mqtt_support.client.publish(
-                            f"{self._input_topic_base}/inputs/{prev}/active", "false", retain=True)
-                self._active_inputs.clear()
-                self._12v_inputs.clear()
-                # _known_12v_codes is intentionally preserved so that any trailing AA00
-                # frames that arrive after FB00 are still recognised as deactivation
-                # (not mistakenly treated as a new GND-type activation).
+                    self.mqtt_support.client.publish(
+                        f"{self._input_topic_base}/inputs/{n}/active", active, retain=True)
             return True
 
         if (self.rvc_match_engine_status is not None

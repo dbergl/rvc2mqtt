@@ -5436,55 +5436,51 @@ Z0005:
 1FBDA:
   name: G12_INPUT_STATUS
   comment: >
-    Firefly G12 active physical input status. Broadcast by source_id 9C.
-    Byte 0 (active_input_code) encodes the currently active input as 0xA0|input_number.
-    Byte 1 (aux_12v_active) is 0x01 when any 12V-driven input is active, 0x00 otherwise.
-    12V inputs (9, 10, etc.) use a heartbeat pattern while held: the G12 alternates between
-    the active code (0xAn, aux=1) and the idle code (0xFB, aux=1) at ~1 Hz. aux_12v_active
-    remaining 1 during 0xFB frames distinguishes this heartbeat from true deactivation.
-    Deactivation of a 12V input is signalled by aux_12v_active dropping to 0, either via
-    0xFB/aux=0 or the active code itself with aux=0 (e.g. 0xAA00). Code 0xBF has also been
-    observed as a transition frame during some deactivation sequences.
-    GND inputs (1, 2, 4, etc.) broadcast only the active code while held (no FB alternation)
-    and deactivate via 0xFB/aux=0.
-    Ethos 20DL inputs: 1=Kitchen Lights (GND), 2=Bath Lights (GND), 4=Living Room Lights (GND),
-    9=Water Pump (12V), 10=Ignition (12V). 6=Awning EXT (12V), 7=Awning RET (12V) but there is no physical switch.
+    Firefly G12 physical input status. Broadcast by source_id 9C.
+    Byte 0 is the INSTANCE, 0xA0|input_number for inputs 1..10. Byte 1 is THAT INSTANCE'S
+    OWN STATE: 0x01 active, 0x00 inactive. Bytes 2-7 are 0xFF.
 
-    UNRESOLVED CONFLICT with a static decode of the firmware, 2026-08-24. Everything above
-    is what this bus was OBSERVED doing on an Ethos 20DL, and the handler in
-    g12_configuration.py is built on it. The firefly-firmware project decoded the same DGN
-    out of the 13.6 MCF (docs/RVC-GAPS.md section 5f) and reads it DIFFERENTLY:
+    Instance 0xFB is a SECOND instance for input pin 10 (the ignition sense), byte-identical
+    to its 0xAA frames apart from the instance number. The G12 fires both from one dispatch
+    entry, ~0.6 ms apart, 0xFB first. The Firefly panel reads 0xAA as "input 10" on its
+    diagnostics page and 0xFB as "Engine Running" on ELECTRICAL. One 12V sense line reported
+    twice -- if you publish both, publish them as one signal.
 
-      - byte 0 is the instance and byte 1 is THAT INSTANCE'S state (1 active / 0 inactive),
-        with bytes 2-7 all 0xFF. Not a global 12V-line flag.
-      - 0xFB is not an idle code. It is a SECOND instance for input pin 10: pin 10's
-        dispatch entry fires four rules -- its own 0xAA on/off pair and an 0xFB on/off pair
-        that is byte-identical apart from the instance. The panel reads 0xAA as "input 10"
-        on its diagnostics page and 0xFB as "Engine Running" on ELECTRICAL. One 12V sense
-        line, reported twice.
-      - the rules are edge-triggered, with no periodic template, so there is no heartbeat.
+    A held input REFRESHES every 1.000 s, GND and 12V inputs alike. It is a refresh from the
+    ON edge, not a free-running heartbeat: a press shorter than ~1 s sends one ON frame and
+    one OFF frame with no repeat. An idle input is silent, so silence carries no information
+    -- treat a pin never seen as UNKNOWN, not inactive.
 
-    Neither reading is safe to assume. The firmware decode is static -- NO 19FBDA9C frame
-    appears in any of that project's eleven captures, so its frames are predicted, not
-    recorded. The observed model here is real traffic but from a different build (11.23
-    Ethos vs 13.6 B-Van) and the ~1 Hz 0xAn/0xFB alternation it describes has no source in
-    the decoded rule table.
+    Instance 0xBF is NOT an input. Observed twice, bracketing an ignition-off transition, and
+    its payload tail is all ZEROS rather than 0xFF. Undecoded; ignore it rather than guessing.
 
-    If the firmware decode turns out to be right, this handler has two concrete faults:
-    FB/aux=1 (ignition ON) is swallowed as a heartbeat, and FB/aux=0 (ignition OFF) clears
-    the published state of EVERY active input rather than just pin 10.
+    Confirmed on the coach 2026-08-24 -- see firefly-firmware docs/BUS-BASELINE.md PC.24 and
+    captures/pc24-input-pins-2026-08-24.log. That capture REPLACED an earlier reading of this
+    DGN which is preserved here because the correction is instructive:
 
-    Cheap experiment that settles it, on the coach with nothing else touched:
-        candump -L can1 | grep -i 19FBDA9C
-    turn the ignition on and off, then hold the water pump switch with the ignition off.
-    If 0xFB tracks the key alone, the firmware decode is right. If 0xFB appears at ~1 Hz
-    while the pump alone is held, this observed model is right.
+      Byte 1 was called "aux_12v_active", a GLOBAL flag meaning "any 12V input is active",
+      and 0xFB was called the IDLE code, with 12V inputs said to alternate between their own
+      code and 0xFB at ~1 Hz while held. Both are wrong. GND-sense pins 1, 2 and 4 all report
+      byte 1 = 0x01 while held with the ignition OFF, which no global-12V reading survives;
+      and 0xFB never appears while the water pump alone is held.
+
+      The ~1 Hz cadence was real, but mis-attributed. With the ignition on AND another input
+      held, the 0xFB/0xAA pair and the other input's frames interleave once a second, which
+      looks exactly like an active code alternating with an idle code -- unless you already
+      know 0xFB is pin 10. A capture cannot separate two signals that always travel together.
+
+    Ethos 20DL input names: 1=Kitchen Lights (GND), 2=Bath Lights (GND),
+    4=Living Room Lights (GND), 9=Water Pump (12V), 10=Ignition (12V).
+    6=Awning EXT (12V) and 7=Awning RET (12V) exist but have no physical switch.
+    Jayco B-Van V13 (MCF 13.6) names them: 1=Kitchen OHC Lts (GND), 3=Bath Fan (GND),
+    6=Awning EXT (12V), 7=Awning RET (12V), 9=Water Pump (12V), 10=Ignition (12V).
+    Pins 5 and 8 are wired to no rule and broadcast nothing on either build.
   parameters:
     - byte: 0
-      name: active_input_code
+      name: instance
       type: uint8
     - byte: 1
-      name: aux_12v_active
+      name: input state
       type: uint8
 
 16C:
