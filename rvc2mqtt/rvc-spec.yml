@@ -5000,6 +5000,17 @@ Z0005:
   # the earlier mapping assumed, and "1 = triggered" was wrong. The 3/64/131 codes below
   # are retained as unverified; they have never been seen on this coach and need a
   # capture with the engine actually cranking/running to confirm.
+  #
+  # That capture exists now: firefly-firmware BUS-BASELINE.md PC.28,
+  # captures/pc28-aes-engine-run-2026-08-24.log -- 365 s with the van-side AES idling the
+  # engine. Byte 2 held 0x40 (64) while the engine ran AND for 75 s after it stopped, so
+  # 64 is NOT "running". It then held 0xC0 (192) for exactly 30.0 s starting 0.5 s after
+  # the ignition sense dropped -- keyed to the sense, not to the engine relay, which had
+  # opened 74 s earlier. 131 never appeared. 192 was previously undocumented.
+  #
+  # No interpretation is offered for either value: one capture, with the VAN's AES driving
+  # rather than the Firefly's (selector 9B read 0 = disabled throughout), is not enough to
+  # name a state.
   # Byte 3 held 0x03 in both states, matching message type EF (gen/aes mode = AES Single
   # Output), so it is likely the mode rather than a state.
   "05":
@@ -5011,8 +5022,9 @@ Z0005:
         0: "disabled"
         1: "enabled"
         3: "cranking (unverified)"
-        64: "monitoring (unverified)"
-        131: "running (unverified)"
+        64: "observed - engine running AND long after it stopped"
+        192: "observed - 30s transient after the ignition sense drops"
+        131: "running (unverified, never observed)"
   # Confirmed 2026-08-04 by toggling AES on the touchscreen (0x9F) and diffing the
   # 15FCE table: 9B00010000000000 while enabled, 9B00000000000000 while disabled.
   # Note the value is at byte 2 like every other 15FCE type — the 1FED9 *command*
