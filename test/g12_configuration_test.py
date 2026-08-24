@@ -902,6 +902,48 @@ class Test_G12_Configuration(unittest.TestCase):
         self.assertEqual(g._mp_packets, {})
 
 
+    # --- 0x92 max charge rate tests ---
+
+    def _make_max_charge_rate(self, raw, source_id='9C'):
+        return {'name': 'G12_CONFIGURATION', 'source_id': source_id,
+                'message_type': '92', 'max_charge_rate_raw': raw}
+
+    def test_max_charge_rate_halves_raw_value(self):
+        """Raw is RV-C 0.5%/bit; the panel shows raw/2. 200 -> 100%."""
+        g = self._make_g12()
+        result = g.process_rvc_msg(self._make_max_charge_rate(200))
+        self.assertTrue(result)
+        g.mqtt_support.client.publish.assert_called_with(
+            g.max_charge_rate_topic, 100.0, retain=True)
+
+    def test_max_charge_rate_step_of_20_raw_is_10_pct(self):
+        """The panel's own +/- step is 20 raw, which is 10% on screen."""
+        g = self._make_g12()
+        g.process_rvc_msg(self._make_max_charge_rate(200))
+        g.mqtt_support.client.publish.reset_mock()
+        g.process_rvc_msg(self._make_max_charge_rate(180))
+        g.mqtt_support.client.publish.assert_called_with(
+            g.max_charge_rate_topic, 90.0, retain=True)
+
+    def test_max_charge_rate_unchanged_does_not_republish(self):
+        g = self._make_g12()
+        g.process_rvc_msg(self._make_max_charge_rate(200))
+        g.mqtt_support.client.publish.reset_mock()
+        g.process_rvc_msg(self._make_max_charge_rate(200))
+        g.mqtt_support.client.publish.assert_not_called()
+
+    def test_max_charge_rate_missing_field_ignored(self):
+        g = self._make_g12()
+        msg = {'name': 'G12_CONFIGURATION', 'source_id': '9C', 'message_type': '92'}
+        result = g.process_rvc_msg(msg)
+        self.assertTrue(result)
+        g.mqtt_support.client.publish.assert_not_called()
+
+    def test_max_charge_rate_is_read_only(self):
+        """0x92 is a confirmed signed-delta selector, so no command topic is exposed."""
+        g = self._make_g12()
+        self.assertFalse(hasattr(g, 'max_charge_rate_set_topic'))
+
     # --- G12_INPUT_STATUS (1FBDA) tests ---
 
     def _make_input_status(self, active_input_code, aux_12v_active=0, source_id='9C'):

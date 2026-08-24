@@ -3160,7 +3160,31 @@ API_VERSION: 0
 #   0x2C = quiet time stop  (byte[4]=min, byte[5]=hr),
 #   0x31 = start at voltage (v),
 #   0xCC/0xCD/0xCE = tank thresholds 0-33/33-67/67-100%
+#   0x92 = max charge rate (raw 0.5%/bit)
 # Source: log analysis of UNHANDLED_RVC.log (410 messages, source_id=0x9F touchscreen)
+#
+# DELTA vs ABSOLUTE: some selectors take a SIGNED DELTA in bytes[4-5], not the value you
+# want. Writing an absolute to a delta selector ADDS it to the current setting. This is
+# per selector and there is no rule that predicts it -- test before writing a new one.
+#
+#   confirmed DELTA    0xCC, 0xCD, 0xCE   (tank thresholds; capture 2026-08-12)
+#                      0x82, 0x86, 0x88, 0x92, 0x99
+#                        (transmit probe 2026-08-24, firefly-firmware BUS-BASELINE PC.23:
+#                         each moved by exactly the signed amount written and returned
+#                         exactly on the reverse write)
+#   confirmed ABSOLUTE 0x16   (observed)
+#   UNTESTED           0x0C, 0x0D, 0x0E, 0x31 and every option toggle. This file writes
+#                      them as absolutes and the coach has not contradicted that, but no
+#                      probe has confirmed it either. Treat as unknown, not as safe.
+#
+# Note 0x92 is in the delta list AND is now a named parameter (max charge rate). Anything
+# that adds a write for it must send a delta, exactly as the CC/CD/CE path does.
+#
+# READ-BACK is universal and side-effect-free. "FF 96 <selector> 0F FF FF D3 FF" makes the
+# G12 answer on the very next frame with 195FCE9C#<sel> 00 <u16 value LE> 00 00 00 00, and
+# provokes no other traffic -- verified across five selectors with zero non-baseline frames
+# in the capture. Selectors ABSENT from the G12's periodic sweep still answer, so this is a
+# safe way to poll any selector's current value without writing anything.
 1FEE0:
   name: DC_MOTOR_CONTROL_STATUS
 
@@ -4904,7 +4928,7 @@ Z0005:
         "2F": ags low volts trigger
         "31": start at voltage
         "75": unidentified (observed)
-        "92": unidentified (observed)
+        "92": max charge rate
         "95": unidentified (observed)
         "9B": involves aes enabled
         "CC": 0%-33% threshold
@@ -4922,14 +4946,43 @@ Z0005:
         "EC": black tank
         "EE": unidentified (observed)
         "EF": generator/aes mode
-        "F1": unidentified (observed)
-        "F2": unidentified (observed)
+        "F1": unidentified (floorplan-adjacent)
+        "F2": unidentified (floorplan-adjacent)
         "F5": selected floorplan
         "F7": ags time between retries (sec)
   # Types marked "unidentified (observed)" are broadcast by the G12 but their meaning is
   # unknown. They are listed so they decode as recognised rather than falling through to
   # the unhandled-type log. Observed on a Jayco B-Van (floorplan WD) 2026-08-12 by
   # passive candump; see the firefly-firmware project's docs/BUS-BASELINE.md.
+  #
+  # 92 is "Max Chrge Rate", in PERCENT, and is the only one of the twelve formerly
+  # unidentified selectors to gain a real name. Identified 2026-08-24 by a transmit probe
+  # on the coach (firefly-firmware docs/BUS-BASELINE.md PC.23) plus the G12's own relay
+  # table: the touchscreen control is labelled "Max Chrge Rate" with unit %, and G12 rule
+  # #53 forwards the value to 1FF95 (CHARGER_CONFIGURATION_COMMAND) payload[1], instance 1.
+  # The raw value is RV-C's 0.5 %/bit, so the panel DIVIDES BY 2 to display it: raw 200 =
+  # 100 %, raw 180 = 90 %. The panel's own +/- step is 20 raw = 10 % on screen.
+  #
+  # F1 and F2 have a ROLE but no name. Both ride in a single 1FACF broadcast (G12 rule #44)
+  # at payload[2] and payload[7], alongside F5 -- the floorplan -- at payload[5]. So they
+  # are floorplan-adjacent configuration. Coach values are 0x0D and 0x06. Do not name an
+  # entity from this; travelling with the floorplan is not a meaning.
+  #
+  # E8 is a boolean the TOUCHSCREEN writes (both 0 and 1 arms found in the panel's frame
+  # pool), so it is a panel option toggle rather than a read-only broadcast. Its name was
+  # not recovered -- no OPTIONS row carries it. 11 reads as an adjustable number with a
+  # step of 5 (coach value 45); 2E as a boolean. All three are SHAPE, NOT MEANING.
+  #
+  # 00, 04, 06, 11, 2E, 75, 95, E8 and EE drive no G12 relay rule at all, which is itself
+  # information: whatever they are, the G12 does not forward them to RV-C.
+  #
+  # NOTE on 00 and 04: the firefly-firmware project briefly published decoded roles for
+  # these two and RETRACTED them on 2026-08-24 (docs/RVC-GAPS.md section 1). The claims came
+  # from reading one G12 rule table's substitution-mask semantics into another table where
+  # the same byte is a gesture phase mask. This spec never carried those roles, so nothing
+  # here needed correcting -- recorded so the retraction is not "re-discovered" as news.
+  #
+  # DELTA vs ABSOLUTE -- per selector, and NOT guessable. See the 1FED9 write notes below.
   #
   # E3 and E4 are MUTUALLY EXCLUSIVE — one bath-light choice, not two switches. The
   # touchscreen writes both in a single transaction, in opposite directions. Never write
@@ -4976,6 +5029,12 @@ Z0005:
       name: minutes
       type: uint16
       unit: min
+  # Raw units are 0.5 %/bit (RV-C charge-rate encoding). Divide by 2 for the percentage the
+  # touchscreen shows: raw 200 = 100 %. Relayed by the G12 to 1FF95 payload[1], instance 1.
+  "92":
+    - byte: 2-3
+      name: max charge rate raw
+      type: uint16
   "0C":
     - byte: 2-3
       name: duration
@@ -5390,6 +5449,36 @@ Z0005:
     and deactivate via 0xFB/aux=0.
     Ethos 20DL inputs: 1=Kitchen Lights (GND), 2=Bath Lights (GND), 4=Living Room Lights (GND),
     9=Water Pump (12V), 10=Ignition (12V). 6=Awning EXT (12V), 7=Awning RET (12V) but there is no physical switch.
+
+    UNRESOLVED CONFLICT with a static decode of the firmware, 2026-08-24. Everything above
+    is what this bus was OBSERVED doing on an Ethos 20DL, and the handler in
+    g12_configuration.py is built on it. The firefly-firmware project decoded the same DGN
+    out of the 13.6 MCF (docs/RVC-GAPS.md section 5f) and reads it DIFFERENTLY:
+
+      - byte 0 is the instance and byte 1 is THAT INSTANCE'S state (1 active / 0 inactive),
+        with bytes 2-7 all 0xFF. Not a global 12V-line flag.
+      - 0xFB is not an idle code. It is a SECOND instance for input pin 10: pin 10's
+        dispatch entry fires four rules -- its own 0xAA on/off pair and an 0xFB on/off pair
+        that is byte-identical apart from the instance. The panel reads 0xAA as "input 10"
+        on its diagnostics page and 0xFB as "Engine Running" on ELECTRICAL. One 12V sense
+        line, reported twice.
+      - the rules are edge-triggered, with no periodic template, so there is no heartbeat.
+
+    Neither reading is safe to assume. The firmware decode is static -- NO 19FBDA9C frame
+    appears in any of that project's eleven captures, so its frames are predicted, not
+    recorded. The observed model here is real traffic but from a different build (11.23
+    Ethos vs 13.6 B-Van) and the ~1 Hz 0xAn/0xFB alternation it describes has no source in
+    the decoded rule table.
+
+    If the firmware decode turns out to be right, this handler has two concrete faults:
+    FB/aux=1 (ignition ON) is swallowed as a heartbeat, and FB/aux=0 (ignition OFF) clears
+    the published state of EVERY active input rather than just pin 10.
+
+    Cheap experiment that settles it, on the coach with nothing else touched:
+        candump -L can1 | grep -i 19FBDA9C
+    turn the ignition on and off, then hold the water pump switch with the ignition off.
+    If 0xFB tracks the key alone, the firmware decode is right. If 0xFB appears at ~1 Hz
+    while the pump alone is held, this observed model is right.
   parameters:
     - byte: 0
       name: active_input_code

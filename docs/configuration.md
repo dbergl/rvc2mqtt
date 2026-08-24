@@ -182,6 +182,7 @@ to channel 18, which is correct for all AES 1-wire wiring.
 | `/floorplan` | Selected floorplan number |
 | `/batteries/count` | Number of batteries |
 | `/go_power/controller_count` | Go Power controller count |
+| `/charger/max_charge_rate` | Max charge rate (%) — read-only, see note below |
 | `/inverter/progressive` | Progressive inverter setting |
 | `/fans/bath` | Bath fan setting |
 | `/lights/cargo_bath_ch25` | Cargo/bath light channel 25 |
@@ -192,6 +193,11 @@ to channel 18, which is correct for all AES 1-wire wiring.
 | `/fault/lamp` | DM_RV lamp state |
 | `/product_id` | Product identification string |
 | `/input/<n>/active` | G12 input n active state |
+
+`/charger/max_charge_rate` has no command topic. The selector behind it (`0x92`) takes a
+*signed delta* rather than an absolute value, so a write would have to compute
+`target - current` the way the tank-threshold path does, and that round trip has never
+been driven from this code. Adjust it on the touchscreen.
 
 **Command topics** (relative to `command_topic`):
 

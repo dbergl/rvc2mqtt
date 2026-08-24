@@ -57,6 +57,7 @@ _SELECTOR_NAMES = {
     0xE3: "cargo/bath light (ch.25)", 0xE4: "bath light", 0xEC: "black tank",
     0xEF: "gen/AES mode", 0xE6: "progressive inverter",
     0xD7: "go power! controllers", 0xD8: "battery count",
+    0x92: "max charge rate",
 }
 
 # Dimmer channel the G12 drives as its engine relay when AES is wired for 1-wire
@@ -212,6 +213,7 @@ class G12_Configuration(EntityPluginBaseClass):
         self._ags_retry_interval     = "unknown"  # 0xF7
         self._aes_enabled            = "unknown"  # 0x9B (on/off)
         self._engine_running         = "unknown"  # engine on/off (from DC_DIMMER_STATUS_3 instance 18)
+        self._max_charge_rate        = "unknown"  # 0x92 (percent; raw is 0.5%/bit)
 
         if 'status_topic' in data:
             topic_base = str(data['status_topic'])
@@ -247,6 +249,7 @@ class G12_Configuration(EntityPluginBaseClass):
             self.gen_aes_mode_topic          = str(f"{topic_base}/gen/mode")
             self.selected_floorplan_topic    = str(f"{topic_base}/floorplan")
             self.ags_retry_interval_topic    = str(f"{topic_base}/ags/retry_interval")
+            self.max_charge_rate_topic       = str(f"{topic_base}/charger/max_charge_rate")
             self.aes_enabled_topic           = str(f"{topic_base}/aes/enabled")
             if self._engine_relay_configured():
                 self.engine_running_topic    = str(f"{topic_base}/engine/running")
@@ -719,6 +722,24 @@ class G12_Configuration(EntityPluginBaseClass):
                     self.mqtt_support.client.publish(
                         self.ags_low_volts_trigger_topic, val, retain=True)
 
+        elif msg_type == "92":  # 0x92 - max charge rate
+            # Identified 2026-08-24 (firefly-firmware docs/RVC-GAPS.md section 1): the
+            # touchscreen control is labelled "Max Chrge Rate" with unit %, and the G12
+            # relays this value to 1FF95 payload[1], instance 1. Raw is RV-C 0.5 %/bit,
+            # so the panel divides by 2 to display it -- raw 200 = 100 %.
+            #
+            # Read-only on purpose. 0x92 is a confirmed SIGNED-DELTA selector (PC.23), so a
+            # write would have to compute target-current the way the CC/CD/CE path does,
+            # and that round trip has never been driven from this code.
+            raw = new_message.get("max_charge_rate_raw")
+            if raw is not None:
+                val = raw / 2
+                if val != self._max_charge_rate:
+                    self._max_charge_rate = val
+                    if hasattr(self, 'max_charge_rate_topic'):
+                        self.mqtt_support.client.publish(
+                            self.max_charge_rate_topic, val, retain=True)
+
         elif msg_type == "D7":  # 0xD7 - number of Go Power! controllers
             val = new_message.get("controller_count")
             if val is not None and val != self._go_power_controllers:
@@ -898,6 +919,13 @@ class G12_Configuration(EntityPluginBaseClass):
             elif topic in (self.threshold_cc_set_topic,
                            self.threshold_cd_set_topic,
                            self.threshold_ce_set_topic):
+                # DELTA vs ABSOLUTE is per selector and cannot be guessed -- see the 1FED9
+                # notes in rvc-spec.yml for the full list. Confirmed delta: CC/CD/CE and
+                # 82/86/88/92/99. Confirmed absolute: 16. Everything else this method
+                # writes -- 0C, 0D, 0E, 31 and the option toggles -- is UNTESTED; it is
+                # written as an absolute here and the coach has not contradicted that, but
+                # no probe has confirmed it. Test before adding a write for a new selector.
+                #
                 # CC/CD/CE take a SIGNED DELTA, not an absolute value. Confirmed by
                 # capture 2026-08-12: the touchscreen arrows sent 64536 (= -1000 as
                 # int16) and 1000, and the stored value moved by exactly -1000 then
@@ -1381,6 +1409,12 @@ class G12_Configuration(EntityPluginBaseClass):
             'unique_id': self.unique_device_id + '_num_batteries'}
         if has_new_cmd:
             cmps['num_batteries']['command_topic'] = self.num_batteries_set_topic
+
+        cmps['max_charge_rate'] = {
+            'p': 'sensor', 'name': 'Max Charge Rate',
+            'state_topic': self.max_charge_rate_topic,
+            'unit_of_measurement': '%',
+            'unique_id': self.unique_device_id + '_max_charge_rate'}
 
         cmps['ags_config_mode'] = {
             'p': 'sensor', 'name': 'AGS Config Mode',
