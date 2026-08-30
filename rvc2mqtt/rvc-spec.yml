@@ -3097,6 +3097,65 @@ API_VERSION: 0
         17: ramp brightness to new value
         51: flash alternate
 
+16F00:
+  # Firefly/Spyder proprietary per-instance dimmer LEVEL report (PDU1, PF=0x6F, DP=1).
+  # Directed message: on the observed coach the G12 panel (source 0x9C, the node whose
+  # NAME string reads "Spyder Control(s) G12 Panel 2v2 3v0d") sends it to destination
+  # 0x84 (the load-driver module). NOTE: another coach's touchscreen may claim a
+  # different source address -- the 1FED9 notes below reference a 0x9F touchscreen;
+  # match on the NAME/product-id, not a hardcoded address.
+  #
+  # Full arbitration example: 0x196F849C  ff 20 ff ff 0f 7d 05 00
+  #   priority 6, DP=1, PF=6F, PS(dest)=84, SA(src)=9C
+  #
+  # It mirrors DC_DIMMER_STATUS_3 (1FEDA) for the same instance but at a coarser 0-15
+  # resolution, and it UPDATES FASTER -- it shows the fade ramp (00 -> 08 -> 0e -> 0f)
+  # that the 0-200 brightness in 1FEDA does not resolve. Unlike 1FEDA it is only emitted
+  # while the output is on.
+  #
+  # level (byte 4) vs 1FEDA "operating status brightness" (byte 2, 0-200 where 200=full):
+  #   level = floor(brightness * 15 / 200)
+  # Confirmed by a commanded brightness sweep (capture 2026-08-30, via the Lyra
+  # touchscreen's USB CDC CAN gateway + can1 injection): 200->0x0f, 100->0x07, 50->0x03;
+  # round() and ceil() were both ruled out at multiple points (e.g. 104->7 not 8,
+  # 184->13 not 14). 0x0f appears only at full scale.
+  #
+  # This is a LEVEL REPORT. It is directed at the load driver and leads the broadcast
+  # status, which is consistent with -- but does NOT prove -- it being the panel's
+  # internal drive command; injecting it to actuate a load has not been tested. Use the
+  # standard DC_DIMMER_COMMAND_2 (1FEDB) for control.
+  name: DC_DIMMER_LEVEL_16_SPYDER
+  parameters:
+    - byte: 0
+      name: reserved
+      type: uint8
+    - byte: 1
+      name: instance
+      type: uint8
+    - byte: 2
+      name: reserved
+      type: uint8
+    - byte: 3
+      name: reserved
+      type: uint8
+    - byte: 4
+      name: level
+      type: uint8
+      # 0-15 scale; = floor(1FEDA brightness * 15 / 200). 0x0f = full, 0x00 = off.
+    - byte: 5
+      name: reserved
+      type: uint8
+      # constant 0x7D on the observed coach
+    - byte: 6
+      name: output active
+      type: uint8
+      values:
+        0: 'off (output settled off)'
+        5: 'on (output energized/driven)'
+    - byte: 7
+      name: reserved
+      type: uint8
+
 1FED9:
   # NOTE: group 0x94 also exists on this DGN and is NOT decoded here.
   # Only group 0x96 (G12 configuration) is handled. The touchscreen (0x9F) also emits
