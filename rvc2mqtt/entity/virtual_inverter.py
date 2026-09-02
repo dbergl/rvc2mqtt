@@ -4,8 +4,9 @@ modbus2mqtt) as an RV-C inverter node.
 
 Subscribes to modbus2mqtt state topics, transmits INVERTER_STATUS,
 INVERTER_AC_STATUS_1, CHARGER_AC_STATUS_1 (AC input, so panels that read
-shore power from the charger side see it) and INVERTER_DC_STATUS on a
-schedule, answers INVERTER_COMMAND by writing modbus2mqtt's set/onoff topic,
+shore power from the charger side see it), CHARGER_CONFIGURATION_STATUS
+(battery type and bank size) and INVERTER_DC_STATUS on a schedule, answers
+INVERTER_COMMAND by writing modbus2mqtt's set/onoff topic,
 and mirrors state to the same rvc/state/inverter topics the real inverter
 entity uses.
 
@@ -35,7 +36,8 @@ import time
 from rvc2mqtt.mqtt import MQTT_Support
 from rvc2mqtt.entity import EntityPluginBaseClass
 from rvc2mqtt.rvc_encode import (
-    encode_voltage_u16, encode_current_u16, encode_frequency_u16, u16_le)
+    encode_voltage_u16, encode_current_u16, encode_frequency_u16,
+    encode_amp_hours_u16, u16_le)
 
 
 # field -> default {"topic": <relative to source_topic_base>, "scale": float} or None (unmapped)
@@ -51,8 +53,11 @@ FIELD_DEFAULTS = {
     "ac_out_frequency": None,
     "dc_voltage":       None,
     "dc_current":       None,
+    "battery_type":     {"topic": "state/battery_type", "scale": 1.0},
+    "battery_capacity": {"topic": "state/BattCapacity", "scale": 0.1},
 }
 BOOL_FIELDS = ("enabled", "fault")
+INT_FIELDS = ("status", "battery_type")   # enumerated codes, no scaling
 
 # Modbus (SRNE register 4405) status code -> RV-C INVERTER_STATUS.status
 SRNE_TO_RVC_STATUS = {
@@ -70,6 +75,25 @@ SRNE_TO_RVC_STATUS = {
 RVC_STATUS_DEFINITION = {0: "disabled", 1: "invert", 2: "ac passthru",
                          5: "waiting to invert"}
 RVC_STATUS_PASSTHRU = 2
+
+# Modbus (SRNE register 4424) battery type code -> RV-C battery type
+# (CHARGER_CONFIGURATION_STATUS byte 3 bits 4-7).  None = RV-C has no code
+# for this chemistry (UserDef, Li-Ion); sent as "not available" without a
+# warning.  Codes absent from the table are unknown and warned once.
+SRNE_TO_RVC_BATTERY_TYPE = {
+    0: None,  # UserDef                      -> n/a
+    1: 2,     # Sealed Lead-Acid             -> agm
+    2: 0,     # Flooded Lead-Acid            -> flooded
+    3: 1,     # Gel Lead-Acid                -> gel
+    4: 3,     # Lithium Iron Phosphate (14s) -> lithium iron phosphate
+    5: 3,     # Lithium Iron Phosphate (15s) -> lithium iron phosphate
+    6: 3,     # Lithium Iron Phosphate (16s) -> lithium iron phosphate
+    12: None, # Lithium-Ion (13s)            -> n/a
+    13: None, # Lithium-Ion (14s)            -> n/a
+}
+RVC_BATTERY_TYPE_DEFINITION = {0: "flooded", 1: "gel", 2: "agm",
+                               3: "lithium iron phosphate"}
+RVC_BATTERY_TYPE_NA = 0xF
 
 # DM_RV (1FECA) constants.  DSA 66 is the RV-C default service address class
 # for inverters; panels key latched faults on it, so the virtual inverter must
@@ -133,6 +157,7 @@ class VirtualInverter(EntityPluginBaseClass):
         self._clock = time.monotonic
         self._silent = False
         self._warned_codes = set()
+        self._warned_battery_codes = set()
         self._mirror_cache = {}
 
         # Topics
@@ -215,7 +240,7 @@ class VirtualInverter(EntityPluginBaseClass):
     def _ingest(self, field: str, payload) -> bool:
         """Parse payload for field; update self.values.  Returns True if changed."""
         try:
-            if field == "status":
+            if field in INT_FIELDS:
                 value = int(str(payload).strip())
             elif field in BOOL_FIELDS:
                 value = _parse_bool(payload)
@@ -243,6 +268,7 @@ class VirtualInverter(EntityPluginBaseClass):
         "ac_out_frequency": ("line1/output/frequency",   "frequency", "Hz"),
         "dc_voltage":       ("dc_voltage",               "voltage",   "V"),
         "dc_current":       ("dc_amperage",              "current",   "A"),
+        "battery_capacity": ("battery_capacity",         None,        "Ah"),
     }
 
     # ---- MQTT mirror ----------------------------------------------------
@@ -262,6 +288,9 @@ class VirtualInverter(EntityPluginBaseClass):
             out[f"{self.topic_base}/onoff"] = self._onoff(self.values['enabled'])
         if self.values['fault'] is not None:
             out[f"{self.topic_base}/fault"] = self._onoff(self.values['fault'])
+        if self.values['battery_type'] is not None:
+            out[f"{self.topic_base}/battery_type"] = RVC_BATTERY_TYPE_DEFINITION.get(
+                self.rvc_battery_type(), "unknown").title()
         for field, (sub, _dc, _unit) in self._NUMERIC_MIRROR.items():
             value = self.values[field]
             if value is not None:
@@ -302,15 +331,23 @@ class VirtualInverter(EntityPluginBaseClass):
             "state_topic": f"{self.topic_base}/fault",
             "device_class": "problem",
             "payload_on": "on", "payload_off": "off"})
+        if 'battery_type' in self.field_topics:
+            self._publish_discovery("sensor", "battery_type", {
+                "name": self.name + " battery type",
+                "state_topic": f"{self.topic_base}/battery_type",
+                "device_class": "enum",
+                "options": [v.title() for v in RVC_BATTERY_TYPE_DEFINITION.values()] + ["Unknown"]})
         for field, (sub, device_class, unit) in self._NUMERIC_MIRROR.items():
             if field not in self.field_topics:
                 continue
-            self._publish_discovery("sensor", field, {
+            config = {
                 "name": self.name + " " + field.replace("_", " "),
                 "state_topic": f"{self.topic_base}/{sub}",
-                "device_class": device_class,
                 "unit_of_measurement": unit,
-                "state_class": "measurement"})
+                "state_class": "measurement"}
+            if device_class is not None:
+                config["device_class"] = device_class
+            self._publish_discovery("sensor", field, config)
 
     def _set_onoff(self, enable: bool):
         payload = "1" if enable else "0"
@@ -326,7 +363,8 @@ class VirtualInverter(EntityPluginBaseClass):
     # ---- RV-C in --------------------------------------------------------
 
     _OWN_STATUS_DGNS = ("INVERTER_STATUS", "INVERTER_AC_STATUS_1",
-                        "CHARGER_AC_STATUS_1", "INVERTER_DC_STATUS")
+                        "CHARGER_AC_STATUS_1", "CHARGER_CONFIGURATION_STATUS",
+                        "INVERTER_DC_STATUS")
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         # DM_RV carries no instance field; claim only our own echo (matched
@@ -369,6 +407,20 @@ class VirtualInverter(EntityPluginBaseClass):
             self.Logger.warning(f"{self.name}: unknown modbus status code {code}; reporting disabled")
         return 0
 
+    def rvc_battery_type(self) -> int:
+        """Map the Modbus battery type code to the RV-C 4-bit battery type."""
+        code = self.values.get('battery_type')
+        if code is None:
+            return RVC_BATTERY_TYPE_NA
+        if code in SRNE_TO_RVC_BATTERY_TYPE:
+            rvc = SRNE_TO_RVC_BATTERY_TYPE[code]
+            return RVC_BATTERY_TYPE_NA if rvc is None else rvc
+        if code not in self._warned_battery_codes:
+            self._warned_battery_codes.add(code)
+            self.Logger.warning(f"{self.name}: unknown modbus battery type code {code}; "
+                                "reporting not available")
+        return RVC_BATTERY_TYPE_NA
+
     @staticmethod
     def _bit2(value) -> int:
         """RV-C 2-bit field: 00 off, 01 on, 11 not available."""
@@ -410,6 +462,19 @@ class VirtualInverter(EntityPluginBaseClass):
         return {"dgn": "1FFCA", "data": self._ac_status_data(output=False),
                 "source_id": self.source_id}
 
+    def _charger_config_frame(self) -> dict:
+        """CHARGER_CONFIGURATION_STATUS: battery type and bank size are the
+        only fields the Modbus side exposes; algorithm, mode, sensor and max
+        charging current are sent "not available".  Installation line is 1,
+        matching the AC status frames."""
+        byte3 = (0b11                                  # bits 0-1 battery sensor: n/a
+                 | (0b00 << 2)                         # bits 2-3 installation line 1
+                 | ((self.rvc_battery_type() & 0xF) << 4))  # bits 4-7 battery type
+        data = (bytes([self.rvc_instance & 0xFF, 0xFF, 0xFF, byte3])
+                + u16_le(encode_amp_hours_u16(self.values['battery_capacity']))
+                + bytes([0xFF, 0xFF]))
+        return {"dgn": "1FFC6", "data": data, "source_id": self.source_id}
+
     def _dc_status_frame(self) -> dict:
         data = (bytes([self.rvc_instance & 0xFF])
                 + u16_le(encode_voltage_u16(self.values['dc_voltage']))
@@ -441,6 +506,7 @@ class VirtualInverter(EntityPluginBaseClass):
                 self._ac_status_frame(output=False),
                 self._ac_status_frame(output=True),
                 self._charger_ac_status_frame(),
+                self._charger_config_frame(),
                 self._dc_status_frame(),
                 self._dm_rv_frame()]
 

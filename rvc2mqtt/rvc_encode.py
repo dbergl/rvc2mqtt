@@ -59,6 +59,13 @@ def encode_frequency_u16(hz) -> int:
     return _clamp_u16(hz * 128)
 
 
+def encode_amp_hours_u16(ah) -> int:
+    """1 Ah/bit, no offset (e.g. CHARGER_CONFIGURATION_STATUS bank size)."""
+    if ah is None:
+        return U16_NA
+    return _clamp_u16(ah)
+
+
 def u16_le(value: int) -> bytes:
     """Two little-endian bytes (RV-C byte order)."""
     return bytes((value & 0xFF, (value >> 8) & 0xFF))

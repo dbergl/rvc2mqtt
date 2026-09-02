@@ -282,7 +282,8 @@ the coach panel can show and switch it.  rvc2mqtt transmits
 `INVERTER_STATUS`, `INVERTER_AC_STATUS_1` (line 1 input and output),
 `CHARGER_AC_STATUS_1` (line 1 input: the same AC input volts, amps and Hz on
 the charger DGN, for panels that read shore power from the charger side of an
-inverter-charger), `INVERTER_DC_STATUS` and `DM_RV` every `interval` seconds, and answers `INVERTER_COMMAND`
+inverter-charger), `CHARGER_CONFIGURATION_STATUS` (battery type and bank
+size), `INVERTER_DC_STATUS` and `DM_RV` every `interval` seconds, and answers `INVERTER_COMMAND`
 (inverter enable/disable) by writing modbus2mqtt's `set/onoff` topic.  State is
 also mirrored to the same `rvc/state/inverter/*` topics the real `inverter`
 entity uses, and `rvc/set/inverter/enable` (`on`/`off`) works the same way.
@@ -336,6 +337,8 @@ Fields, with defaults:
 | `ac_out_frequency` | unmapped | `1.0` | `INVERTER_AC_STATUS_1` (output) |
 | `dc_voltage` | unmapped | `1.0` | `INVERTER_DC_STATUS` |
 | `dc_current` | unmapped | `1.0` | `INVERTER_DC_STATUS` |
+| `battery_type` | `state/battery_type` | — | `CHARGER_CONFIGURATION_STATUS.battery type` (SRNE code, see below) |
+| `battery_capacity` | `state/BattCapacity` | `0.1` | `CHARGER_CONFIGURATION_STATUS.battery bank size` (Ah) |
 
 `scale` multiplies the raw MQTT payload (modbus2mqtt publishes raw register
 values; the `/10` in the CSV templates only affects Home Assistant display).
@@ -358,9 +361,28 @@ Modbus status code (SRNE register 4405) → RV-C status:
 | 11 or `fault` on | Fault | 0 `disabled` |
 | other | unknown (warned once) | 0 `disabled` |
 
+Modbus battery type code (SRNE register 4424) → RV-C battery type. RV-C only
+defines four chemistries, so codes without an equivalent are sent as "not
+available" (and mirrored as `Unknown`):
+
+| Code | Meaning | RV-C battery type |
+|---|---|---|
+| 2 | Flooded Lead-Acid | 0 `flooded` |
+| 3 | Gel Lead-Acid | 1 `gel` |
+| 1 | Sealed Lead-Acid | 2 `agm` |
+| 4, 5, 6 | Lithium Iron Phosphate (14s/15s/16s) | 3 `lithium iron phosphate` |
+| 0 | UserDef | not available |
+| 12, 13 | Lithium-Ion (13s/14s) | not available |
+| other | unknown (warned once) | not available |
+
+The rest of `CHARGER_CONFIGURATION_STATUS` (charging algorithm, charger mode,
+battery sensor, maximum charging current) is sent "not available"; the
+installation line is 1, matching the AC status frames.
+
 Mirrored topics under `status_topic`: `status`, `status_definition`, `onoff`,
 `fault`, `line1/input/{rms_voltage,rms_current,frequency}`, `line1/output/{rms_voltage,rms_current,frequency}`,
-`dc_voltage`, `dc_amperage` — only for fields that are mapped.
+`dc_voltage`, `dc_amperage`, `battery_type` (RV-C chemistry name or `Unknown`),
+`battery_capacity` (Ah) — only for fields that are mapped.
 
 ### Example
 

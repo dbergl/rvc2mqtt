@@ -86,6 +86,10 @@ class Test_Construction(unittest.TestCase):
                          ('modbus/inverter/state/AC_Input_Voltage', 0.1))
         self.assertEqual(e.field_topics['ac_in_frequency'],
                          ('modbus/inverter/state/AC_Input_Frequency', 0.01))
+        self.assertEqual(e.field_topics['battery_type'],
+                         ('modbus/inverter/state/battery_type', 1.0))
+        self.assertEqual(e.field_topics['battery_capacity'],
+                         ('modbus/inverter/state/BattCapacity', 0.1))
         for f in ('ac_in_current', 'ac_out_voltage', 'ac_out_current',
                   'ac_out_frequency', 'dc_voltage', 'dc_current'):
             self.assertNotIn(f, e.field_topics)
@@ -189,7 +193,7 @@ class Test_Ingest(unittest.TestCase):
         self._feed(e, mock, 'modbus/inverter/state/status', '5')
         e.tick(1000.0)
         frames = _drain(e.send_queue)
-        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FFCA', '1FEE8', '1FECA'])
+        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FFCA', '1FFC6', '1FEE8', '1FECA'])
 
     def test_connected_topic(self):
         e, mock, _ = _make_entity()
@@ -262,7 +266,7 @@ class Test_Frames(unittest.TestCase):
     def test_frame_set_with_source_id(self):
         e, _, _ = _make_entity({'source_id': 'A5'})
         frames = e.build_frames()
-        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FFCA', '1FEE8', '1FECA'])
+        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FFCA', '1FFC6', '1FEE8', '1FECA'])
         for f in frames:
             self.assertEqual(f['source_id'], 'A5')
             self.assertEqual(len(f['data']), 8)
@@ -386,7 +390,7 @@ class Test_Frames(unittest.TestCase):
     def test_dc_status_frame(self):
         e, _, _ = _make_entity()
         e.values.update(dc_voltage=52.0, dc_current=-12.5)
-        msg = _decode(e.build_frames()[4])
+        msg = _decode(e.build_frames()[5])
         self.assertEqual(msg['name'], 'INVERTER_DC_STATUS')
         self.assertEqual(msg['instance'], 1)
         self.assertEqual(msg['dc_voltage'], 52.0)
@@ -395,7 +399,7 @@ class Test_Frames(unittest.TestCase):
 
     def test_dc_status_not_available(self):
         e, _, _ = _make_entity()
-        msg = _decode(e.build_frames()[4])
+        msg = _decode(e.build_frames()[5])
         self.assertEqual(msg['dc_voltage'], 'n/a')
         self.assertEqual(msg['dc_amperage'], 'n/a')
 
@@ -407,11 +411,85 @@ def _drain(q: queue.Queue) -> list:
     return out
 
 
+class Test_ChargerConfig(unittest.TestCase):
+    """CHARGER_CONFIGURATION_STATUS (1FFC6): battery type + bank size, rest n/a."""
+
+    def _frame(self, e):
+        frame = e.build_frames()[4]
+        self.assertEqual(frame['dgn'], '1FFC6')
+        return frame, _decode(frame)
+
+    def _feed(self, e, mock, topic, payload):
+        _registered(mock)[topic][0](topic, payload)
+
+    def test_battery_type_mapping(self):
+        # SRNE register 4424 code -> RV-C battery type (byte 3 bits 4-7)
+        for code, want in ((2, 'flooded'), (3, 'gel'), (1, 'agm'),
+                           (4, 'lithium iron phosphate'),
+                           (5, 'lithium iron phosphate'),
+                           (6, 'lithium iron phosphate')):
+            e, mock, _ = _make_entity()
+            self._feed(e, mock, 'modbus/inverter/state/battery_type', str(code))
+            _frame, msg = self._frame(e)
+            self.assertEqual(msg['name'], 'CHARGER_CONFIGURATION_STATUS')
+            self.assertEqual(msg['instance'], 1)
+            self.assertEqual(msg['battery_type_definition'], want, code)
+
+    def test_battery_type_without_rvc_equivalent_is_not_available(self):
+        # 0 UserDef, 12/13 Li-Ion: RV-C has no code, so send all-ones.
+        for code in (0, 12, 13):
+            e, mock, _ = _make_entity()
+            e.Logger = MagicMock()
+            self._feed(e, mock, 'modbus/inverter/state/battery_type', str(code))
+            _frame, msg = self._frame(e)
+            self.assertEqual(msg['battery_type'], 15, code)
+            e.Logger.warning.assert_not_called()
+
+    def test_unknown_battery_type_code_warns_once(self):
+        e, mock, _ = _make_entity()
+        e.Logger = MagicMock()
+        self._feed(e, mock, 'modbus/inverter/state/battery_type', '9')
+        _frame, msg = self._frame(e)
+        self._frame(e)
+        self.assertEqual(msg['battery_type'], 15)
+        self.assertEqual(e.Logger.warning.call_count, 1)
+
+    def test_no_battery_type_value_is_not_available(self):
+        e, _, _ = _make_entity()
+        _frame, msg = self._frame(e)
+        self.assertEqual(msg['battery_type'], 15)
+
+    def test_bank_size_from_capacity(self):
+        e, mock, _ = _make_entity()
+        self._feed(e, mock, 'modbus/inverter/state/BattCapacity', '2100')
+        _frame, msg = self._frame(e)
+        self.assertEqual(msg['battery_bank_size'], 210)
+
+    def test_bank_size_not_available(self):
+        e, _, _ = _make_entity()
+        _frame, msg = self._frame(e)
+        self.assertEqual(msg['battery_bank_size'], 0xFFFF)
+
+    def test_fixed_bytes(self):
+        e, mock, _ = _make_entity()
+        self._feed(e, mock, 'modbus/inverter/state/battery_type', '4')
+        self._feed(e, mock, 'modbus/inverter/state/BattCapacity', '2100')
+        frame, msg = self._frame(e)
+        data = bytes(frame['data'])
+        self.assertEqual(len(data), 8)
+        self.assertEqual(data[1], 0xFF)          # charging algorithm n/a
+        self.assertEqual(data[2], 0xFF)          # charger mode n/a
+        self.assertEqual(data[3] & 0x0F, 0b0011)  # sensor n/a (11), installation line 1 (00)
+        self.assertEqual(data[3] >> 4, 3)        # lithium iron phosphate
+        self.assertEqual(data[6:], b'\xff\xff')  # max charging current n/a
+        self.assertEqual(msg['charger_installation_line_definition'], 1)
+
+
 class Test_DmRv(unittest.TestCase):
     """DM_RV (1FECA) diagnostic frame: all-clear while healthy, red lamp + fault while faulted."""
 
     def _dm_rv(self, e):
-        frame = e.build_frames()[5]
+        frame = e.build_frames()[6]
         self.assertEqual(frame['dgn'], '1FECA')
         return frame, _decode(frame)
 
@@ -489,7 +567,7 @@ class Test_Tick(unittest.TestCase):
         e, _, _ = self._ready(100.0)
         e.tick(100.0)
         frames = _drain(e.send_queue)
-        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FFCA', '1FEE8', '1FECA'])
+        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FFCA', '1FFC6', '1FEE8', '1FECA'])
 
     def test_respects_interval(self):
         e, _, _ = self._ready(100.0)
@@ -498,7 +576,7 @@ class Test_Tick(unittest.TestCase):
         e.tick(100.5)
         self.assertEqual(_drain(e.send_queue), [])
         e.tick(101.0)
-        self.assertEqual(len(_drain(e.send_queue)), 6)
+        self.assertEqual(len(_drain(e.send_queue)), 7)
 
     def test_custom_interval(self):
         e, mock, clock = _make_entity({'interval': 5.0}, now=100.0)
@@ -509,18 +587,18 @@ class Test_Tick(unittest.TestCase):
         e.tick(104.9)
         self.assertEqual(_drain(e.send_queue), [])
         e.tick(105.0)
-        self.assertEqual(len(_drain(e.send_queue)), 6)
+        self.assertEqual(len(_drain(e.send_queue)), 7)
 
     def test_steady_state_keeps_transmitting_by_default(self):
         """modbus2mqtt publishes on change only: an unchanged-but-healthy
         inverter must keep being announced on RV-C indefinitely."""
         e, _, _ = self._ready(100.0)
         e.tick(100.0)
-        self.assertEqual(len(_drain(e.send_queue)), 6)
+        self.assertEqual(len(_drain(e.send_queue)), 7)
         e.tick(131.0)   # >30 s with no MQTT traffic
-        self.assertEqual(len(_drain(e.send_queue)), 6)
+        self.assertEqual(len(_drain(e.send_queue)), 7)
         e.tick(3700.0)  # an hour later, still nothing changed
-        self.assertEqual(len(_drain(e.send_queue)), 6)
+        self.assertEqual(len(_drain(e.send_queue)), 7)
 
     def test_silent_when_stale_opt_in(self):
         e, _, clock = self._ready(100.0, {'stale_timeout': 30.0})
@@ -536,7 +614,7 @@ class Test_Tick(unittest.TestCase):
         clock['now'] = 131.5
         _registered(mock)['modbus/inverter/state/onoff'][0]('modbus/inverter/state/onoff', '1')
         e.tick(132.0)
-        self.assertEqual(len(_drain(e.send_queue)), 6)
+        self.assertEqual(len(_drain(e.send_queue)), 7)
 
     def test_silent_when_offline(self):
         e, mock, _ = self._ready(100.0)
@@ -545,7 +623,7 @@ class Test_Tick(unittest.TestCase):
         self.assertEqual(_drain(e.send_queue), [])
         _registered(mock)['modbus/inverter/connected'][0]('modbus/inverter/connected', 'online')
         e.tick(101.0)
-        self.assertEqual(len(_drain(e.send_queue)), 6)
+        self.assertEqual(len(_drain(e.send_queue)), 7)
 
     def test_silence_transition_logged_once(self):
         e, _, _ = self._ready(100.0, {'stale_timeout': 30.0})
@@ -679,7 +757,9 @@ class Test_Mirror(unittest.TestCase):
         self._feed(e, mock, 'modbus/inverter/state/of', '60')
         self._feed(e, mock, 'modbus/inverter/state/dv', '52')
         self._feed(e, mock, 'modbus/inverter/state/dc', '-12.5')
+        self._feed(e, mock, 'modbus/inverter/state/BattCapacity', '2100')
         pubs = {t: p for (t, p, _r) in _state_publishes(mock)}
+        self.assertEqual(pubs['rvc/state/inverter/battery_capacity'], 210.0)
         self.assertEqual(pubs['rvc/state/inverter/line1/input/rms_voltage'], 120.8)
         self.assertEqual(pubs['rvc/state/inverter/line1/input/rms_current'], 12.5)
         self.assertEqual(pubs['rvc/state/inverter/line1/input/frequency'], 59.98)
@@ -688,6 +768,16 @@ class Test_Mirror(unittest.TestCase):
         self.assertEqual(pubs['rvc/state/inverter/line1/output/frequency'], 60.0)
         self.assertEqual(pubs['rvc/state/inverter/dc_voltage'], 52.0)
         self.assertEqual(pubs['rvc/state/inverter/dc_amperage'], -12.5)
+
+    def test_battery_type_mirrors_rvc_definition(self):
+        e, mock, _ = _make_entity()
+        self._feed(e, mock, 'modbus/inverter/state/battery_type', '4')
+        pubs = {t: p for (t, p, _r) in _state_publishes(mock)}
+        self.assertEqual(pubs['rvc/state/inverter/battery_type'], 'Lithium Iron Phosphate')
+        mock.client.publish.reset_mock()
+        self._feed(e, mock, 'modbus/inverter/state/battery_type', '0')
+        pubs = {t: p for (t, p, _r) in _state_publishes(mock)}
+        self.assertEqual(pubs['rvc/state/inverter/battery_type'], 'Unknown')
 
     def test_unchanged_value_not_republished(self):
         e, mock, _ = _make_entity()
@@ -727,6 +817,14 @@ class Test_HADiscovery(unittest.TestCase):
         self.assertEqual(hz['state_topic'], 'rvc/state/inverter/line1/input/frequency')
         self.assertEqual(hz['device_class'], 'frequency')
         self.assertEqual(hz['unit_of_measurement'], 'Hz')
+        bt = cfgs[f'homeassistant/sensor/{uid}/battery_type/config']
+        self.assertEqual(bt['state_topic'], 'rvc/state/inverter/battery_type')
+        self.assertEqual(bt['device_class'], 'enum')
+        self.assertEqual(sorted(bt['options']),
+                         sorted(['Flooded', 'Gel', 'Agm', 'Lithium Iron Phosphate', 'Unknown']))
+        cap = cfgs[f'homeassistant/sensor/{uid}/battery_capacity/config']
+        self.assertEqual(cap['state_topic'], 'rvc/state/inverter/battery_capacity')
+        self.assertEqual(cap['unit_of_measurement'], 'Ah')
         sw = cfgs[f'homeassistant/switch/{uid}/enable/config']
         self.assertEqual(sw['command_topic'], 'rvc/set/inverter/enable')
         self.assertEqual(sw['state_topic'], 'rvc/state/inverter/onoff')
