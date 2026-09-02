@@ -825,6 +825,8 @@ class Test_HADiscovery(unittest.TestCase):
         cap = cfgs[f'homeassistant/sensor/{uid}/battery_capacity/config']
         self.assertEqual(cap['state_topic'], 'rvc/state/inverter/battery_capacity')
         self.assertEqual(cap['unit_of_measurement'], 'Ah')
+        self.assertEqual(cap['suggested_display_precision'], 0)
+        self.assertNotIn('suggested_display_precision', hz)
         sw = cfgs[f'homeassistant/switch/{uid}/enable/config']
         self.assertEqual(sw['command_topic'], 'rvc/set/inverter/enable')
         self.assertEqual(sw['state_topic'], 'rvc/state/inverter/onoff')

@@ -258,17 +258,17 @@ class VirtualInverter(EntityPluginBaseClass):
         self.values[field] = value
         return changed
 
-    # numeric field -> (mirror sub-topic, HA device_class, unit)
+    # numeric field -> (mirror sub-topic, HA device_class, unit, suggested display precision)
     _NUMERIC_MIRROR = {
-        "ac_in_voltage":    ("line1/input/rms_voltage",  "voltage",   "V"),
-        "ac_in_current":    ("line1/input/rms_current",  "current",   "A"),
-        "ac_in_frequency":  ("line1/input/frequency",    "frequency", "Hz"),
-        "ac_out_voltage":   ("line1/output/rms_voltage", "voltage",   "V"),
-        "ac_out_current":   ("line1/output/rms_current", "current",   "A"),
-        "ac_out_frequency": ("line1/output/frequency",   "frequency", "Hz"),
-        "dc_voltage":       ("dc_voltage",               "voltage",   "V"),
-        "dc_current":       ("dc_amperage",              "current",   "A"),
-        "battery_capacity": ("battery_capacity",         None,        "Ah"),
+        "ac_in_voltage":    ("line1/input/rms_voltage",  "voltage",   "V",  None),
+        "ac_in_current":    ("line1/input/rms_current",  "current",   "A",  None),
+        "ac_in_frequency":  ("line1/input/frequency",    "frequency", "Hz", None),
+        "ac_out_voltage":   ("line1/output/rms_voltage", "voltage",   "V",  None),
+        "ac_out_current":   ("line1/output/rms_current", "current",   "A",  None),
+        "ac_out_frequency": ("line1/output/frequency",   "frequency", "Hz", None),
+        "dc_voltage":       ("dc_voltage",               "voltage",   "V",  None),
+        "dc_current":       ("dc_amperage",              "current",   "A",  None),
+        "battery_capacity": ("battery_capacity",         None,        "Ah", 0),
     }
 
     # ---- MQTT mirror ----------------------------------------------------
@@ -291,7 +291,7 @@ class VirtualInverter(EntityPluginBaseClass):
         if self.values['battery_type'] is not None:
             out[f"{self.topic_base}/battery_type"] = RVC_BATTERY_TYPE_DEFINITION.get(
                 self.rvc_battery_type(), "unknown").title()
-        for field, (sub, _dc, _unit) in self._NUMERIC_MIRROR.items():
+        for field, (sub, _dc, _unit, _precision) in self._NUMERIC_MIRROR.items():
             value = self.values[field]
             if value is not None:
                 out[f"{self.topic_base}/{sub}"] = round(value, 2)
@@ -337,7 +337,7 @@ class VirtualInverter(EntityPluginBaseClass):
                 "state_topic": f"{self.topic_base}/battery_type",
                 "device_class": "enum",
                 "options": [v.title() for v in RVC_BATTERY_TYPE_DEFINITION.values()] + ["Unknown"]})
-        for field, (sub, device_class, unit) in self._NUMERIC_MIRROR.items():
+        for field, (sub, device_class, unit, precision) in self._NUMERIC_MIRROR.items():
             if field not in self.field_topics:
                 continue
             config = {
@@ -347,6 +347,8 @@ class VirtualInverter(EntityPluginBaseClass):
                 "state_class": "measurement"}
             if device_class is not None:
                 config["device_class"] = device_class
+            if precision is not None:
+                config["suggested_display_precision"] = precision
             self._publish_discovery("sensor", field, config)
 
     def _set_onoff(self, enable: bool):
