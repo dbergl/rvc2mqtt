@@ -89,7 +89,7 @@ class Test_Construction(unittest.TestCase):
         self.assertEqual(e.field_topics['battery_type'],
                          ('modbus/inverter/state/battery_type', 1.0))
         self.assertEqual(e.field_topics['battery_capacity'],
-                         ('modbus/inverter/state/BattCapacity', 0.1))
+                         ('modbus/inverter/state/BattCapacity', 1.0))
         for f in ('ac_in_current', 'ac_out_voltage', 'ac_out_current',
                   'ac_out_frequency', 'dc_voltage', 'dc_current'):
             self.assertNotIn(f, e.field_topics)
@@ -461,7 +461,7 @@ class Test_ChargerConfig(unittest.TestCase):
 
     def test_bank_size_from_capacity(self):
         e, mock, _ = _make_entity()
-        self._feed(e, mock, 'modbus/inverter/state/BattCapacity', '2100')
+        self._feed(e, mock, 'modbus/inverter/state/BattCapacity', '210')
         _frame, msg = self._frame(e)
         self.assertEqual(msg['battery_bank_size'], 210)
 
@@ -473,7 +473,7 @@ class Test_ChargerConfig(unittest.TestCase):
     def test_fixed_bytes(self):
         e, mock, _ = _make_entity()
         self._feed(e, mock, 'modbus/inverter/state/battery_type', '4')
-        self._feed(e, mock, 'modbus/inverter/state/BattCapacity', '2100')
+        self._feed(e, mock, 'modbus/inverter/state/BattCapacity', '210')
         frame, msg = self._frame(e)
         data = bytes(frame['data'])
         self.assertEqual(len(data), 8)
@@ -757,7 +757,7 @@ class Test_Mirror(unittest.TestCase):
         self._feed(e, mock, 'modbus/inverter/state/of', '60')
         self._feed(e, mock, 'modbus/inverter/state/dv', '52')
         self._feed(e, mock, 'modbus/inverter/state/dc', '-12.5')
-        self._feed(e, mock, 'modbus/inverter/state/BattCapacity', '2100')
+        self._feed(e, mock, 'modbus/inverter/state/BattCapacity', '210')
         pubs = {t: p for (t, p, _r) in _state_publishes(mock)}
         self.assertEqual(pubs['rvc/state/inverter/battery_capacity'], 210.0)
         self.assertEqual(pubs['rvc/state/inverter/line1/input/rms_voltage'], 120.8)

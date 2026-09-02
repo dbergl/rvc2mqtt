@@ -54,7 +54,7 @@ FIELD_DEFAULTS = {
     "dc_voltage":       None,
     "dc_current":       None,
     "battery_type":     {"topic": "state/battery_type", "scale": 1.0},
-    "battery_capacity": {"topic": "state/BattCapacity", "scale": 0.1},
+    "battery_capacity": {"topic": "state/BattCapacity", "scale": 1.0},
 }
 BOOL_FIELDS = ("enabled", "fault")
 INT_FIELDS = ("status", "battery_type")   # enumerated codes, no scaling
