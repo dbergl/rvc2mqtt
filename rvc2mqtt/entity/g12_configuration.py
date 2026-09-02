@@ -68,6 +68,18 @@ _SELECTOR_NAMES = {
 # status messages.
 AES_1WIRE_ENGINE_RELAY_INSTANCE = 18
 
+# Sanity envelopes for the two fields that have been observed carrying garbage
+# (65531, 0, and a raw value implying 7200 s while the entity was still in the
+# AES range) during an AGS/AES mode switch on 2026-09-01. These are the union of
+# the AES and AGS bounds used in publish_ha_discovery_config(), plus a 0 floor as
+# a margin for whichever HA range is live at the moment a message lands. Not a
+# root-cause fix -- the 7200 s case above was actually valid AGS data rejected by
+# a stale HA range (see publish_ha_discovery_config) -- just a filter against
+# transmission noise that can never be a real setting, so it does not get
+# published, retained by HA, and logged as an error every time it's sent again.
+MAX_ENGINE_RUN_TIME_SANE_RANGE = (0, 1440)     # min; union of AES 60-115 and AGS 0-1440
+TIME_AT_STOP_VOLTS_SANE_RANGE = (0, 7200)      # sec; union of AES 600-3600 and AGS 600-7200
+
 
 class G12_Configuration(EntityPluginBaseClass):
     FACTORY_MATCH_ATTRIBUTES = {"name": "G12", "type": "g12_configuration"}
@@ -507,7 +519,12 @@ class G12_Configuration(EntityPluginBaseClass):
                                 self.quiet_time_stop_topic, val, retain=True)
                 elif selector == 0x16:
                     val = value_le
-                    if val != self._max_engine_run_time:
+                    lo, hi = MAX_ENGINE_RUN_TIME_SANE_RANGE
+                    if not (lo <= val <= hi):
+                        self.Logger.warning(
+                            f"Discarding implausible max_engine_run_time {val} "
+                            f"(outside {lo}-{hi})")
+                    elif val != self._max_engine_run_time:
                         self._max_engine_run_time = val
                         if hasattr(self, 'max_engine_run_time_topic'):
                             self.mqtt_support.client.publish(
@@ -528,7 +545,12 @@ class G12_Configuration(EntityPluginBaseClass):
                                 self.stop_at_voltage_topic, val, retain=True)
                 elif selector == 0x0E:
                     val = value_le
-                    if val != self._time_at_stop_volts:
+                    lo, hi = TIME_AT_STOP_VOLTS_SANE_RANGE
+                    if not (lo <= val <= hi):
+                        self.Logger.warning(
+                            f"Discarding implausible time_at_stop_volts {val} "
+                            f"(outside {lo}-{hi})")
+                    elif val != self._time_at_stop_volts:
                         self._time_at_stop_volts = val
                         if hasattr(self, 'time_at_stop_volts_topic'):
                             self.mqtt_support.client.publish(
@@ -586,7 +608,11 @@ class G12_Configuration(EntityPluginBaseClass):
 
         elif msg_type == "16":  # 0x16 - max engine run time
             val = new_message.get("minutes")
-            if val is not None and val != self._max_engine_run_time:
+            lo, hi = MAX_ENGINE_RUN_TIME_SANE_RANGE
+            if val is not None and not (lo <= val <= hi):
+                self.Logger.warning(
+                    f"Discarding implausible max_engine_run_time {val} (outside {lo}-{hi})")
+            elif val is not None and val != self._max_engine_run_time:
                 self._max_engine_run_time = val
                 if hasattr(self, 'max_engine_run_time_topic'):
                     self.mqtt_support.client.publish(
@@ -614,7 +640,11 @@ class G12_Configuration(EntityPluginBaseClass):
             # rvc.py applies *2 for sec/uint16; G12 stores raw seconds, so undo it
             raw = new_message.get("duration")
             val = raw // 2 if raw is not None else None
-            if val is not None and val != self._time_at_stop_volts:
+            lo, hi = TIME_AT_STOP_VOLTS_SANE_RANGE
+            if val is not None and not (lo <= val <= hi):
+                self.Logger.warning(
+                    f"Discarding implausible time_at_stop_volts {val} (outside {lo}-{hi})")
+            elif val is not None and val != self._time_at_stop_volts:
                 self._time_at_stop_volts = val
                 if hasattr(self, 'time_at_stop_volts_topic'):
                     self.mqtt_support.client.publish(
@@ -1163,21 +1193,29 @@ class G12_Configuration(EntityPluginBaseClass):
         # PROVISIONAL — chosen to contain the observed values, not derived from the G12,
         # which has not been asked for its limits.
         #
-        # TODO: establish the real AGS limits. The 10.0-16.0 V / 0-1440 min bounds below
-        # are guesses, wide enough to hold what was observed on 2026-08-12 (13.50 V stop,
-        # 12.20 V start, 720 min) and nothing more. Finding the true limits means either
-        # driving each setting to its stops on the touchscreen while in AGS mode and
-        # watching where it clamps, or reading them out of the Firefly firmware. Until
-        # then Home Assistant will accept AGS values the G12 may refuse.
+        # TODO: establish the real AGS limits. The 10.0-16.0 V / 0-1440 min / 600-7200 sec
+        # bounds below are guesses, wide enough to hold what was observed and nothing more.
+        # Finding the true limits means either driving each setting to its stops on the
+        # touchscreen while in AGS mode and watching where it clamps, or reading them out
+        # of the Firefly firmware. Until then Home Assistant will accept AGS values the
+        # G12 may refuse.
+        #
+        # time_at_stop_volts used to carry a single fixed 600-3600 range regardless of
+        # mode, even though this docstring already documented it (0x0E) as mode-dependent.
+        # Confirmed 2026-09-02 by a live candump capture across an AES->AGS switch on the
+        # coach: the G12's own AGS profile broadcasts 7200 (2 h), which HA then rejected
+        # as out of range -- the entity's declared range, not the value, was wrong.
         is_ags = str(self._gen_aes_mode).upper() == 'AGS'
         if is_ags:
             v_stop = {'min': 10.0, 'max': 16.0, 'step': 0.1}
             v_start = {'min': 10.0, 'max': 16.0, 'step': 0.1}
             run_time = {'min': 0, 'max': 1440, 'step': 5}
+            stop_duration = {'min': 600, 'max': 7200, 'step': 300}
         else:
             v_stop = {'min': 50.0, 'max': 58.8, 'step': 0.1}
             v_start = {'min': 51.0, 'max': 54.8, 'step': 0.1}
             run_time = {'min': 60, 'max': 115, 'step': 1}
+            stop_duration = {'min': 600, 'max': 3600, 'step': 300}
 
         # --- number entities ---
         number_specs = [
@@ -1189,7 +1227,7 @@ class G12_Configuration(EntityPluginBaseClass):
              'Time at Start Volts',  {'unit_of_measurement': 's',   'min': 10, 'max': 300, 'step': 10, 'mode': 'auto'}),
             ('time_at_stop_volts',   self.time_at_stop_volts_topic,
              self.time_at_stop_volts_set_topic if has_cmd else None,
-             'Time at Stop Volts',   {'unit_of_measurement': 's',   'min': 600, 'max': 3600, 'step': 300, 'mode': 'auto'}),
+             'Time at Stop Volts',   {'unit_of_measurement': 's', 'mode': 'auto', **stop_duration}),
             ('stop_at_voltage',      self.stop_at_voltage_topic,
              self.stop_at_voltage_set_topic if has_cmd else None,
              'Stop at Voltage',

@@ -93,6 +93,25 @@ class Test_G12_Configuration(unittest.TestCase):
         g.mqtt_support.client.publish.assert_called_once_with(
             'g12/status/aes/time_at_stop_volts', 60, retain=True)
 
+    def test_msg_type_16_discards_implausible_max_engine_run_time(self):
+        """Observed on the coach 2026-09-01: a mode switch was followed by bursts of
+        65531 and 0 on this topic, both outside any real AES/AGS range."""
+        g = self._make_g12()
+        msg = {'name': 'G12_CONFIGURATION', 'source_id': '9C', 'message_type': '16', 'minutes': 65531}
+        result = g.process_rvc_msg(msg)
+        self.assertTrue(result)
+        g.mqtt_support.client.publish.assert_not_called()
+        self.assertEqual(g._max_engine_run_time, "unknown")
+
+    def test_msg_type_0e_discards_implausible_time_at_stop_volts(self):
+        g = self._make_g12()
+        # duration is *2 on the wire; 20000 -> 10000s, above the 7200s AGS ceiling
+        msg = {'name': 'G12_CONFIGURATION', 'source_id': '9C', 'message_type': 'E', 'duration': 20000}
+        result = g.process_rvc_msg(msg)
+        self.assertTrue(result)
+        g.mqtt_support.client.publish.assert_not_called()
+        self.assertEqual(g._time_at_stop_volts, "unknown")
+
     def test_msg_type_31_publishes_start_at_voltage(self):
         g = self._make_g12()
         msg = {'name': 'G12_CONFIGURATION', 'source_id': '9C', 'message_type': '31', 'volts': 12.4}
@@ -162,6 +181,22 @@ class Test_G12_Configuration(unittest.TestCase):
         g.process_rvc_msg({'name': 'G12_CONFIGURATION', 'source_id': '9C',
                            'message_type': '9B', 'data': '9B00010000000000'})
         g.mqtt_support.client.publish.assert_not_called()
+
+    def test_1fed9_discards_implausible_max_engine_run_time(self):
+        """Same 65531 garbage as the 15FCE broadcast case, but arriving via a snooped
+        1FED9 selector 0x16 frame instead."""
+        g = self._make_g12()
+        g.process_rvc_msg({'name': 'GENERIC_INDICATOR_COMMAND', 'group': '10010110',
+                           'data': 'FF96160FFBFFD1EA'})
+        g.mqtt_support.client.publish.assert_not_called()
+        self.assertEqual(g._max_engine_run_time, "unknown")
+
+    def test_1fed9_discards_implausible_time_at_stop_volts(self):
+        g = self._make_g12()
+        g.process_rvc_msg({'name': 'GENERIC_INDICATOR_COMMAND', 'group': '10010110',
+                           'data': 'FF960E0F204ED1EA'})
+        g.mqtt_support.client.publish.assert_not_called()
+        self.assertEqual(g._time_at_stop_volts, "unknown")
 
     def test_aes_enabled_short_payload_warns(self):
         g = self._make_g12()
@@ -1368,6 +1403,7 @@ class Test_G12_ConfigurationHADiscovery(unittest.TestCase):
         g.publish_ha_discovery_config()
         self.assertEqual(self._range_for(g, 'stop_at_voltage'), (50.0, 58.8))
         self.assertEqual(self._range_for(g, 'max_engine_run_time'), (60, 115))
+        self.assertEqual(self._range_for(g, 'time_at_stop_volts'), (600, 3600))
 
     def test_ha_voltage_ranges_are_12v_under_ags(self):
         """Under AGS the same selectors describe a 12V generator system; the coach was
@@ -1379,6 +1415,17 @@ class Test_G12_ConfigurationHADiscovery(unittest.TestCase):
         self.assertLessEqual(lo, 13.50)
         self.assertGreaterEqual(hi, 13.50)
         self.assertGreaterEqual(self._range_for(g, 'max_engine_run_time')[1], 720)
+
+    def test_ha_time_at_stop_volts_range_is_wider_under_ags(self):
+        """Confirmed 2026-09-02 by a live candump capture across an AES->AGS switch: the
+        G12's own AGS profile broadcasts 7200 (2 h), which the previously-fixed 600-3600
+        range rejected regardless of mode."""
+        g = self._make_g12_for_discovery()
+        g._gen_aes_mode = 'AGS'
+        g.publish_ha_discovery_config()
+        lo, hi = self._range_for(g, 'time_at_stop_volts')
+        self.assertLessEqual(lo, 7200)
+        self.assertGreaterEqual(hi, 7200)
 
     def test_mode_change_republishes_discovery(self):
         from unittest.mock import patch
