@@ -280,7 +280,9 @@ Presents an inverter that only speaks Modbus (published on MQTT by
 [modbus2mqtt](https://github.com/dbergl/modbus2mqtt)) as an RV-C inverter, so
 the coach panel can show and switch it.  rvc2mqtt transmits
 `INVERTER_STATUS`, `INVERTER_AC_STATUS_1` (line 1 input and output),
-`INVERTER_DC_STATUS` and `DM_RV` every `interval` seconds, and answers `INVERTER_COMMAND`
+`CHARGER_AC_STATUS_1` (line 1 input: the same AC input volts, amps and Hz on
+the charger DGN, for panels that read shore power from the charger side of an
+inverter-charger), `INVERTER_DC_STATUS` and `DM_RV` every `interval` seconds, and answers `INVERTER_COMMAND`
 (inverter enable/disable) by writing modbus2mqtt's `set/onoff` topic.  State is
 also mirrored to the same `rvc/state/inverter/*` topics the real `inverter`
 entity uses, and `rvc/set/inverter/enable` (`on`/`off`) works the same way.
@@ -326,8 +328,9 @@ Fields, with defaults:
 | `status` | `state/status` | — | `INVERTER_STATUS.status` (SRNE code, see below) |
 | `enabled` | `state/onoff` | — | `INVERTER_STATUS` inverter-enabled bits |
 | `fault` | `state/fault` | — | forces status `disabled`; mirrored to `…/fault` |
-| `ac_in_voltage` | `state/AC_Input_Voltage` | `0.1` | `INVERTER_AC_STATUS_1` (input) |
-| `ac_in_current` | unmapped | `1.0` | `INVERTER_AC_STATUS_1` (input) |
+| `ac_in_voltage` | `state/AC_Input_Voltage` | `0.1` | `INVERTER_AC_STATUS_1` (input), `CHARGER_AC_STATUS_1` |
+| `ac_in_current` | unmapped | `1.0` | `INVERTER_AC_STATUS_1` (input), `CHARGER_AC_STATUS_1` |
+| `ac_in_frequency` | `state/AC_Input_Frequency` | `0.01` | `INVERTER_AC_STATUS_1` (input), `CHARGER_AC_STATUS_1` |
 | `ac_out_voltage` | unmapped | `1.0` | `INVERTER_AC_STATUS_1` (output) |
 | `ac_out_current` | unmapped | `1.0` | `INVERTER_AC_STATUS_1` (output) |
 | `ac_out_frequency` | unmapped | `1.0` | `INVERTER_AC_STATUS_1` (output) |
@@ -356,7 +359,7 @@ Modbus status code (SRNE register 4405) → RV-C status:
 | other | unknown (warned once) | 0 `disabled` |
 
 Mirrored topics under `status_topic`: `status`, `status_definition`, `onoff`,
-`fault`, `line1/input/{rms_voltage,rms_current}`, `line1/output/{rms_voltage,rms_current,frequency}`,
+`fault`, `line1/input/{rms_voltage,rms_current,frequency}`, `line1/output/{rms_voltage,rms_current,frequency}`,
 `dc_voltage`, `dc_amperage` — only for fields that are mapped.
 
 ### Example

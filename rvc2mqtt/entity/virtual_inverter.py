@@ -3,9 +3,11 @@ Virtual inverter: presents a Modbus inverter (published on MQTT by
 modbus2mqtt) as an RV-C inverter node.
 
 Subscribes to modbus2mqtt state topics, transmits INVERTER_STATUS,
-INVERTER_AC_STATUS_1 and INVERTER_DC_STATUS on a schedule, answers
-INVERTER_COMMAND by writing modbus2mqtt's set/onoff topic, and mirrors
-state to the same rvc/state/inverter topics the real inverter entity uses.
+INVERTER_AC_STATUS_1, CHARGER_AC_STATUS_1 (AC input, so panels that read
+shore power from the charger side see it) and INVERTER_DC_STATUS on a
+schedule, answers INVERTER_COMMAND by writing modbus2mqtt's set/onoff topic,
+and mirrors state to the same rvc/state/inverter topics the real inverter
+entity uses.
 
 Design: docs/superpowers/specs/2026-08-23-virtual-inverter-design.md
 
@@ -43,6 +45,7 @@ FIELD_DEFAULTS = {
     "fault":            {"topic": "state/fault", "scale": 1.0},
     "ac_in_voltage":    {"topic": "state/AC_Input_Voltage", "scale": 0.1},
     "ac_in_current":    None,
+    "ac_in_frequency":  {"topic": "state/AC_Input_Frequency", "scale": 0.01},
     "ac_out_voltage":   None,
     "ac_out_current":   None,
     "ac_out_frequency": None,
@@ -234,6 +237,7 @@ class VirtualInverter(EntityPluginBaseClass):
     _NUMERIC_MIRROR = {
         "ac_in_voltage":    ("line1/input/rms_voltage",  "voltage",   "V"),
         "ac_in_current":    ("line1/input/rms_current",  "current",   "A"),
+        "ac_in_frequency":  ("line1/input/frequency",    "frequency", "Hz"),
         "ac_out_voltage":   ("line1/output/rms_voltage", "voltage",   "V"),
         "ac_out_current":   ("line1/output/rms_current", "current",   "A"),
         "ac_out_frequency": ("line1/output/frequency",   "frequency", "Hz"),
@@ -321,7 +325,8 @@ class VirtualInverter(EntityPluginBaseClass):
 
     # ---- RV-C in --------------------------------------------------------
 
-    _OWN_STATUS_DGNS = ("INVERTER_STATUS", "INVERTER_AC_STATUS_1", "INVERTER_DC_STATUS")
+    _OWN_STATUS_DGNS = ("INVERTER_STATUS", "INVERTER_AC_STATUS_1",
+                        "CHARGER_AC_STATUS_1", "INVERTER_DC_STATUS")
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         # DM_RV carries no instance field; claim only our own echo (matched
@@ -381,21 +386,29 @@ class VirtualInverter(EntityPluginBaseClass):
                       0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
         return {"dgn": "1FFD4", "data": data, "source_id": self.source_id}
 
-    def _ac_status_frame(self, output: bool) -> dict:
-        if output:
-            volts = self.values['ac_out_voltage']
-            amps = self.values['ac_out_current']
-            hz = self.values['ac_out_frequency']
-        else:
-            # input frequency is not polled; stays "not available"
-            volts, amps, hz = self.values['ac_in_voltage'], self.values['ac_in_current'], None
+    def _ac_status_data(self, output: bool) -> bytes:
+        """Shared AC_STATUS_1 layout (RV-C alias Z0000): line 1, input or output."""
+        side = "out" if output else "in"
+        volts = self.values[f'ac_{side}_voltage']
+        amps = self.values[f'ac_{side}_current']
+        hz = self.values[f'ac_{side}_frequency']
         byte0 = (self.rvc_instance & 0x0F) | (0b00 << 4) | ((0b01 if output else 0b00) << 6)
-        data = (bytes([byte0])
+        return (bytes([byte0])
                 + u16_le(encode_voltage_u16(volts))
                 + u16_le(encode_current_u16(amps))
                 + u16_le(encode_frequency_u16(hz))
                 + bytes([0xFF]))
-        return {"dgn": "1FFD7", "data": data, "source_id": self.source_id}
+
+    def _ac_status_frame(self, output: bool) -> dict:
+        return {"dgn": "1FFD7", "data": self._ac_status_data(output),
+                "source_id": self.source_id}
+
+    def _charger_ac_status_frame(self) -> dict:
+        """CHARGER_AC_STATUS_1 for the AC input: same payload as the
+        INVERTER_AC_STATUS_1 input frame, on the charger DGN for panels that
+        read shore power from the charger side of an inverter-charger."""
+        return {"dgn": "1FFCA", "data": self._ac_status_data(output=False),
+                "source_id": self.source_id}
 
     def _dc_status_frame(self) -> dict:
         data = (bytes([self.rvc_instance & 0xFF])
@@ -427,6 +440,7 @@ class VirtualInverter(EntityPluginBaseClass):
         return [self._inverter_status_frame(),
                 self._ac_status_frame(output=False),
                 self._ac_status_frame(output=True),
+                self._charger_ac_status_frame(),
                 self._dc_status_frame(),
                 self._dm_rv_frame()]
 

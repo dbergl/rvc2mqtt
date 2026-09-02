@@ -84,6 +84,8 @@ class Test_Construction(unittest.TestCase):
         self.assertEqual(e.field_topics['fault'], ('modbus/inverter/state/fault', 1.0))
         self.assertEqual(e.field_topics['ac_in_voltage'],
                          ('modbus/inverter/state/AC_Input_Voltage', 0.1))
+        self.assertEqual(e.field_topics['ac_in_frequency'],
+                         ('modbus/inverter/state/AC_Input_Frequency', 0.01))
         for f in ('ac_in_current', 'ac_out_voltage', 'ac_out_current',
                   'ac_out_frequency', 'dc_voltage', 'dc_current'):
             self.assertNotIn(f, e.field_topics)
@@ -187,7 +189,7 @@ class Test_Ingest(unittest.TestCase):
         self._feed(e, mock, 'modbus/inverter/state/status', '5')
         e.tick(1000.0)
         frames = _drain(e.send_queue)
-        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FEE8', '1FECA'])
+        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FFCA', '1FEE8', '1FECA'])
 
     def test_connected_topic(self):
         e, mock, _ = _make_entity()
@@ -257,10 +259,10 @@ class Test_StatusMapping(unittest.TestCase):
 
 class Test_Frames(unittest.TestCase):
 
-    def test_four_frames_with_source_id(self):
+    def test_frame_set_with_source_id(self):
         e, _, _ = _make_entity({'source_id': 'A5'})
         frames = e.build_frames()
-        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FEE8', '1FECA'])
+        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FFCA', '1FEE8', '1FECA'])
         for f in frames:
             self.assertEqual(f['source_id'], 'A5')
             self.assertEqual(len(f['data']), 8)
@@ -325,6 +327,47 @@ class Test_Frames(unittest.TestCase):
         self.assertEqual(msg['input_output_definition'], 'output')
         self.assertEqual(msg['rms_current'], 'n/a')
 
+    def test_ac_status_input_frame_carries_frequency(self):
+        e, mock, _ = _make_entity()
+        _registered(mock)['modbus/inverter/state/AC_Input_Frequency'][0](
+            'modbus/inverter/state/AC_Input_Frequency', '5998')
+        msg = _decode(e.build_frames()[1])
+        self.assertEqual(msg['input_output_definition'], 'input')
+        self.assertEqual(msg['frequency'], 59.98)
+
+    def test_ac_in_frequency_does_not_leak_into_output_frame(self):
+        e, _, _ = _make_entity()
+        e.values.update(ac_in_frequency=60.0)
+        msg = _decode(e.build_frames()[2])
+        self.assertEqual(msg['input_output_definition'], 'output')
+        self.assertEqual(msg['frequency'], 0xFFFF)
+
+    def test_charger_ac_status_frame(self):
+        e, mock, _ = _make_entity({'fields': {'ac_in_current': {'topic': 'state/AC_Input_Current', 'scale': 0.01}}})
+        reg = _registered(mock)
+        reg['modbus/inverter/state/AC_Input_Voltage'][0]('modbus/inverter/state/AC_Input_Voltage', '1208')
+        reg['modbus/inverter/state/AC_Input_Current'][0]('modbus/inverter/state/AC_Input_Current', '1250')
+        reg['modbus/inverter/state/AC_Input_Frequency'][0]('modbus/inverter/state/AC_Input_Frequency', '5998')
+        frame = e.build_frames()[3]
+        self.assertEqual(frame['dgn'], '1FFCA')
+        msg = _decode(frame)
+        self.assertEqual(msg['name'], 'CHARGER_AC_STATUS_1')
+        self.assertEqual(msg['instance'], 1)
+        self.assertEqual(msg['line_definition'], 1)
+        self.assertEqual(msg['input_output_definition'], 'input')
+        self.assertEqual(msg['rms_voltage'], 120.8)
+        self.assertEqual(msg['rms_current'], 12.5)
+        self.assertEqual(msg['frequency'], 59.98)
+        self.assertEqual(msg['data'][14:], 'FF')
+
+    def test_charger_ac_status_frame_all_not_available(self):
+        e, _, _ = _make_entity()
+        msg = _decode(e.build_frames()[3])
+        self.assertEqual(msg['name'], 'CHARGER_AC_STATUS_1')
+        self.assertEqual(msg['rms_voltage'], 'n/a')
+        self.assertEqual(msg['rms_current'], 'n/a')
+        self.assertEqual(msg['frequency'], 0xFFFF)
+
     def test_ac_status_output_frame(self):
         e, _, _ = _make_entity()
         e.values.update(ac_out_voltage=119.5, ac_out_current=3.8, ac_out_frequency=60.0)
@@ -343,7 +386,7 @@ class Test_Frames(unittest.TestCase):
     def test_dc_status_frame(self):
         e, _, _ = _make_entity()
         e.values.update(dc_voltage=52.0, dc_current=-12.5)
-        msg = _decode(e.build_frames()[3])
+        msg = _decode(e.build_frames()[4])
         self.assertEqual(msg['name'], 'INVERTER_DC_STATUS')
         self.assertEqual(msg['instance'], 1)
         self.assertEqual(msg['dc_voltage'], 52.0)
@@ -352,7 +395,7 @@ class Test_Frames(unittest.TestCase):
 
     def test_dc_status_not_available(self):
         e, _, _ = _make_entity()
-        msg = _decode(e.build_frames()[3])
+        msg = _decode(e.build_frames()[4])
         self.assertEqual(msg['dc_voltage'], 'n/a')
         self.assertEqual(msg['dc_amperage'], 'n/a')
 
@@ -368,7 +411,7 @@ class Test_DmRv(unittest.TestCase):
     """DM_RV (1FECA) diagnostic frame: all-clear while healthy, red lamp + fault while faulted."""
 
     def _dm_rv(self, e):
-        frame = e.build_frames()[4]
+        frame = e.build_frames()[5]
         self.assertEqual(frame['dgn'], '1FECA')
         return frame, _decode(frame)
 
@@ -446,7 +489,7 @@ class Test_Tick(unittest.TestCase):
         e, _, _ = self._ready(100.0)
         e.tick(100.0)
         frames = _drain(e.send_queue)
-        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FEE8', '1FECA'])
+        self.assertEqual([f['dgn'] for f in frames], ['1FFD4', '1FFD7', '1FFD7', '1FFCA', '1FEE8', '1FECA'])
 
     def test_respects_interval(self):
         e, _, _ = self._ready(100.0)
@@ -455,7 +498,7 @@ class Test_Tick(unittest.TestCase):
         e.tick(100.5)
         self.assertEqual(_drain(e.send_queue), [])
         e.tick(101.0)
-        self.assertEqual(len(_drain(e.send_queue)), 5)
+        self.assertEqual(len(_drain(e.send_queue)), 6)
 
     def test_custom_interval(self):
         e, mock, clock = _make_entity({'interval': 5.0}, now=100.0)
@@ -466,18 +509,18 @@ class Test_Tick(unittest.TestCase):
         e.tick(104.9)
         self.assertEqual(_drain(e.send_queue), [])
         e.tick(105.0)
-        self.assertEqual(len(_drain(e.send_queue)), 5)
+        self.assertEqual(len(_drain(e.send_queue)), 6)
 
     def test_steady_state_keeps_transmitting_by_default(self):
         """modbus2mqtt publishes on change only: an unchanged-but-healthy
         inverter must keep being announced on RV-C indefinitely."""
         e, _, _ = self._ready(100.0)
         e.tick(100.0)
-        self.assertEqual(len(_drain(e.send_queue)), 5)
+        self.assertEqual(len(_drain(e.send_queue)), 6)
         e.tick(131.0)   # >30 s with no MQTT traffic
-        self.assertEqual(len(_drain(e.send_queue)), 5)
+        self.assertEqual(len(_drain(e.send_queue)), 6)
         e.tick(3700.0)  # an hour later, still nothing changed
-        self.assertEqual(len(_drain(e.send_queue)), 5)
+        self.assertEqual(len(_drain(e.send_queue)), 6)
 
     def test_silent_when_stale_opt_in(self):
         e, _, clock = self._ready(100.0, {'stale_timeout': 30.0})
@@ -493,7 +536,7 @@ class Test_Tick(unittest.TestCase):
         clock['now'] = 131.5
         _registered(mock)['modbus/inverter/state/onoff'][0]('modbus/inverter/state/onoff', '1')
         e.tick(132.0)
-        self.assertEqual(len(_drain(e.send_queue)), 5)
+        self.assertEqual(len(_drain(e.send_queue)), 6)
 
     def test_silent_when_offline(self):
         e, mock, _ = self._ready(100.0)
@@ -502,7 +545,7 @@ class Test_Tick(unittest.TestCase):
         self.assertEqual(_drain(e.send_queue), [])
         _registered(mock)['modbus/inverter/connected'][0]('modbus/inverter/connected', 'online')
         e.tick(101.0)
-        self.assertEqual(len(_drain(e.send_queue)), 5)
+        self.assertEqual(len(_drain(e.send_queue)), 6)
 
     def test_silence_transition_logged_once(self):
         e, _, _ = self._ready(100.0, {'stale_timeout': 30.0})
@@ -629,6 +672,7 @@ class Test_Mirror(unittest.TestCase):
             'ac_out_voltage': 'state/ov', 'ac_out_current': 'state/oc',
             'ac_out_frequency': 'state/of', 'dc_voltage': 'state/dv', 'dc_current': 'state/dc'}})
         self._feed(e, mock, 'modbus/inverter/state/AC_Input_Voltage', '1208')
+        self._feed(e, mock, 'modbus/inverter/state/AC_Input_Frequency', '5998')
         self._feed(e, mock, 'modbus/inverter/state/ic', '1250')
         self._feed(e, mock, 'modbus/inverter/state/ov', '119.5')
         self._feed(e, mock, 'modbus/inverter/state/oc', '3.8')
@@ -638,6 +682,7 @@ class Test_Mirror(unittest.TestCase):
         pubs = {t: p for (t, p, _r) in _state_publishes(mock)}
         self.assertEqual(pubs['rvc/state/inverter/line1/input/rms_voltage'], 120.8)
         self.assertEqual(pubs['rvc/state/inverter/line1/input/rms_current'], 12.5)
+        self.assertEqual(pubs['rvc/state/inverter/line1/input/frequency'], 59.98)
         self.assertEqual(pubs['rvc/state/inverter/line1/output/rms_voltage'], 119.5)
         self.assertEqual(pubs['rvc/state/inverter/line1/output/rms_current'], 3.8)
         self.assertEqual(pubs['rvc/state/inverter/line1/output/frequency'], 60.0)
@@ -677,6 +722,11 @@ class Test_HADiscovery(unittest.TestCase):
         self.assertIn(f'homeassistant/sensor/{uid}/status/config', cfgs)
         self.assertIn(f'homeassistant/binary_sensor/{uid}/fault/config', cfgs)
         self.assertIn(f'homeassistant/sensor/{uid}/ac_in_voltage/config', cfgs)
+        self.assertIn(f'homeassistant/sensor/{uid}/ac_in_frequency/config', cfgs)
+        hz = cfgs[f'homeassistant/sensor/{uid}/ac_in_frequency/config']
+        self.assertEqual(hz['state_topic'], 'rvc/state/inverter/line1/input/frequency')
+        self.assertEqual(hz['device_class'], 'frequency')
+        self.assertEqual(hz['unit_of_measurement'], 'Hz')
         sw = cfgs[f'homeassistant/switch/{uid}/enable/config']
         self.assertEqual(sw['command_topic'], 'rvc/set/inverter/enable')
         self.assertEqual(sw['state_topic'], 'rvc/state/inverter/onoff')
