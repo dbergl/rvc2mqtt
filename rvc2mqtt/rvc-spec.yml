@@ -5515,6 +5515,48 @@ Z0005:
   # reachable via this register; 54 ("too many different BMS's aggregated")
   # and 56 ("too many VEreg devices") describe conditions needing multiple
   # physical devices, which a single simulated BMS can't trigger.
+  #   CAUTION: the above "only an exact single-bit value triggers" rule was
+  #   the synthetic-only conclusion. A real compound value (byte1=0x81,
+  #   i.e. bits 0x80 and 0x01 both set) was later observed on the live BMS
+  #   and DID correctly trigger fault 61 -- so treat the real decode as a
+  #   per-bit test (does bit X appear anywhere in the byte), not a full-byte
+  #   exact match, with 0xFF specifically the one value confirmed to have
+  #   zero effect (likely a dedicated "no alarm"/ignore sentinel).
+  #
+  # LIVE L1 LOW-TEMP ALARM DURING REAL CHARGING (2026-09-05, real BMS live,
+  # van at high idle, ~30-50A actual charge current flowing, plus a manual
+  # discharge load held on the battery): manually forcing the BMS's own L1
+  # under-temperature alarm while charging produced, in order: bms/alarms/
+  # under_temperature=1 (native can0) -> ~2.3s later can1 0x92 byte1 becomes
+  # 0x80 (confirms the byte1:0x80->"61" mapping above against real
+  # hardware) -> ~0.6s later the APS-500 latches DM_RV fault 61 and stops
+  # charging, exactly as expected (this is precisely the "any alarm halts
+  # charging" behavior the virtual-BMS project exists to work around).
+  #   Critically: bms/chargingcurrent (the BMS's OWN native-protocol
+  #   reported charge-current allowance, independent of anything on can1)
+  #   did NOT change at any point during the alarm -- it held at its
+  #   steady 105.0A the whole time, and can1's 0x8F desired_current_A was
+  #   likewise unchanged (still -105.0, its normal steady value) in the
+  #   instant right after the alarm bit appeared. The BMS's alarm flag and
+  #   its current-allowance field are independent in this firmware: being
+  #   alarmed does NOT make the BMS ask for less/no current. This means a
+  #   virtual BMS that purely relays real BMS telemetry into 0EF80 register
+  #   format and AND-clears only the specific alarm bit(s) for an
+  #   overridden category should work as designed, with no need to
+  #   separately synthesize or inject a desired-current value.
+  #   Also observed: the alarm self-cleared (~5.6s later, back to
+  #   under_temperature=0) at the same moment bms/chargemode/chargestatus
+  #   flipped from "Slow Charge Mode"/"Charging" to "Discharge Mode"/
+  #   "Charging stopped" -- consistent with the BMS only evaluating this
+  #   particular low-temp check while actively charging, not as a
+  #   standalone ambient-temperature alarm (user's hypothesis, matches the
+  #   data). The APS-500 then recovered on its own ~19s after the fault
+  #   latched -- its boot-time identify sequence (`RBT210LF`/`URBT2`, see
+  #   0EF70 above) replayed on can1 and fault/code returned to 00 -- without
+  #   an explicit GENERAL_RESET being sent during this test, so latched
+  #   faults may not always require a manual reset/reboot to clear; this
+  #   wasn't isolated further and could also have been a coincidental
+  #   manual action taken at the same time.
   name: RENOGY_BMS_RESPONSE
 
 0FED5:
