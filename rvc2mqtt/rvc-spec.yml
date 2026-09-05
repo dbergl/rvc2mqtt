@@ -5324,33 +5324,55 @@ Z0005:
   # checked against the BMS's own native protocol on can0, see can2mqtt):
   #   0x95  4x uint16 BE, scale 0.1 -> degC. Confirmed: matches can0's
   #         bms/temps/t1-t4 to within ~0.1-0.2C.
-  #   0x88  bytes0-1 uint16, scale 0.01 -> A: the BMS's ACTUAL/MEASURED
-  #         current (always 0x0000 in real traffic -- the pack has only
-  #         ever been observed at rest). CONFIRMED via injection: setting
-  #         0x00FF (2.55A) made the APS-500's own DC_SOURCE_STATUS_1
-  #         (1FFFD) dc_current jump from 0.0 to exactly 2.55, its
-  #         BATTERY_STATUS_11 dc_power to 135 (= 53.15V * 2.55A), and its
-  #         DC_SOURCE_STATUS_2 time_remaining from "n/a" to 4941 min
-  #         (= 209.78Ah / 2.55A) -- three independent cross-checks agreeing
-  #         to within rounding. This also resolves the "dc_current - does
-  #         not seem to actually be reported ??" comment that used to be in
-  #         entity/aps500.py: it's real, it was just always 0.
-  #         Bytes2-3 uint16, a slowly-varying value (~538-539 in real
-  #         traffic, possibly a cycle count). CONFIRMED to matter, and
-  #         confirmed BROAD: with a clean 25-37s isolation window either
-  #         side, EVERY tested value that differs from the currently-
-  #         accepted one (0x0000, 0x0001, 0x0002, 0x0003, 0xFFFE, 0xFFFF)
-  #         made the APS-500 treat the BMS as newly connected -- it
+  #   0x88  bytes0-1 SIGNED int16 BIG-ENDIAN, scale 0.01 -> A: the BMS's
+  #         ACTUAL/MEASURED current (always 0x0000 in real traffic while at
+  #         rest). CONFIRMED via injection: setting 0x00FF (2.55A) made the
+  #         APS-500's own DC_SOURCE_STATUS_1 (1FFFD) dc_current jump from
+  #         0.0 to exactly 2.55, its BATTERY_STATUS_11 dc_power to 135
+  #         (= 53.15V * 2.55A), and its DC_SOURCE_STATUS_2 time_remaining
+  #         from "n/a" to 4941 min (= 209.78Ah / 2.55A) -- three independent
+  #         cross-checks agreeing to within rounding. This also resolves
+  #         the "dc_current - does not seem to actually be reported ??"
+  #         comment that used to be in entity/aps500.py: it's real, it was
+  #         just always 0.
+  #         SIGN CONVENTION and BYTE ORDER CONFIRMED against a real charge
+  #         event (2026-09-05, van running, real BMS live on can1, ~85-87A
+  #         actual physical charge current per can0's independent ammeter):
+  #         the raw register reads e.g. `DE 68` during that charge, which
+  #         as BIG-ENDIAN signed int16 is -8600 -> -86.00A -- i.e. this
+  #         register uses NEGATIVE for charging, the OPPOSITE sign
+  #         convention from can0's native protocol (and from the
+  #         hypothetical single-byte injection test above, which only
+  #         proved magnitude/scale, not sign/endianness, since one of the
+  #         two bytes was always zero). Treat the earlier LE assumption
+  #         anywhere on this link as SUPERSEDED by this live result --
+  #         see 0x8F bytes2-3 below, which had the identical error.
+  #         Bytes2-3 uint16, previously guessed as "a slowly-varying value,
+  #         possibly a cycle count" from idle-only observation (~538-539
+  #         at rest). REVISED after watching it during the same real charge
+  #         event: it tracks smoothly with |actual current| -- ~543 at
+  #         ~85A, dropping to ~536-538 as current fell to ~0A and climbing
+  #         back in step as current ramped back up. Best current guess is
+  #         a secondary/coarse redundant current reading the APS
+  #         cross-checks against bytes0-1, NOT an arbitrary counter -- which
+  #         would also explain the finding below (a value here that doesn't
+  #         agree with the reported actual current, e.g. while actual
+  #         current sits at 0, reads as "newly connected BMS" and invalidates
+  #         state). Still CONFIRMED to matter and confirmed BROAD: with a
+  #         clean 25-37s isolation window either side, every synthetically
+  #         tested value that differed from the then-current one (0x0000,
+  #         0x0001, 0x0002, 0x0003, 0xFFFE, 0xFFFF, all while bytes0-1 sat
+  #         at 0) made the APS-500 treat the BMS as newly connected -- it
   #         invalidates SOC/capacity/current (same "n/a" fallback as the
   #         0x8F validity flag below) and re-issues a one-time
   #         identify-style query (`13 A5 00 04 ...` or `14 02 00 08 ...`).
   #         An earlier, more tightly-spaced sweep saw 0x00FF/0x1000 NOT
   #         trigger it, but that run didn't isolate tests long enough to
-  #         rule out still-recovering-from-the-prior-probe contamination --
-  #         treat "any change trips it" as the current best model, not a
-  #         magnitude/direction-dependent threshold.
-  #         Bytes4-7 uint32, scale 0.001 -> Ah (~209.78-209.79, consistent
-  #         with a near-full 210Ah pack) -- this is "remaining capacity".
+  #         rule out still-recovering-from-the-prior-probe contamination.
+  #         Bytes4-7 uint32, scale 0.001 -> Ah -- "remaining capacity".
+  #         CONFIRMED live: climbs continuously during real charging (e.g.
+  #         204.175 -> 204.647 Ah over ~20s at ~85A, matching Ah = A*t/3600
+  #         to within rounding), not merely a static near-full-pack value.
   #   0x8A  bytes0-3 uint32 scale 0.001 -> Ah, matches 0x88's remaining-
   #         capacity field exactly -- CONFIRMED: this is exactly what the
   #         APS-500 relays as state_of_charge (1FFFC) / capacity_remaining
@@ -5372,13 +5394,23 @@ Z0005:
   #         was independently cross-confirmed: with `02 23`, a simulated
   #         ~209.8/210.0 Ah pair shows up as exactly state_of_charge=100.0,
   #         capacity_remaining=210 on the standard broadcast.
-  #         Bytes2-3 are a SIGNED int16 LITTLE-ENDIAN, scale 0.01 -> A: the
-  #         BMS's REQUESTED/desired charge current -- CONFIRMED, cleanly
-  #         reproduced: byte2=0xFF (byte3=0) -> desired_dc_current AND
-  #         CHARGER_STATUS charge_current both become +2.55A; byte3=0xFF
-  #         (byte2=0) -> -2.55A. At the real-world observed value (0x0000)
-  #         this is exactly the 0.0A always seen in real traffic (pack at
-  #         rest) -- distinct from 0x88 bytes0-1's ACTUAL current above.
+  #         Bytes2-3 are a SIGNED int16, scale 0.01 -> A: the BMS's
+  #         REQUESTED/desired charge current. Byte order and sign
+  #         CORRECTED on 2026-09-05 against real charge traffic (earlier
+  #         single-byte injection tests couldn't distinguish LE from BE
+  #         because one byte was always zero): it is BIG-ENDIAN, and the
+  #         sign convention is NEGATIVE for charging, matching 0x88
+  #         bytes0-1 above. Confirmed two ways during a live ~85-87A real
+  #         charge: raw `EF 98` = -4200 -> -42.00A, and the APS-500's own
+  #         charge_current broadcast that instant read +42.0 (unclipped);
+  #         raw `D6 FC` = -10500 -> -105.00A (the BMS's fallback/"no limit"
+  #         sentinel value, seen whenever the real charge-current
+  #         calculation resets -- see the CV cycling note below) produced a
+  #         charge_current broadcast of +90.0, i.e. the APS-500 clips the
+  #         passthrough at its own internal max: charge_current =
+  #         min(-desired_raw, 90). At the historical idle-observed value
+  #         (0x0000) this is exactly the 0.0A always seen in real traffic
+  #         at rest -- distinct from 0x88 bytes0-1's ACTUAL current above.
   #         Bytes4-7 constant zero in real traffic; individually forced to
   #         0xFF with no observed effect, and specifically tried as a
   #         possible desired-VOLTAGE field (uint16 BE at bytes4-5, scale
@@ -5426,6 +5458,26 @@ Z0005:
   #   but it is a reset-command artifact, not a real BMS-content-driven
   #   cycle. Confirmed by re-running fully passively (no reset topic
   #   touched at all): it settles once and stays settled indefinitely.
+  #
+  # REAL CHARGING PROFILE (observed 2026-09-05, van at high idle, real BMS
+  # live on can1, pack at ~97% SOC): with the BMS requesting its uncapped
+  # maximum, actual physical current (per can0's independent ammeter, cross-
+  # confirmed by 0x88 bytes0-1 above) does NOT hold steady -- it ramps from
+  # ~0A up to ~85-87A over about 18s, then drops abruptly back to ~0A and
+  # ramps up again, repeating continuously. Each drop lines up exactly with
+  # charging_voltage climbing to ~54.65V (right at the 54.7V CV setpoint),
+  # 0x8F briefly reporting -42.00A then the -105.00A fallback sentinel, and
+  # charge_detected blipping to "No Charge Detected" for about a second
+  # before the next ramp starts. Per the user (owner of this pack): at a
+  # high charge rate this battery quickly develops a surface charge that
+  # reads as a high terminal voltage well before the cells are actually
+  # full, so hitting 54.7V this fast is expected chemistry, not a fault --
+  # the BMS backs off to let the surface charge relax, then resumes. This
+  # is almost certainly the real-world "known behavior issue" that
+  # motivated the APS-500's internal 90A charge_current cap (see 0x8F
+  # bytes2-3 above) and is expected to be far less pronounced starting from
+  # a lower SOC, where reaching 54.7V takes genuine charge rather than
+  # surface polarization.
   #
   # All of the above was captured live and reverse engineered by physically
   # disconnecting the real BMS from can1 and substituting a script that
