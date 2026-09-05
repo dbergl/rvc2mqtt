@@ -19,6 +19,7 @@ limitations under the License.
 """
 
 import unittest
+import json
 from unittest.mock import MagicMock
 import context  # add rvc2mqtt package to the python path using local reference
 from rvc2mqtt.entity.aps500 import DcSystemSensor_DC_SOURCE_STATUS_1 as Aps500
@@ -218,6 +219,103 @@ class Test_Aps500(unittest.TestCase):
         self.assertEqual(l._mp_expected_count, 0)
         self.assertEqual(l._mp_packets, {})
         l.mqtt_support.client.publish.assert_not_called()
+
+
+class Test_APS500_DcSourceStatus123(unittest.TestCase):
+    """DC_SOURCE_STATUS_1 (actual dc_voltage/dc_current), _2 (source_temperature/
+    state_of_charge/time_remaining) and _3 (state_of_health/capacity_remaining)
+    were previously decoded but never published -- entries below are real
+    Renogy-relayed values (confirmed reverse engineering the 0EF70/0EF80 link,
+    2026-09-04): 0x88 bytes0-1 are the BMS's ACTUAL measured current (distinct
+    from 0x8F bytes2-3's REQUESTED current)."""
+
+    def _make_aps(self):
+        return Aps500(_APS_DATA, _make_mock())
+
+    def _topics(self, entity):
+        return [c[0][0] for c in entity.mqtt_support.client.publish.call_args_list]
+
+    def _status_1(self, dc_voltage=53.15, dc_current=0.0, source_id='80'):
+        return {'name': 'DC_SOURCE_STATUS_1', 'source_id': source_id,
+                'dc_voltage': dc_voltage, 'dc_current': dc_current}
+
+    def _status_2(self, source_temperature=21.0, state_of_charge=100.0, time_remaining=65535):
+        return {'name': 'DC_SOURCE_STATUS_2', 'source_id': '80',
+                'source_temperature': source_temperature,
+                'state_of_charge': state_of_charge, 'time_remaining': time_remaining}
+
+    def _status_3(self, state_of_health=255, capacity_remaining=210):
+        return {'name': 'DC_SOURCE_STATUS_3', 'source_id': '80',
+                'state_of_health': state_of_health, 'capacity_remaining': capacity_remaining}
+
+    def test_dc_current_published_when_nonzero(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._status_1(dc_current=2.55))
+        l.mqtt_support.client.publish.assert_any_call(
+            'aps500/status/dc_current', 2.55, retain=True)
+
+    def test_dc_voltage_and_current_na_not_published(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._status_1(dc_voltage='n/a', dc_current='n/a'))
+        topics = self._topics(l)
+        self.assertNotIn('aps500/status/dc_voltage', topics)
+        self.assertNotIn('aps500/status/dc_current', topics)
+
+    def test_wrong_source_id_not_processed_status_1(self):
+        l = self._make_aps()
+        self.assertFalse(l.process_rvc_msg(self._status_1(source_id='FF')))
+
+    def test_state_of_charge_published_on_change(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._status_2(state_of_charge=42.0))
+        l.mqtt_support.client.publish.assert_any_call(
+            'aps500/status/state_of_charge', 42.0, retain=True)
+
+    def test_state_of_charge_sentinel_not_published(self):
+        """255 is the RV-C 'not available' sentinel for a pct field -- rvc.py
+        doesn't auto-convert it to 'n/a' the way it does v/a/deg c."""
+        l = self._make_aps()
+        l.process_rvc_msg(self._status_2(state_of_charge=255))
+        self.assertNotIn('aps500/status/state_of_charge', self._topics(l))
+
+    def test_time_remaining_sentinel_not_published(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._status_2(time_remaining=65535))
+        self.assertNotIn('aps500/status/time_remaining', self._topics(l))
+
+    def test_time_remaining_published_when_available(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._status_2(time_remaining=4941))
+        l.mqtt_support.client.publish.assert_any_call(
+            'aps500/status/time_remaining', 4941, retain=True)
+
+    def test_source_temperature_na_not_published(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._status_2(source_temperature='n/a'))
+        self.assertNotIn('aps500/status/source_temperature', self._topics(l))
+
+    def test_capacity_remaining_published_on_change(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._status_3(capacity_remaining=105))
+        l.mqtt_support.client.publish.assert_any_call(
+            'aps500/status/capacity_remaining', 105, retain=True)
+
+    def test_capacity_remaining_sentinel_not_published(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._status_3(capacity_remaining=65535))
+        self.assertNotIn('aps500/status/capacity_remaining', self._topics(l))
+
+    def test_state_of_health_sentinel_not_published(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._status_3(state_of_health=255))
+        self.assertNotIn('aps500/status/state_of_health', self._topics(l))
+
+    def test_no_publish_when_unchanged(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._status_1(dc_current=2.55))
+        count = l.mqtt_support.client.publish.call_count
+        l.process_rvc_msg(self._status_1(dc_current=2.55))
+        self.assertEqual(l.mqtt_support.client.publish.call_count, count)
 
 
 class Test_APS500_ChargerEqualizationStatus(unittest.TestCase):
@@ -508,6 +606,98 @@ class Test_APS500_UnavailableNumerics(unittest.TestCase):
         l = self._make_aps()
         self.assertTrue(l.process_rvc_msg(self._source_status_5(hp_dc_voltage='n/a')))
         self.assertNotIn('aps500/status/hp_dc_voltage', self._topics(l))
+
+
+class Test_APS500_BmsProprietaryLink(unittest.TestCase):
+    """WAKESPEED_BMS_QUERY (0EF70) / RENOGY_BMS_RESPONSE (0EF80): the
+    response doesn't self-identify its register, so decode is stateful --
+    it depends on the query that immediately preceded it."""
+
+    def _make_aps(self):
+        return Aps500(_APS_DATA, _make_mock())
+
+    def _topics(self, entity):
+        return [c[0][0] for c in entity.mqtt_support.client.publish.call_args_list]
+
+    def _query(self, data_hex, source_id='80'):
+        return {'name': 'WAKESPEED_BMS_QUERY', 'source_id': source_id, 'data': data_hex}
+
+    def _response(self, data_hex, source_id='70'):
+        return {'name': 'RENOGY_BMS_RESPONSE', 'source_id': source_id, 'data': data_hex}
+
+    def test_query_returns_true_and_remembers_register(self):
+        l = self._make_aps()
+        self.assertTrue(l.process_rvc_msg(self._query('13950004FFFFFFFF')))
+        self.assertEqual(l._bms_query_register, 0x95)
+
+    def test_non_read_opcode_does_not_set_register(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._query('0043432A007D7900'))
+        self.assertIsNone(l._bms_query_register)
+
+    def test_response_without_preceding_query_is_ignored(self):
+        l = self._make_aps()
+        self.assertTrue(l.process_rvc_msg(self._response('00CF00CD00DB00DA')))
+        self.assertEqual(l._bms_temps, [None, None, None, None])
+        l.mqtt_support.client.publish.assert_not_called()
+
+    def test_temps_decoded_and_published(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._query('13950004FFFFFFFF'))
+        l.process_rvc_msg(self._response('00CF00CD00DB00DA'))
+        self.assertEqual(l._bms_temps, [20.7, 20.5, 21.9, 21.8])
+        l.mqtt_support.client.publish.assert_called_with(
+            'aps500/status/bms_temps', json.dumps([20.7, 20.5, 21.9, 21.8]), retain=False)
+
+    def test_temps_unavailable_sentinel(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._query('13950004FFFFFFFF'))
+        l.process_rvc_msg(self._response('FFFF00CD00DB00DA'))
+        self.assertEqual(l._bms_temps[0], 'n/a')
+
+    def test_temps_not_republished_when_unchanged(self):
+        l = self._make_aps()
+        for _ in range(2):
+            l.process_rvc_msg(self._query('13950004FFFFFFFF'))
+            l.process_rvc_msg(self._response('00CF00CD00DB00DA'))
+        temp_calls = [c for c in l.mqtt_support.client.publish.call_args_list
+                      if c[0][0] == 'aps500/status/bms_temps']
+        self.assertEqual(len(temp_calls), 1)
+
+    def test_register_consumed_after_one_response(self):
+        """A stray response with no fresh query must not be decoded as temps."""
+        l = self._make_aps()
+        l.process_rvc_msg(self._query('13950004FFFFFFFF'))
+        l.process_rvc_msg(self._response('00CF00CD00DB00DA'))
+        l.process_rvc_msg(self._response('FFFFFFFFFFFFFFFF'))
+        self.assertEqual(l._bms_temps, [20.7, 20.5, 21.9, 21.8])
+
+    def test_alarm_bit_decoded_and_published_retained(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._query('13920004FFFFFFFF'))
+        # byte2 = 0x02 -> code 52, High Voltage
+        l.process_rvc_msg(self._response('0000020000000000'))
+        expected = {"2": {"code": "52", "description": Aps500.apcfaults["52"]}}
+        self.assertEqual(l._bms_active_alarms, expected)
+        l.mqtt_support.client.publish.assert_called_with(
+            'aps500/status/bms_alarm', json.dumps(expected), retain=True)
+
+    def test_alarm_multi_bit_value_is_not_a_fault(self):
+        """Only an exact single-bit value is a recognized alarm."""
+        l = self._make_aps()
+        l.process_rvc_msg(self._query('13920004FFFFFFFF'))
+        l.process_rvc_msg(self._response('00FF000000000000'))
+        self.assertEqual(l._bms_active_alarms, {})
+
+    def test_alarm_clears_when_byte_returns_to_zero(self):
+        l = self._make_aps()
+        l.process_rvc_msg(self._query('13920004FFFFFFFF'))
+        l.process_rvc_msg(self._response('0000020000000000'))
+        l.process_rvc_msg(self._query('13920004FFFFFFFF'))
+        l.process_rvc_msg(self._response('0000000000000000'))
+        self.assertEqual(l._bms_active_alarms, {})
+        l.mqtt_support.client.publish.assert_called_with(
+            'aps500/status/bms_alarm', json.dumps({}), retain=True)
 
 
 if __name__ == '__main__':

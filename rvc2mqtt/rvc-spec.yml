@@ -5292,11 +5292,177 @@ Z0005:
       unit: sec
 
 0EF70:
-  comment: APS-500. likely J1939 message according to wakespeed
+  # Proprietary point-to-point link between the APS-500 (source 0x80, which
+  # is what actually holds RV-C address 0x80 -- it is the "battery" as far
+  # as the rest of the RV-C bus is concerned) and the real hardware BMS, a
+  # Renogy RBT210LFP51S-12 (source 0x70). Not RV-C parameter-formatted;
+  # decode is handled statefully in entity/aps500.py because the response
+  # (0EF80) doesn't self-identify which query it answers.
+  #
+  # 8-byte query payload: `13 <reg> 00 04 FF FF FF FF`. Byte0=0x13 is the
+  # steady-state "read register" opcode; byte1 is the register being polled.
+  # The APS-500 round-robins registers 0x88, 0x8F, 0x95, 0x92, 0x8A roughly
+  # every 460ms (0x88 twice per round) plus an occasional 0x43-tagged frame
+  # with a fixed, unrelated payload (`00 43 43 2A 00 7D 79 00`) that the BMS
+  # never answers. If the BMS doesn't answer a query in time, the APS-500
+  # gives up and moves on to the next one rather than retrying -- so on a
+  # marginal link, registers can go missing from a given round entirely.
+  #
+  # On (re)boot only -- right after the APS-500 (re)claims its RV-C address
+  # (0EEFF) and before the steady-state round-robin starts -- it also sends
+  # a one-time identify sequence, confirmed reproducible across two
+  # commanded reboots (2026-09-04):
+  #   query  `14 02 00 08 FF FF FF FF` (opcode 0x14, not 0x13; length 0x08)
+  #   reply  `52 42 54 32 31 30 4C 46` + `50 35 31 53 2D 31 32 00`
+  #          -> "RBT210LFP51S-12" (exact battery model, 2 response frames)
+  #   query  `13 A5 00 04 FF FF FF FF`
+  #   reply  `00 02 17 55 52 42 54 32` (reproduced identically both times;
+  #          meaning not yet understood -- bytes 3-7 read as ASCII "URBT2")
+  #
+  # Known steady-state registers (byte1 of the query; all replies are 8
+  # bytes, decoded manually against a live Renogy 48V/210Ah pack and cross-
+  # checked against the BMS's own native protocol on can0, see can2mqtt):
+  #   0x95  4x uint16 BE, scale 0.1 -> degC. Confirmed: matches can0's
+  #         bms/temps/t1-t4 to within ~0.1-0.2C.
+  #   0x88  bytes0-1 uint16, scale 0.01 -> A: the BMS's ACTUAL/MEASURED
+  #         current (always 0x0000 in real traffic -- the pack has only
+  #         ever been observed at rest). CONFIRMED via injection: setting
+  #         0x00FF (2.55A) made the APS-500's own DC_SOURCE_STATUS_1
+  #         (1FFFD) dc_current jump from 0.0 to exactly 2.55, its
+  #         BATTERY_STATUS_11 dc_power to 135 (= 53.15V * 2.55A), and its
+  #         DC_SOURCE_STATUS_2 time_remaining from "n/a" to 4941 min
+  #         (= 209.78Ah / 2.55A) -- three independent cross-checks agreeing
+  #         to within rounding. This also resolves the "dc_current - does
+  #         not seem to actually be reported ??" comment that used to be in
+  #         entity/aps500.py: it's real, it was just always 0.
+  #         Bytes2-3 uint16, a slowly-varying value (~538-539 in real
+  #         traffic, possibly a cycle count). CONFIRMED to matter, and
+  #         confirmed BROAD: with a clean 25-37s isolation window either
+  #         side, EVERY tested value that differs from the currently-
+  #         accepted one (0x0000, 0x0001, 0x0002, 0x0003, 0xFFFE, 0xFFFF)
+  #         made the APS-500 treat the BMS as newly connected -- it
+  #         invalidates SOC/capacity/current (same "n/a" fallback as the
+  #         0x8F validity flag below) and re-issues a one-time
+  #         identify-style query (`13 A5 00 04 ...` or `14 02 00 08 ...`).
+  #         An earlier, more tightly-spaced sweep saw 0x00FF/0x1000 NOT
+  #         trigger it, but that run didn't isolate tests long enough to
+  #         rule out still-recovering-from-the-prior-probe contamination --
+  #         treat "any change trips it" as the current best model, not a
+  #         magnitude/direction-dependent threshold.
+  #         Bytes4-7 uint32, scale 0.001 -> Ah (~209.78-209.79, consistent
+  #         with a near-full 210Ah pack) -- this is "remaining capacity".
+  #   0x8A  bytes0-3 uint32 scale 0.001 -> Ah, matches 0x88's remaining-
+  #         capacity field exactly -- CONFIRMED: this is exactly what the
+  #         APS-500 relays as state_of_charge (1FFFC) / capacity_remaining
+  #         (1FFFB), see 0x8F below for how that was proven. bytes4-7
+  #         uint32 scale 0.001 -> Ah, constant at exactly 210.000 -- matches
+  #         the pack's rated capacity and the native can0 protocol's AH
+  #         setting register (2100 * 0.1).
+  #   0x8F  constant `02 23 00 00 00 00 00 00` in all real traffic observed
+  #         so far.
+  #         Bytes0-1 are a REQUIRED VALIDITY FLAG: mutating them away from
+  #         `02 23` (tried `00 00` and `FF FF`, both fail -- so it's not
+  #         merely "any nonzero passes", either an exact match or a
+  #         checksum over the other registers) makes the APS-500 blank
+  #         state_of_charge, capacity_remaining and source_temperature to
+  #         their RV-C "not available" sentinels in its own standard
+  #         DC_SOURCE_STATUS_2 (1FFFC) / DC_SOURCE_STATUS_3 (1FFFB)
+  #         broadcasts -- even though the 0EF70/0EF80 link itself keeps
+  #         working normally. This is how 0x88/0x8A's capacity decode above
+  #         was independently cross-confirmed: with `02 23`, a simulated
+  #         ~209.8/210.0 Ah pair shows up as exactly state_of_charge=100.0,
+  #         capacity_remaining=210 on the standard broadcast.
+  #         Bytes2-3 are a SIGNED int16 LITTLE-ENDIAN, scale 0.01 -> A: the
+  #         BMS's REQUESTED/desired charge current -- CONFIRMED, cleanly
+  #         reproduced: byte2=0xFF (byte3=0) -> desired_dc_current AND
+  #         CHARGER_STATUS charge_current both become +2.55A; byte3=0xFF
+  #         (byte2=0) -> -2.55A. At the real-world observed value (0x0000)
+  #         this is exactly the 0.0A always seen in real traffic (pack at
+  #         rest) -- distinct from 0x88 bytes0-1's ACTUAL current above.
+  #         Bytes4-7 constant zero in real traffic; individually forced to
+  #         0xFF with no observed effect, and specifically tried as a
+  #         possible desired-VOLTAGE field (uint16 BE at bytes4-5, scale
+  #         0.01 -> tried 5470/54.70V matching the observed fixed target,
+  #         5000/50.00V, and a full 0xFFFFFFFF sentinel) with zero effect on
+  #         any RV-C broadcast, not even jitter -- ruled out. With every
+  #         register now probed at least once and none of them moving
+  #         desired_dc_voltage, the fixed 54.7V looks like a value
+  #         configured into the APS-500's own charge profile for this
+  #         battery type, not something transmitted over this link at all.
+  #   0x92  byte7 is a free-running uint8 counter (increments ~1/round) in
+  #         real traffic. Bytes 0-6 looked constant-zero in real traffic,
+  #         but are in fact the BMS alarm word -- see the fault-injection
+  #         note under 0EF80 below. Bytes 2 and 4 carry an identical map, so
+  #         are likely a duplicated/redundant copy of the same alarm word.
+  #         Byte0 and byte6 tested across their full value range (0x01,
+  #         0x7F, 0x80, 0xFF) with no effect on any observed RV-C broadcast.
+  #
+  # Register 0x95 (temperature) also feeds the APS-500's OWN hardware-limit
+  # fault path, separate from the 0x92 BMS-alarm path: holding all 4
+  # channels at 70.0C for ~14s (clean run, no other registers touched)
+  # produced DM_RV fault code "12" (Battery Temperature greatly exceeded
+  # configured upper limit), latched until reset. 0.0C produced no fault in
+  # the same window.
+  #
+  # desired_charge_state/desired_dc_voltage (DC_SOURCE_STATUS_4, 1FEC9) do
+  # NOT appear to be a passthrough of any BMS-reported value -- desired
+  # CURRENT, unlike voltage/state, *is* a direct passthrough, see 0x8F
+  # bytes2-3 above. This is now a fairly high-confidence conclusion: every
+  # byte of every known register (0x88, 0x8A, 0x8F, 0x92, 0x95) has been
+  # individually probed, and 0x8F bytes2-3 is the only one that moves
+  # voltage/state at all. Confirmed two-state behavior for the rest: when nothing
+  # answers 0EF70 queries at all, the APS-500 shows a fixed "not
+  # communicating" fallback (Do Not Charge, 52.8V, 105A); once something
+  # answers (faithfully or not -- BMS capacity/SOC content doesn't matter
+  # here, ~99.9% and ~50% both tested), it settles once (~12-14s) into
+  # Constant Voltage/Current at a fixed 54.7V. The current within that
+  # state is 0x8F bytes2-3, above -- a simulated pack left at the default
+  # 0x0000 there will always show 0A regardless of SOC, which is exactly
+  # what was seen before this field was isolated.
+  #   CAUTION for future testing: the APS-500's own GENERAL_RESET/reboot
+  #   commands (used to clear the DM_RV fault latch between probes) visibly
+  #   perturb this same charge state machine -- repeatedly calling reset
+  #   produces what looks like an oscillation between the two states above,
+  #   but it is a reset-command artifact, not a real BMS-content-driven
+  #   cycle. Confirmed by re-running fully passively (no reset topic
+  #   touched at all): it settles once and stays settled indefinitely.
+  #
+  # All of the above was captured live and reverse engineered by physically
+  # disconnecting the real BMS from can1 and substituting a script that
+  # answers the APS-500's queries itself (recorded defaults replayed
+  # faithfully, then individual bytes mutated one at a time while diffing
+  # the APS-500's own RV-C broadcasts -- raw CAN, not just what
+  # entity/aps500.py happens to publish to MQTT, since several of the
+  # affected fields above aren't wired to any MQTT topic). See rvc2mqtt git
+  # history around 2026-09-04 for the session this was captured in.
   name: WAKESPEED_BMS_QUERY
 
 0EF80:
-  comment: BMS reply to query. Not RV-C format
+  # BMS reply to the 0EF70 query above. Not RV-C parameter-formatted --
+  # decoded statefully in entity/aps500.py based on the register byte of
+  # the most recent WAKESPEED_BMS_QUERY (this response does not self-
+  # identify which register it answers).
+  #
+  # Register 0x92 fault/alarm bits (byte index -> {exact byte VALUE: code}):
+  # confirmed by disconnecting the real BMS, substituting a simulator that
+  # replays recorded defaults, then setting exactly one bit of one byte at a
+  # time (with the APS-500's DM_RV fault latch explicitly cleared and
+  # resettled between every test to avoid cross-contamination) and watching
+  # for a resulting DM_RV fault/code/description/lamp change. Reproduced
+  # across two independent clean runs.
+  #   byte1: 0x02/04/08/10/20->"51" (generic disconnect), 0x40/80->"61" (low batt temp)
+  #   byte2: 0x01/04->"57" (low voltage), 0x02/08->"52" (high voltage),
+  #          0x10/20/40/80->"58" (high current)
+  #   byte3: 0x08->"51", 0x10/20->"61", 0x40/80->"59" (high batt temp)
+  #   byte4: identical map to byte2 -- likely a duplicated copy
+  #   byte5: 0x04->"58", 0x08->"51", 0x10/20->"61", 0x40->"59"
+  # Codes are apcfaults keys (see entity/aps500.py) -- descriptions matched
+  # word-for-word. Only an EXACT single-bit value triggers a fault: 0x00,
+  # any multi-bit value (0x03, 0xF0, 0xFF, ...), byte0, and byte6 were all
+  # tested and confirmed to have no effect. Codes 53/54/55/56/62 were not
+  # reachable via this register; 54 ("too many different BMS's aggregated")
+  # and 56 ("too many VEreg devices") describe conditions needing multiple
+  # physical devices, which a single simulated BMS can't trigger.
   name: RENOGY_BMS_RESPONSE
 
 0FED5:

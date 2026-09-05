@@ -75,6 +75,34 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         "4095": "No Fault"
     }
 
+    """ Byte/bit -> apcfaults code map for the proprietary Renogy BMS alarm
+    word (WAKESPEED_BMS_QUERY register 0x92 / RENOGY_BMS_RESPONSE reply).
+
+    Reverse engineered 2026-09-04 by physically disconnecting the real BMS
+    from the RV-C bus and substituting a script that answers the APS-500's
+    0EF70 queries itself, then mutating one byte of the 0EF80 reply at a
+    time and diffing the APS-500's resulting DM_RV fault/lamp/description
+    against a clean (fault-cleared) baseline. Confirmed reproducible across
+    two independent runs.
+
+    Only an EXACT single-bit value in a byte is recognized -- 0x00 (no
+    alarm), any other single bit (0x01, 0x02, 0x04, ... 0x80) maps to the
+    code below, and any multi-bit value (0x03, 0xF0, 0xFF, ...) as well as
+    byte 0 and byte 6 at any value produced no fault at all (tested,
+    confirmed inert). Bytes 2 and 4 carry an identical map, so are likely a
+    duplicated/redundant copy of the same alarm word. Codes 53/54/55/56/62
+    were not reachable via this register -- 54 and 56 in particular describe
+    conditions involving multiple physical BMS/VE.reg devices, which a
+    single simulated BMS cannot trigger.
+    """
+    BMS_ALARM_BITS = {
+        1: {0x02: "51", 0x04: "51", 0x08: "51", 0x10: "51", 0x20: "51", 0x40: "61", 0x80: "61"},
+        2: {0x01: "57", 0x02: "52", 0x04: "57", 0x08: "52", 0x10: "58", 0x20: "58", 0x40: "58", 0x80: "58"},
+        3: {0x08: "51", 0x10: "61", 0x20: "61", 0x40: "59", 0x80: "59"},
+        4: {0x01: "57", 0x02: "52", 0x04: "57", 0x08: "52", 0x10: "58", 0x20: "58", 0x40: "58", 0x80: "58"},
+        5: {0x04: "58", 0x08: "51", 0x10: "61", 0x20: "61", 0x40: "59"},
+    }
+
     def __init__(self, data: dict, mqtt_support: MQTT_Support):
         self.id = "aps-500-i" + str(data["instance"])
         super().__init__(data, mqtt_support)
@@ -125,6 +153,15 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         # class specific values that change
         self._dc_voltage             = 5  # should never be this low
         self._dc_current             = 50  # should not be this high
+        #DC_SOURCE_STATUS_2
+        self._source_temperature     = "unknown"
+        self._state_of_charge        = "unknown"
+        self._time_remaining         = "unknown"
+
+        #DC_SOURCE_STATUS_3
+        self._state_of_health        = "unknown"
+        self._capacity_remaining     = "unknown"
+
         #DC_SOURCE_STATUS_4
         self._desired_charge_state   = "unknown"
         self._desired_dc_voltage     = "unknown" # expected is 54.7 volts
@@ -175,6 +212,14 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         self._mp_packets = {}  # keyed by packet_number for ordered assembly + duplicate detection
         self._product_id = None
 
+        # WAKESPEED_BMS_QUERY / RENOGY_BMS_RESPONSE (proprietary 0EF70/0EF80).
+        # The response frame doesn't self-identify which register it answers,
+        # so we remember the register byte of the most recent query and use
+        # that to interpret the reply that follows it.
+        self._bms_query_register = None
+        self._bms_temps = [None, None, None, None]
+        self._bms_active_alarms = {}
+
         if 'command_topic' in data:
             topic_base                            = str(data['command_topic'])
             self.reset_command_topic              = str(f"{topic_base}/reset")
@@ -195,8 +240,17 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             topic_base= str(data['status_topic'])
 
             # DC_SOURCE_STATUS_1
-            #dc_voltage
-            #dc_current - does not seem to actually be reported ??
+            self.dc_voltage_topic = str(f"{topic_base}/dc_voltage")
+            self.dc_current_topic = str(f"{topic_base}/dc_current")
+
+            # DC_SOURCE_STATUS_2
+            self.source_temperature_topic = str(f"{topic_base}/source_temperature")
+            self.state_of_charge_topic    = str(f"{topic_base}/state_of_charge")
+            self.time_remaining_topic     = str(f"{topic_base}/time_remaining")
+
+            # DC_SOURCE_STATUS_3
+            self.state_of_health_topic    = str(f"{topic_base}/state_of_health")
+            self.capacity_remaining_topic = str(f"{topic_base}/capacity_remaining")
 
             # DC_SOURCE_STATUS_4
             self.desired_charge_state_topic = str(f"{topic_base}/desired_charge_state")
@@ -247,6 +301,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             self.terminal_status_topic           = str(f"{topic_base}/danger/terminal_message")
             self.product_id_topic                = str(f"{topic_base}/product_id")
 
+            # RENOGY_BMS_RESPONSE (register 0x95: 4 temperature sensors)
+            self.bms_temp_topic                  = str(f"{topic_base}/bms_temps")
+
+            # RENOGY_BMS_RESPONSE (register 0x92: alarm bits, see BMS_ALARM_BITS)
+            self.bms_alarm_topic                 = str(f"{topic_base}/bms_alarm")
+
             # J1939_ALTERNATOR_INFORMATION_1
             self.alternator_speed_topic          = str(f"{topic_base}/alternator_speed")
             self.engine_running_topic            = str(f"{topic_base}/engine_running")
@@ -284,14 +344,51 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         if self._is_entry_match(self.rvc_match_source_status_1, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+
+            if new_message["dc_voltage"] != self._dc_voltage:
+                self._dc_voltage = new_message["dc_voltage"]
+                self._publish_numeric(self.dc_voltage_topic, self._dc_voltage)
+            if new_message["dc_current"] != self._dc_current:
+                self._dc_current = new_message["dc_current"]
+                self._publish_numeric(self.dc_current_topic, self._dc_current)
+
             return True
 
         if self._is_entry_match(self.rvc_match_source_status_2, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+
+            if new_message["source_temperature"] != self._source_temperature:
+                self._source_temperature = new_message["source_temperature"]
+                self._publish_numeric(self.source_temperature_topic, self._source_temperature)
+            # rvc.py doesn't auto-convert the "pct"/"min" sentinels (0xFF/0xFFFF)
+            # to "n/a" the way it does for v/a/deg c -- guard those here instead.
+            if new_message["state_of_charge"] != self._state_of_charge:
+                self._state_of_charge = new_message["state_of_charge"]
+                if self._state_of_charge != 255:
+                    self.mqtt_support.client.publish(
+                        self.state_of_charge_topic, self._state_of_charge, retain=True)
+            if new_message["time_remaining"] != self._time_remaining:
+                self._time_remaining = new_message["time_remaining"]
+                if self._time_remaining != 65535:
+                    self.mqtt_support.client.publish(
+                        self.time_remaining_topic, self._time_remaining, retain=True)
+
             return True
 
         if self._is_entry_match(self.rvc_match_source_status_3, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+
+            if new_message["state_of_health"] != self._state_of_health:
+                self._state_of_health = new_message["state_of_health"]
+                if self._state_of_health != 255:
+                    self.mqtt_support.client.publish(
+                        self.state_of_health_topic, self._state_of_health, retain=True)
+            if new_message["capacity_remaining"] != self._capacity_remaining:
+                self._capacity_remaining = new_message["capacity_remaining"]
+                if self._capacity_remaining != 65535:
+                    self.mqtt_support.client.publish(
+                        self.capacity_remaining_topic, self._capacity_remaining, retain=True)
+
             return True
 
         if self._is_entry_match(self.rvc_match_source_status_4, new_message):
@@ -561,11 +658,60 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                     self._mp_expected_count = 0
             return True
 
-        if self._is_entry_match(self.rvc_match_0ef80, new_message):
-            # likely J1939 message so do nothing
-            return True
         if self._is_entry_match(self.rvc_match_0ef70, new_message):
-            # likely J1939 message so do nothing
+            # WAKESPEED_BMS_QUERY: byte 0 is the opcode (0x13 = steady-state
+            # register read, cycled every ~460ms), byte 1 is the register
+            # being asked for. The RENOGY_BMS_RESPONSE that follows doesn't
+            # say which register it's answering, so remember it here.
+            try:
+                query_bytes = bytes.fromhex(new_message["data"])
+                if len(query_bytes) >= 2 and query_bytes[0] == 0x13:
+                    self._bms_query_register = query_bytes[1]
+                else:
+                    self._bms_query_register = None
+            except (ValueError, TypeError, KeyError):
+                self._bms_query_register = None
+            return True
+
+        if self._is_entry_match(self.rvc_match_0ef80, new_message):
+            # RENOGY_BMS_RESPONSE: decode using whichever register the
+            # preceding WAKESPEED_BMS_QUERY asked for.
+            register = self._bms_query_register
+            self._bms_query_register = None
+            try:
+                resp_bytes = bytes.fromhex(new_message["data"])
+            except (ValueError, TypeError, KeyError):
+                return True
+            if len(resp_bytes) != 8:
+                return True
+
+            if register == 0x95:
+                temps = []
+                for i in (0, 2, 4, 6):
+                    raw = (resp_bytes[i] << 8) | resp_bytes[i + 1]
+                    temps.append("n/a" if raw == 0xFFFF else raw / 10.0)
+                if temps != self._bms_temps:
+                    self._bms_temps = temps
+                    # Not retained: matches alternator_speed -- live BMS
+                    # telemetry, a retained stale reading is worse than none.
+                    self.mqtt_support.client.publish(
+                        self.bms_temp_topic, json.dumps(temps), retain=False)
+
+            elif register == 0x92:
+                active = {}
+                for byte_idx, bit_map in self.BMS_ALARM_BITS.items():
+                    value = resp_bytes[byte_idx]
+                    code = bit_map.get(value)
+                    if code is not None:
+                        active[str(byte_idx)] = {
+                            "code": code,
+                            "description": self.apcfaults.get(code, "Internal Error"),
+                        }
+                if active != self._bms_active_alarms:
+                    self._bms_active_alarms = active
+                    self.mqtt_support.client.publish(
+                        self.bms_alarm_topic, json.dumps(active), retain=True)
+
             return True
         if self._is_entry_match(self.rvc_match_0fed5, new_message):
             self.Logger.debug(f"Msg Match J1939_ALTERNATOR_INFORMATION_1: {str(new_message)}")
