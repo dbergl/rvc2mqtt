@@ -59,11 +59,17 @@ AUTO_DISABLE_TEMP_C = 10.0
 # full charge current into a genuinely cold pack risks lithium plating,
 # which is presumably why the BMS enforces this cutoff in the first place.
 HEATER_TRIGGER_CURRENT_A = 25.0
-# Chosen 2026-09-05 by live-testing the real alternator/regulator at 8/15/18/21/25/40A: the
-# heater relay needs ~8A to run, but the regulator's own control loop was unstable holding
-# any setpoint below ~25A (current would collapse toward 0 or even go briefly negative, then
-# spike back up) -- 25A was the lowest value that ran cleanly with no bad excursions across
-# repeated test windows. Well below the pack's normal ~90A charge current.
+# Chosen 2026-09-05 by live-testing at 8/15/18/21/25/40A: setpoints at/below ~15A oscillated
+# (current collapsing toward 0, even briefly negative, then overshooting) while 25A+ ran
+# clean. The heater itself needs only ~8A to run, but per the pack owner its ~8A draw is
+# apparently not seen (or is netted out) by the BMS's own current sensor -- so the heater's
+# "is >=8A available" turn-on check is self-referential: it turns on, its own draw makes
+# reported current look unavailable, it turns back off, current recovers, repeat. The
+# alternator needs to supply meaningfully more than the heater's own draw plus its own
+# threshold (roughly 16A+) for it to see current continuously available and stay on without
+# cycling -- not yet confirmed by directly measuring the heater's load, just consistent with
+# every setpoint tested. Revisit this figure once genuinely cold-weather testing is possible.
+# Still well below the pack's normal ~90A charge current either way.
 
 IDENTIFY_REPLIES = {
     ("14", "02"): [bytes([0x52, 0x42, 0x54, 0x32, 0x31, 0x30, 0x4C, 0x46]),

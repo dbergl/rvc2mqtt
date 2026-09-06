@@ -5571,21 +5571,33 @@ Z0005:
   # APS-500 charge through the real alarm, the L2 fail-safe correctly re-armed the real fault
   # the instant it escalated, and -- most importantly -- the real BMS's own Heating relay was
   # confirmed physically engaging (heard + logged via MQTT bms/relays) while current was held
-  # suppressed. Also found live: the alternator/regulator's own control loop could not hold a
-  # stable LOW current target -- 8A and 15A both oscillated (collapsing toward 0, overshooting
-  # by 50-100%+ on each ramp), while 18A was borderline and 25A ran cleanly with no bad
-  # excursions across repeated windows -- so 25A (HEATER_TRIGGER_CURRENT_A) is the current
-  # production setpoint for the heater-trigger override, not the pack owner's originally
-  # assumed 8A minimum.
+  # suppressed. Also found live: commanding LOW current setpoints (8A, 15A) produced sustained
+  # oscillation -- actual current collapsing toward 0 (briefly even negative) then overshooting
+  # by 50-100%+ on each ramp -- while 18-21A were borderline/noisy and 25A ran cleanly with no
+  # bad excursions across repeated windows. Initially misattributed to the alternator/
+  # regulator's own control loop being unable to hold a low target; the pack owner later
+  # identified the likely REAL mechanism: the heater relay's own ~8A draw is apparently not
+  # seen (or is netted out) by the BMS's current measurement, so the heater's own "is >=8A
+  # available" turn-on condition is self-referential -- it turns on, its own draw immediately
+  # makes reported current look unavailable, it turns back off, reported current recovers, it
+  # turns back on, repeating. That means the alternator must supply meaningfully more than the
+  # heater's own 8A draw plus its 8A threshold (roughly 16A+) for the heater to see current
+  # continuously available and stay on without cycling -- consistent with 15A being unstable
+  # and 25A (leaving ~17A of headroom past the heater's own draw) running clean. Not confirmed
+  # by direct measurement of the heater's load on the BMS's own sensor, just consistent with
+  # every setpoint tested. 25A (HEATER_TRIGGER_CURRENT_A) is the current production setpoint
+  # for the heater-trigger override, not the pack owner's originally assumed 8A minimum.
   #   Still open, to revisit once real cold weather makes proper testing possible (everything
   #   above used a manually-forced alarm bit on a pack that stayed at ambient temperature, not
-  #   a genuinely cold pack): (1) the temperature auto-disable has only been exercised by
-  #   temporarily raising its threshold above ambient in test code, never by a pack actually
-  #   warming through the real 10C threshold; (2) L3 (contactor-disconnect) escalation has
-  #   never been exercised through this relay, only in the original passive real-BMS test;
-  #   (3) no long-duration soak test yet; (4) separately, charging did not start at all at
-  #   normal (non-high) engine idle -- suspected APS-500 minimum-RPM-to-charge configuration,
-  #   unrelated to this relay and not yet investigated.
+  #   a genuinely cold pack): (1) confirm the heater-draw-not-measured theory directly, and
+  #   find the true minimum stable setpoint with that understanding rather than trial and
+  #   error; (2) the temperature auto-disable has only been exercised by temporarily raising
+  #   its threshold above ambient in test code, never by a pack actually warming through the
+  #   real 10C threshold; (3) L3 (contactor-disconnect) escalation has never been exercised
+  #   through this relay, only in the original passive real-BMS test; (4) no long-duration
+  #   soak test yet; (5) separately, charging did not start at all at normal (non-high) engine
+  #   idle -- suspected APS-500 minimum-RPM-to-charge configuration, unrelated to this relay
+  #   and not yet investigated.
   name: RENOGY_BMS_RESPONSE
 
 0FED5:
