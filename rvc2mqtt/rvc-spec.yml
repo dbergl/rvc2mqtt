@@ -5591,15 +5591,33 @@ Z0005:
   # instability at low commanded targets (theory a), or an artifact of this relay's synthesized
   # traffic not perfectly matching what a real requesting BMS would send (e.g. 0x88 bytes2-3
   # held constant here rather than tracking current, see 0EF70 above) that only manifests
-  # through the proprietary link. 25A (HEATER_TRIGGER_CURRENT_A) is kept as the current
-  # production setpoint since it's empirically clean regardless of which theory is right, but
-  # the true minimum and the actual mechanism remain open.
+  # through the proprietary link. A follow-up isolation test (2026-09-05) removed the
+  # alarm-override logic from the picture entirely -- a minimal script requesting a FIXED
+  # 8.00A desired current (0x8F) with NO alarm active and NO suppression at all, but still
+  # relaying the REAL live actual current (0x88) from can0 -- and the pack owner directly
+  # observed it was still NOT stable. This rules out the override/suppression code path itself
+  # as a cause: the instability is inherent to (fixed low desired current) + (live-relayed
+  # real actual current) via this proprietary link, independent of anything alarm-related. That
+  # narrows theory (a)/(b) above to two remaining candidates: genuine APS-500 regulation
+  # instability at low commanded targets, or something about how the APS reacts to a live,
+  # naturally-noisy actual-current value fed back to it (as opposed to a static one -- the
+  # ORIGINAL simulator-only 8A test, before any of this alarm work, used a STATIC actual
+  # current equal to the desired value and instead saw NO charging at all, not oscillation --
+  # a third distinct behavior, suggesting the actual-current field's live/static nature and
+  # relationship to the desired value both matter and haven't been isolated from each other
+  # yet). 25A (HEATER_TRIGGER_CURRENT_A) is kept as the current production setpoint since it's
+  # empirically clean regardless of which theory is right, but the true minimum and the actual
+  # mechanism remain open.
   #   Still open, to revisit once real cold weather makes proper testing possible (everything
   #   above used a manually-forced alarm bit on a pack that stayed at ambient temperature, not
   #   a genuinely cold pack): (1) determine the actual cause of the alternator-path low-current
-  #   oscillation (APS-500 regulation vs. this relay's synthesized traffic -- e.g. try making
-  #   0x88 bytes2-3 track current instead of holding it constant) and find the true minimum
-  #   stable setpoint from that understanding rather than trial and error; (2) the temperature
+  #   oscillation -- isolate further by trying a fixed low desired current WITHOUT relaying
+  #   live actual current (e.g. hold 0x88 at a static value matching 0x8F, like the original
+  #   pre-alarm-work test did) to see whether that alone reproduces the earlier "no charging at
+  #   all" behavior instead of oscillation, which would implicate the LIVE actual-current
+  #   relay specifically rather than the low setpoint itself; also try making 0x88 bytes2-3
+  #   track current instead of holding it constant. Find the true minimum stable setpoint from
+  #   whatever understanding results, rather than more trial and error; (2) the temperature
   #   auto-disable has only been exercised by temporarily raising
   #   its threshold above ambient in test code, never by a pack actually warming through the
   #   real 10C threshold; (3) L3 (contactor-disconnect) escalation has never been exercised
