@@ -5574,24 +5574,33 @@ Z0005:
   # suppressed. Also found live: commanding LOW current setpoints (8A, 15A) produced sustained
   # oscillation -- actual current collapsing toward 0 (briefly even negative) then overshooting
   # by 50-100%+ on each ramp -- while 18-21A were borderline/noisy and 25A ran cleanly with no
-  # bad excursions across repeated windows. Initially misattributed to the alternator/
-  # regulator's own control loop being unable to hold a low target; the pack owner later
-  # identified the likely REAL mechanism: the heater relay's own ~8A draw is apparently not
-  # seen (or is netted out) by the BMS's current measurement, so the heater's own "is >=8A
-  # available" turn-on condition is self-referential -- it turns on, its own draw immediately
-  # makes reported current look unavailable, it turns back off, reported current recovers, it
-  # turns back on, repeating. That means the alternator must supply meaningfully more than the
-  # heater's own 8A draw plus its 8A threshold (roughly 16A+) for the heater to see current
-  # continuously available and stay on without cycling -- consistent with 15A being unstable
-  # and 25A (leaving ~17A of headroom past the heater's own draw) running clean. Not confirmed
-  # by direct measurement of the heater's load on the BMS's own sensor, just consistent with
-  # every setpoint tested. 25A (HEATER_TRIGGER_CURRENT_A) is the current production setpoint
-  # for the heater-trigger override, not the pack owner's originally assumed 8A minimum.
+  # bad excursions across repeated windows. ROOT CAUSE STILL UNRESOLVED -- two theories tried
+  # and neither is fully satisfying: (a) the alternator/regulator's own control loop being
+  # unable to hold a low target, and (b) the heater's own ~8A draw not being seen by the BMS's
+  # current sensor, making its own "is >=8A available" turn-on check self-referential and
+  # prone to cycling. (b) was FALSIFIED by a separate real-world observation the same day: with
+  # the heating blanket on and charging instead from the inverter (set to 10-15A, several other
+  # loads also running), the BMS showed a net 3A charge -- well under the heater's own 8A draw
+  # -- and the blanket did NOT cycle. That means the BMS's sensor plausibly DOES see the
+  # heater's load already (net accounting looks right), and that the heater's turn-on check is
+  # likely edge-triggered/latched at activation rather than continuously re-evaluated against
+  # available current, contradicting (b) as stated. Since the inverter -- a fully independent
+  # charging path that never goes through the APS-500's proprietary 0EF70/0EF80 link or this
+  # relay at all -- held a clean low current with the heater on and no cycling, the oscillation
+  # we saw is likely specific to the ALTERNATOR path: either genuine APS-500 regulation
+  # instability at low commanded targets (theory a), or an artifact of this relay's synthesized
+  # traffic not perfectly matching what a real requesting BMS would send (e.g. 0x88 bytes2-3
+  # held constant here rather than tracking current, see 0EF70 above) that only manifests
+  # through the proprietary link. 25A (HEATER_TRIGGER_CURRENT_A) is kept as the current
+  # production setpoint since it's empirically clean regardless of which theory is right, but
+  # the true minimum and the actual mechanism remain open.
   #   Still open, to revisit once real cold weather makes proper testing possible (everything
   #   above used a manually-forced alarm bit on a pack that stayed at ambient temperature, not
-  #   a genuinely cold pack): (1) confirm the heater-draw-not-measured theory directly, and
-  #   find the true minimum stable setpoint with that understanding rather than trial and
-  #   error; (2) the temperature auto-disable has only been exercised by temporarily raising
+  #   a genuinely cold pack): (1) determine the actual cause of the alternator-path low-current
+  #   oscillation (APS-500 regulation vs. this relay's synthesized traffic -- e.g. try making
+  #   0x88 bytes2-3 track current instead of holding it constant) and find the true minimum
+  #   stable setpoint from that understanding rather than trial and error; (2) the temperature
+  #   auto-disable has only been exercised by temporarily raising
   #   its threshold above ambient in test code, never by a pack actually warming through the
   #   real 10C threshold; (3) L3 (contactor-disconnect) escalation has never been exercised
   #   through this relay, only in the original passive real-BMS test; (4) no long-duration

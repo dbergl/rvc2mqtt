@@ -61,15 +61,17 @@ AUTO_DISABLE_TEMP_C = 10.0
 HEATER_TRIGGER_CURRENT_A = 25.0
 # Chosen 2026-09-05 by live-testing at 8/15/18/21/25/40A: setpoints at/below ~15A oscillated
 # (current collapsing toward 0, even briefly negative, then overshooting) while 25A+ ran
-# clean. The heater itself needs only ~8A to run, but per the pack owner its ~8A draw is
-# apparently not seen (or is netted out) by the BMS's own current sensor -- so the heater's
-# "is >=8A available" turn-on check is self-referential: it turns on, its own draw makes
-# reported current look unavailable, it turns back off, current recovers, repeat. The
-# alternator needs to supply meaningfully more than the heater's own draw plus its own
-# threshold (roughly 16A+) for it to see current continuously available and stay on without
-# cycling -- not yet confirmed by directly measuring the heater's load, just consistent with
-# every setpoint tested. Revisit this figure once genuinely cold-weather testing is possible.
-# Still well below the pack's normal ~90A charge current either way.
+# clean. ROOT CAUSE UNRESOLVED -- a "heater's own draw confuses its turn-on check" theory was
+# proposed then FALSIFIED the same day by a real-world observation: charging from the
+# inverter instead (10-15A, other loads running) showed a net 3A charge with the heater on
+# and NO cycling, well under the heater's 8A draw. So the oscillation is likely specific to
+# the alternator/APS-500 path itself -- either the regulator's own control loop struggling at
+# low commanded targets, or an artifact of this relay's synthesized traffic (e.g. 0x88
+# bytes2-3 held constant here instead of tracking current, see rvc-spec.yml 0EF70). See
+# rvc-spec.yml (0EF80, "VIRTUAL BMS") for the full writeup. 25A is kept for now since it's
+# empirically clean regardless of which theory is right, but the true minimum and mechanism
+# are still open -- revisit once genuinely cold-weather testing is possible. Still well below
+# the pack's normal ~90A charge current either way.
 
 IDENTIFY_REPLIES = {
     ("14", "02"): [bytes([0x52, 0x42, 0x54, 0x32, 0x31, 0x30, 0x4C, 0x46]),
