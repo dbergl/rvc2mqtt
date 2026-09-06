@@ -5557,6 +5557,35 @@ Z0005:
   #   faults may not always require a manual reset/reboot to clear; this
   #   wasn't isolated further and could also have been a coincidental
   #   manual action taken at the same time.
+  #
+  # VIRTUAL BMS (tools/virtual_bms.py, added 2026-09-05): a standalone relay built on all of
+  # the above, for the specific case of a low-temperature alarm blocking alternator charging
+  # even when the pack is above the truly dangerous threshold -- e.g. to run the battery's own
+  # heater relay before real charging resumes. It listens to the real BMS's native protocol on
+  # can0 and relays it into this 0EF70/0EF80 format on can1, suppressing one user-selected
+  # alarm category's bits (AND-clearing them) only while that category sits at level 1, with
+  # two independent fail-safes: dropping the suppression immediately if the alarm escalates to
+  # level 2+, and self-disabling once every temperature sensor (the coldest one, not just one)
+  # clears a configurable threshold (default 10C). Live-tested end to end (2026-09-05, real
+  # BMS on can0, van at high idle, manually forced L1 alarm): suppression correctly let the
+  # APS-500 charge through the real alarm, the L2 fail-safe correctly re-armed the real fault
+  # the instant it escalated, and -- most importantly -- the real BMS's own Heating relay was
+  # confirmed physically engaging (heard + logged via MQTT bms/relays) while current was held
+  # suppressed. Also found live: the alternator/regulator's own control loop could not hold a
+  # stable LOW current target -- 8A and 15A both oscillated (collapsing toward 0, overshooting
+  # by 50-100%+ on each ramp), while 18A was borderline and 25A ran cleanly with no bad
+  # excursions across repeated windows -- so 25A (HEATER_TRIGGER_CURRENT_A) is the current
+  # production setpoint for the heater-trigger override, not the pack owner's originally
+  # assumed 8A minimum.
+  #   Still open, to revisit once real cold weather makes proper testing possible (everything
+  #   above used a manually-forced alarm bit on a pack that stayed at ambient temperature, not
+  #   a genuinely cold pack): (1) the temperature auto-disable has only been exercised by
+  #   temporarily raising its threshold above ambient in test code, never by a pack actually
+  #   warming through the real 10C threshold; (2) L3 (contactor-disconnect) escalation has
+  #   never been exercised through this relay, only in the original passive real-BMS test;
+  #   (3) no long-duration soak test yet; (4) separately, charging did not start at all at
+  #   normal (non-high) engine idle -- suspected APS-500 minimum-RPM-to-charge configuration,
+  #   unrelated to this relay and not yet investigated.
   name: RENOGY_BMS_RESPONSE
 
 0FED5:
