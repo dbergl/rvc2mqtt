@@ -1054,17 +1054,548 @@ API_VERSION: 0
       name: tag axle left right spring
       type: uint8
 
-1FFEE:
-  name: LEVELING_CONTROL_COMMAND
-
 1FFED:
   name: LEVELING_CONTROL_STATUS
+  parameters:
+    - byte: 0
+      name: Operating mode
+      type: uint8
+      values:
+        0: Inactive
+        1: Suspension raise (all air springs) active
+        2: Suspension dump (all air springs) active
+        3: Store active (store jacks/go to ride height)
+        4: Manual air leveling (Deprecated in favor of 41-44)
+        5: Automatic air leveling started
+        6: Start deploy kick-down jacks
+        7: Manual hydraulic leveling (Deprecated in favor of 71-74)
+        8: Automatic hydraulic/electric leveling started
+        9: Kneel started (dump front air springs only)
+        10: Auto hitch height
+        11: Abort Function
+        12: Careen Left. (i.e. Tilt towards street side.)
+        13: Careen Right. (i.e. Tilt towards curb side.)
+        14: Squat. (i.e. Dump rear bags only.)
+        34: Jack calibration mode
+        41: Manual air leveling - Four point
+        42: Manual air leveling - Biax mode
+        43: Manual air leveling - 3 point mode
+        44: Manual air leveling - Multi point mode 5+
+        51: Automatic air leveling - Four point
+        52: Automatic air leveling - Biax mode
+        53: Automatic air leveling - 3 point mode
+        54: Automatic air leveling - Multi point mode 5+
+        71: Manual hydraulic/electric leveling - Four point
+        72: Manual hydraulic/electric leveling - Biax mode
+        73: Manual hydraulic/electric leveling - 3 point mode
+        74: Manual hydraulic leveling - Multi point mode 5+
+        81: Automatic hydraulic leveling - Four point
+        82: Automatic hydraulic leveling - Biax mode
+        83: Automatic hydraulic leveling - 3 point mode
+        84: Automatic hydraulic leveling - Multi point mode 5+
+        99: Clear Jack error
+    - byte: 1
+      bit: 0-1
+      name: Automatic Jack stabilization status
+      type: uint2
+      values:
+        0: Automatic jack stabilization not in process
+        1: Automatic jack stabilization in process
+    - byte: 1
+      bit: 2-3
+      name: Air leveling sleep mode
+      type: uint2
+      values:
+        0: Air leveling in active mode
+        1: Air leveling in sleep mode
+    - byte: 1
+      bit: 4-5
+      name: Air re-leveling mode
+      type: uint2
+      values:
+        0: Re-leveling not active
+    - byte: 2
+      bit: 0-1
+      name: Excessive slope initial warning
+      type: uint2
+      values:
+        0: No warning
+        1: Warning - excessive slope prevents leveling; unit shall try again later
+    - byte: 2
+      bit: 2-3
+      name: Excessive slope final warning
+      type: uint2
+      values:
+        0: No warning
+        1: Warning - excessive slope prevents leveling; no further attempt shall be made
+    - byte: 2
+      bit: 4-5
+      name: Leveling system master warning
+      comment: This bit field was added as a way to signal a general warning such as jacks are deployed, etc. This should be deprecated in favor of the newer "GENERIC_ALARM" DGN’s
+      type: uint2
+      values:
+        0: No warning
+        1: Warning
+    - byte: 3
+      bit: 0-1
+      name: Jack Retract /Air Spring Dump 1
+      comment: Four point mode - Left Rear, Biax mode - Rear, 3 point mode - Left Rear, Multi point mode - Left Rear
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 3
+      bit: 2-3
+      name: Jack Extend /Air Spring Fill 1
+      comment: Four point mode - Left Rear, Biax mode - Rear, 3 point mode - Left Rear, Multi point mode - Left Rear
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 3
+      bit: 4-5
+      name: Jack Retract /Air Spring Dump 2
+      comment: Four point mode - Right Front, Biax mode - Front, 3 point mode - N/A, Multi point mode - Right Front
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 3
+      bit: 6-7
+      name: Jack Extend /Air Spring Fill 2
+      comment: Four point mode - Right Front, Biax mode - Front, 3 point mode - N/A, Multi point mode - Right Front
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 4
+      bit: 0-1
+      name: Jack Retract /Air Spring Dump 3
+      comment: Four point mode - Right Rear, Biax mode - Right, 3 point mode - Right, Multi point mode - Right Rear
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 4
+      bit: 2-3
+      name: Jack Extend /Air Spring Fill 3
+      comment: Four point mode - Right Rear, Biax mode - Rear, 3 point mode - Right , Multi point mode - Right Rear
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 4
+      bit: 4-5
+      name: Jack Retract /Air Spring Dump 4
+      comment: Four point mode - Left Front, Biax mode - Left, 3 point mode - Front, Multi point mode - Left Front
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 4
+      bit: 6-7
+      name: Jack Extend /Air Spring Fill 4
+      comment: Four point mode - Left Front, Biax mode - Left, 3 point mode - Front, Multi point mode - Left Front
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 5
+      bit: 0-1
+      name: Jack Retract /Air Spring Dump 5
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Left Middle
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 5
+      bit: 2-3
+      name: Jack Extend /Air Spring Fill 5
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Left Middle
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 5
+      bit: 4-5
+      name: Jack Retract /Air Spring Dump 6
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Right Middle
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 5
+      bit: 6-7
+      name: Jack Extend /Air Spring Fill 6
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Right Middle
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 6
+      bit: 0-1
+      name: Jack Retract 7
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Tongue
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 6
+      bit: 2-3
+      name: Jack Extend 7
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Tongue
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 7
+      bit: 0-1
+      name: Park Brake
+      comment: The status of the park brake lock, typically derived from the Chassis Mobility Status DGN but possibly from another source
+      type: uint2
+      values:
+        0: Leveling system may operate
+        1: Leveling system may not operate because of Park Brake status
+
+
+1FFEE:
+  name: LEVELING_CONTROL_COMMAND
+  parameters:
+    - byte: 0
+      name: Operating mode
+      type: uint8
+      values:
+        0: Inactive
+        1: Suspension raise (all air springs) active
+        2: Suspension dump (all air springs) active
+        3: Store active (store jacks/go to ride height)
+        4: Manual air leveling (Deprecated in favor of 41-44)
+        5: Automatic air leveling started
+        6: Start deploy kick-down jacks
+        7: Manual hydraulic leveling (Deprecated in favor of 71-74)
+        8: Automatic hydraulic/electric leveling started
+        9: Kneel started (dump front air springs only)
+        10: Auto hitch height
+        11: Abort Function
+        12: Careen Left. (i.e. Tilt towards street side.)
+        13: Careen Right. (i.e. Tilt towards curb side.)
+        14: Squat. (i.e. Dump rear bags only.)
+        34: Jack calibration mode
+        41: Manual air leveling - Four point
+        42: Manual air leveling - Biax mode
+        43: Manual air leveling - 3 point mode
+        44: Manual air leveling - Multi point mode 5+
+        51: Automatic air leveling - Four point
+        52: Automatic air leveling - Biax mode
+        53: Automatic air leveling - 3 point mode
+        54: Automatic air leveling - Multi point mode 5+
+        71: Manual hydraulic/electric leveling - Four point
+        72: Manual hydraulic/electric leveling - Biax mode
+        73: Manual hydraulic/electric leveling - 3 point mode
+        74: Manual hydraulic leveling - Multi point mode 5+
+        81: Automatic hydraulic leveling - Four point
+        82: Automatic hydraulic leveling - Biax mode
+        83: Automatic hydraulic leveling - 3 point mode
+        84: Automatic hydraulic leveling - Multi point mode 5+
+        99: Clear Jack error
+    - byte: 1
+      bit: 0-1
+      name: Jack Retract /Air Spring Dump 1
+      comment: Four point mode - Left Rear, Biax mode - Rear, 3 point mode - Left Rear, Multi point mode - Left Rear
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 1
+      bit: 2-3
+      name: Jack Extend /Air Spring Fill 1
+      comment: Four point mode - Left Rear, Biax mode - Rear, 3 point mode - Left Rear, Multi point mode - Left Rear
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 1
+      bit: 4-5
+      name: Jack Retract /Air Spring Dump 2
+      comment: Four point mode - Right Front, Biax mode - Front, 3 point mode - N/A, Multi point mode - Right Front
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 1
+      bit: 6-7
+      name: Jack Extend /Air Spring Fill 2
+      comment: Four point mode - Right Front, Biax mode - Front, 3 point mode - N/A, Multi point mode - Right Front
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 2
+      bit: 0-1
+      name: Jack Retract /Air Spring Dump 3
+      comment: Four point mode - Right Rear, Biax mode - Right, 3 point mode - Right, Multi point mode - Right Rear
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 2
+      bit: 2-3
+      name: Jack Extend /Air Spring Fill 3
+      comment: Four point mode - Right Rear, Biax mode - Rear, 3 point mode - Right , Multi point mode - Right Rear
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 2
+      bit: 4-5
+      name: Jack Retract /Air Spring Dump 4
+      comment: Four point mode - Left Front, Biax mode - Left, 3 point mode - Front, Multi point mode - Left Front
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 2
+      bit: 6-7
+      name: Jack Extend /Air Spring Fill 4
+      comment: Four point mode - Left Front, Biax mode - Left, 3 point mode - Front, Multi point mode - Left Front
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 3
+      bit: 0-1
+      name: Jack Retract /Air Spring Dump 5
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Left Middle
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 3
+      bit: 2-3
+      name: Jack Extend /Air Spring Fill 5
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Left Middle
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 3
+      bit: 4-5
+      name: Jack Retract /Air Spring Dump 6
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Right Middle
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 3
+      bit: 6-7
+      name: Jack Extend /Air Spring Fill 6
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Right Middle
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 4
+      bit: 0-1
+      name: Jack Retract 7
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Tongue
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 4
+      bit: 2-3
+      name: Jack Extend 7
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Tongue
+      type: uint2
+      values:
+        0: Off
+        1: On
 
 1FFEC:
   name: LEVELING_JACK_STATUS
+  parameters:
+    - byte: 0
+      bit: 0-3
+      name: Jack type
+      type: uint4
+      values:
+        0: Straight Acting
+        1: Kick-Down
+    - byte: 0
+      bit: 4-7
+      name: Number of jacks
+      type: uint4
+    - byte: 1
+      bit: 0-1
+      name: Extension
+      comment: Left rear (four point), Left rear (three point)
+      type: uint2
+      values:
+        0: No Action
+        1: Jack is Extended. Coach is not safe to move
+    - byte: 1
+      bit: 2-3
+      name: Extension
+      comment: Right front (four point), N/A (three point)
+      type: uint2
+      values:
+        0: No Action
+        1: Jack is Extended. Coach is not safe to move
+    - byte: 1
+      bit: 4-5
+      name: Extension
+      comment: Right rear (four point), Right rear (three point)
+      type: uint2
+      values:
+        0: No Action
+        1: Jack is Extended. Coach is not safe to move
+    - byte: 1
+      bit: 6-7
+      name: Extension
+      comment: Left front (four point), Front (three point)
+      type: uint2
+      values:
+        0: No Action
+        1: Jack is Extended. Coach is not safe to move
+    - byte: 2
+      bit: 0-1
+      name: Extension - Auxiliary jack #1
+      type: uint2
+      values:
+        0: No Action
+        1: Jack is Extended. Coach is not safe to move
+    - byte: 2
+      bit: 2-3
+      name: Extension - Auxiliary jack #2
+      type: uint2
+      values:
+        0: No Action
+        1: Jack is Extended. Coach is not safe to move
+    - byte: 2
+      bit: 4-5
+      name: Extension - Auxiliary jack #3
+      type: uint2
+      values:
+        0: No Action
+        1: Jack is Extended. Coach is not safe to move
+    - byte: 2
+      bit: 6-7
+      name: Extension - Auxiliary jack #4
+      type: uint2
+      values:
+        0: No Action
+        1: Jack is Extended. Coach is not safe to move
+    - byte: 3
+      bit: 0-1
+      name: Stability
+      comment: Left rear (four point), Left rear (three point)
+      type: uint2
+      values:
+        0: No Action
+        1: Pressure detected. Jack is bearing weight on the ground
+    - byte: 3
+      bit: 2-3
+      name: Stability
+      comment: Right front (four point), N/A (three point)
+      type: uint2
+      values:
+        0: No Action
+        1: Pressure detected. Jack is bearing weight on the ground
+    - byte: 3
+      bit: 4-5
+      name: Stability
+      comment: Right rear (four point), Right rear (three point)
+      type: uint2
+      values:
+        0: No Action
+        1: Pressure detected. Jack is bearing weight on the ground
+    - byte: 3
+      bit: 6-7
+      name: Stability
+      comment: Left front (four point), Front (three point)
+      type: uint2
+      values:
+        0: No Action
+        1: Pressure detected. Jack is bearing weight on the ground
+    - byte: 4
+      bit: 0-1
+      name: Stability - Auxiliary jack #1
+      type: uint2
+      values:
+        0: No Action
+        1: Pressure detected. Jack is bearing weight on the ground
+    - byte: 4
+      bit: 2-3
+      name: Stability - Auxiliary jack #2
+      type: uint2
+      values:
+        0: No Action
+        1: Pressure detected. Jack is bearing weight on the ground
+    - byte: 4
+      bit: 4-5
+      name: Stability - Auxiliary jack #3
+      type: uint2
+      values:
+        0: No Action
+        1: Pressure detected. Jack is bearing weight on the ground
+    - byte: 4
+      bit: 6-7
+      name: Stability - Auxiliary jack #4
+      type: uint2
+      values:
+        0: No Action
+        1: Pressure detected. Jack is bearing weight on the ground
 
 1FFEB:
   name: LEVELING_SENSOR_STATUS
+  parameters:
+    - byte: 0
+      bit: 0-1
+      name: Vehicle attitude - Driver side
+      type: uint2
+      values:
+        0: Side is at or above level
+        1: Side is below level
+    - byte: 0
+      bit: 2-3
+      name: Vehicle attitude - Front
+      type: uint2
+      values:
+        0: Side is at or above level
+        1: Side is below level
+    - byte: 0
+      bit: 4-5
+      name: Vehicle attitude - Passenger side
+      type: uint2
+      values:
+        0: Side is at or above level
+        1: Side is below level
+    - byte: 0
+      bit: 6-7
+      name: Vehicle attitude - Rear
+      type: uint2
+      values:
+        0: Side is at or above level
+        1: Side is below level
+    - byte: 1-2
+      name: Pitch
+      comment: Precision = 1/128 Deg, Offset = -200 Deg, Value range = -200 to 300 Deg, Negative = Nose is low, Positive = Nose is high, 0 = Level
+      type: uint16
+      unit: deg
+    - byte: 3-4
+      name: Roll
+      comment: Precision = 1/128 Deg, Offset = -200 Deg, Value range = -200 to 300 Deg, Negative = Driver side is low, Positive = Driver side is high, 0 = Level
+      type: uint16
+      unit: deg
+    - byte: 5-6
+      name: Secondary Pitch
+      comment: Precision = 1/128 Deg, Offset = -200 Deg, Value range = -200 to 300 Deg, Negative = Nose is low, Positive = Nose is high, 0 = Level
+      type: uint16
+      unit: deg
+    - byte: 7
+      name: Instance
+      comment: 0-250 = Sensor instance, 255 = Single sensor system
+      type: uint8
 
 1FFEA:
   name: HYDRAULIC_PUMP_STATUS
