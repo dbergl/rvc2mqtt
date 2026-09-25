@@ -948,8 +948,12 @@ class G12_Configuration(EntityPluginBaseClass):
                         f"broadcast the present value.")
                     return
 
+                # The touchscreen arrows only ever step by 1000, and +/-1000 is the only
+                # delta the coach has been seen to accept for these selectors. Round the
+                # delta (not the target) to that grid so an off-grid stored value keeps
+                # its offset instead of being dragged by an unverified odd-sized delta.
                 target = round(float(payload))
-                delta = target - current
+                delta = round((target - current) / 1000) * 1000
                 if delta == 0:
                     return
                 frame = struct.pack("<BBBBhBB", 0xFF, 0x96, sel, 0x0F, delta, 0xD1, 0xEA)
@@ -1238,13 +1242,13 @@ class G12_Configuration(EntityPluginBaseClass):
              {'unit_of_measurement': 'V', 'device_class': 'voltage', 'mode': 'auto', **v_start}),
             ('threshold_33_pct',     self.threshold_cc_topic,
              self.threshold_cc_set_topic if has_cmd else None,
-             'Tank Threshold 33%',   {'unit_of_measurement': '',    'min': 0, 'max': 65535, 'step': 1, 'mode': 'auto'}),
+             'Tank Threshold 33%',   {'unit_of_measurement': '',    'min': 0, 'max': 65535, 'step': 1000, 'mode': 'auto'}),
             ('threshold_66_pct',     self.threshold_cd_topic,
              self.threshold_cd_set_topic if has_cmd else None,
-             'Tank Threshold 66%',   {'unit_of_measurement': '',    'min': 0, 'max': 65535, 'step': 1, 'mode': 'auto'}),
+             'Tank Threshold 66%',   {'unit_of_measurement': '',    'min': 0, 'max': 65535, 'step': 1000, 'mode': 'auto'}),
             ('threshold_100_pct',    self.threshold_ce_topic,
              self.threshold_ce_set_topic if has_cmd else None,
-             'Tank Threshold 100%',  {'unit_of_measurement': '',    'min': 0, 'max': 65535, 'step': 1, 'mode': 'auto'}),
+             'Tank Threshold 100%',  {'unit_of_measurement': '',    'min': 0, 'max': 65535, 'step': 1000, 'mode': 'auto'}),
         ]
         for sub_id, state_topic, cmd_topic, label, extra in number_specs:
             cmp = {'p': 'number', 'name': label,

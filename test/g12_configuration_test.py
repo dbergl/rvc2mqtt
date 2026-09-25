@@ -765,10 +765,10 @@ class Test_G12_Configuration(unittest.TestCase):
     def test_mqtt_set_threshold_cd_sends_delta(self):
         g, q = self._make_g12_with_queue()
         g._threshold_cd = 40000
-        g.process_mqtt_msg('g12/set/tanks/threshold_66_pct', '42500')
+        g.process_mqtt_msg('g12/set/tanks/threshold_66_pct', '42000')
         frame = q.get_nowait()['data']
         self.assertEqual(frame[2], 0xCD)
-        self.assertEqual(int.from_bytes(frame[4:6], 'little', signed=True), 2500)
+        self.assertEqual(int.from_bytes(frame[4:6], 'little', signed=True), 2000)
 
     def test_mqtt_set_threshold_ce_sends_delta(self):
         g, q = self._make_g12_with_queue()
@@ -798,6 +798,31 @@ class Test_G12_Configuration(unittest.TestCase):
         g, q = self._make_g12_with_queue()
         g._threshold_cc = 54000
         g.process_mqtt_msg('g12/set/tanks/threshold_33_pct', '54000')
+        self.assertTrue(q.empty())
+
+    # The touchscreen only ever moves a threshold in steps of 1000, and +/-1000 is the
+    # only delta the coach has been seen to accept. Snap the delta to that grid.
+
+    def test_mqtt_set_threshold_rounds_delta_to_1000(self):
+        g, q = self._make_g12_with_queue()
+        g._threshold_cc = 54000
+        g.process_mqtt_msg('g12/set/tanks/threshold_33_pct', '52763')
+        frame = q.get_nowait()['data']
+        self.assertEqual(int.from_bytes(frame[4:6], 'little', signed=True), -1000)
+
+    def test_mqtt_set_threshold_keeps_offset_of_unaligned_current(self):
+        """A current value off the 1000 grid stays on its own grid; the delta, not the
+        target, is what gets rounded."""
+        g, q = self._make_g12_with_queue()
+        g._threshold_cc = 54321
+        g.process_mqtt_msg('g12/set/tanks/threshold_33_pct', '53000')
+        frame = q.get_nowait()['data']
+        self.assertEqual(int.from_bytes(frame[4:6], 'little', signed=True), -1000)
+
+    def test_mqtt_set_threshold_sub_step_change_sends_nothing(self):
+        g, q = self._make_g12_with_queue()
+        g._threshold_cc = 54000
+        g.process_mqtt_msg('g12/set/tanks/threshold_33_pct', '54400')
         self.assertTrue(q.empty())
 
     def test_mqtt_set_unknown_topic_logs_warning(self):
