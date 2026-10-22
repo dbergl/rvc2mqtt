@@ -3519,6 +3519,22 @@ API_VERSION: 0
         00: operating status is zero
         01: operating status is non-zero or flashing
         11: interlock command is not supported
+    - byte: 6
+      name: reserved
+      comment: used by G12 to indicate a fault, indicator goes red on G12 Outputs screen
+      type: bit2
+      bit: 4-5
+      values:
+        01: G12 output fault indicator
+    - byte: 6
+      name: undercurrent
+      type: bit2
+      bit: 6-7
+      values:
+        00: undercurrent not active
+        01: undercurrent active
+        10: undercurrent status timeout (error)
+        11: undercurrent not supported
     - byte: 7
       name: master memory value
       type: uint8
