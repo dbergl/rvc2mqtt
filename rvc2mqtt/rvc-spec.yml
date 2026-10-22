@@ -3676,12 +3676,11 @@ API_VERSION: 0
   # when it is switched off by toggle (cmd 5) or memory-off (cmd 6); nothing while off.
   # 1FEDA repeats every 2 s while on.
   #
-  # The DGN name and the byte-4 field name below are kept for compatibility with MQTT
-  # consumers although they say "level".
+  # Renamed 2026-10-21 from DC_DIMMER_LEVEL_16_SPYDER (byte 4 was "level").
   #
   # This is a report directed at the load driver; injecting it to actuate a load has
   # not been tested. Use the standard DC_DIMMER_COMMAND_2 (1FEDB) for control.
-  name: DC_DIMMER_LEVEL_16_SPYDER
+  name: DC_DIMMER_LOAD_CURRENT_SPYDER
   parameters:
     - byte: 0
       name: reserved
@@ -3696,9 +3695,9 @@ API_VERSION: 0
       name: reserved
       type: uint8
     - byte: 4
-      name: level
+      name: load current
       type: uint8
-      # LOAD CURRENT (unit unknown), not a level -- see the note above. Scales with the
+      # unit unknown -- see the note above. Scales with the
       # delivered brightness; full-load value is per output (0x0f on output 32, 0x0a on
       # 24, 0x02 on 43, 0x00 on 26/38). 0xff on outputs 9-20 (no current sense).
     - byte: 5
