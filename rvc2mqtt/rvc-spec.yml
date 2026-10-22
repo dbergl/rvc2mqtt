@@ -3629,7 +3629,7 @@ API_VERSION: 0
         51: flash alternate
 
 16F00:
-  # Firefly/Spyder proprietary per-instance dimmer LEVEL report (PDU1, PF=0x6F, DP=1).
+  # Firefly/Spyder proprietary per-output LOAD CURRENT report (PDU1, PF=0x6F, DP=1).
   # Directed message: on the observed coach the G12 panel (source 0x9C, the node whose
   # NAME string reads "Spyder Control(s) G12 Panel 2v2 3v0d") sends it to destination
   # 0x84 (the load-driver module). NOTE: another coach's touchscreen may claim a
@@ -3639,22 +3639,32 @@ API_VERSION: 0
   # Full arbitration example: 0x196F849C  ff 20 ff ff 0f 7d 05 00
   #   priority 6, DP=1, PF=6F, PS(dest)=84, SA(src)=9C
   #
-  # It mirrors DC_DIMMER_STATUS_3 (1FEDA) for the same instance but at a coarser 0-15
-  # resolution, and it UPDATES FASTER -- it shows the fade ramp (00 -> 08 -> 0e -> 0f)
-  # that the 0-200 brightness in 1FEDA does not resolve. Unlike 1FEDA it is only emitted
-  # while the output is on.
+  # CORRECTED 2026-10-21: byte 4 is the output's measured LOAD CURRENT (unit unknown),
+  # not a 0-15 brightness level. With the same commanded brightness (1FEDA byte 2 = 200,
+  # output on) different outputs report different, stable values across the coach
+  # captures (firefly-firmware/captures/pc*.log):
+  #   output 24: 0x0a (567 frames, 5 captures)    output 43: 0x02 (358 frames, 3)
+  #   output 32: 0x0f (60, 3)    output 22: 0x0a/0x0b    output 23: 0x16    output 21: 0x07
+  #   output 26: 0x00 (62, 2)    output 38: 0x00 (78, 4)  -- on, drawing nothing measured
+  #   outputs 3/4 (awning motors): 0x37..0x79, varying while the level stays 200
+  # Outputs 9-20 (the G12's half-bridge outputs) send FF FF in bytes 4-5: no current
+  # sense. For a dimmable load the current follows the delivered brightness, so on
+  # output 32, whose full-load value happens to be 0x0f, floor(brightness * 15 / 200)
+  # holds: the 2026-08-30 sweep (captures/lyra-brightness-sweep.log, output 32 only)
+  # fits it at 24 of 25 levels (120 -> 8, not 9). That sweep exercising a single output
+  # is why the value was first read as a 0-15 level ("0x0f = full" is output 32's load).
   #
-  # level (byte 4) vs 1FEDA "operating status brightness" (byte 2, 0-200 where 200=full):
-  #   level = floor(brightness * 15 / 200)
-  # Confirmed by a commanded brightness sweep (capture 2026-08-30, via the Lyra
-  # touchscreen's USB CDC CAN gateway + can1 injection): 200->0x0f, 100->0x07, 50->0x03;
-  # round() and ceil() were both ruled out at multiple points (e.g. 104->7 not 8,
-  # 184->13 not 14). 0x0f appears only at full scale.
+  # It follows the ACTUAL output, which fades in over ~0.7 s, so it shows the fade that
+  # 1FEDA (which reports the commanded target at once) does not. Sent every 1 s while
+  # the output is on, plus a zero frame (byte 6 = 00) when the output switches on and
+  # when it is switched off by toggle (cmd 5) or memory-off (cmd 6); nothing while off.
+  # 1FEDA repeats every 2 s while on.
   #
-  # This is a LEVEL REPORT. It is directed at the load driver and leads the broadcast
-  # status, which is consistent with -- but does NOT prove -- it being the panel's
-  # internal drive command; injecting it to actuate a load has not been tested. Use the
-  # standard DC_DIMMER_COMMAND_2 (1FEDB) for control.
+  # The DGN name and the byte-4 field name below are kept for compatibility with MQTT
+  # consumers although they say "level".
+  #
+  # This is a report directed at the load driver; injecting it to actuate a load has
+  # not been tested. Use the standard DC_DIMMER_COMMAND_2 (1FEDB) for control.
   name: DC_DIMMER_LEVEL_16_SPYDER
   parameters:
     - byte: 0
@@ -3672,11 +3682,13 @@ API_VERSION: 0
     - byte: 4
       name: level
       type: uint8
-      # 0-15 scale; = floor(1FEDA brightness * 15 / 200). 0x0f = full, 0x00 = off.
+      # LOAD CURRENT (unit unknown), not a level -- see the note above. Scales with the
+      # delivered brightness; full-load value is per output (0x0f on output 32, 0x0a on
+      # 24, 0x02 on 43, 0x00 on 26/38). 0xff on outputs 9-20 (no current sense).
     - byte: 5
       name: reserved
       type: uint8
-      # constant 0x7D on the observed coach
+      # 0x7D on outputs with current sense; 0xFF on outputs 9-20
     - byte: 6
       name: output active
       type: uint8
