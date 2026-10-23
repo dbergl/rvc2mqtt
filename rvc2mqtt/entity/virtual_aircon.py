@@ -27,7 +27,7 @@ import threading
 import time
 from rvc2mqtt.mqtt import MQTT_Support
 from rvc2mqtt.entity import EntityPluginBaseClass
-from rvc2mqtt.rvc_encode import U16_NA, encode_temperature_u16, u16_le
+from rvc2mqtt.rvc_encode import U16_NA, encode_temperature_u16, decode_temperature_u16, u16_le
 
 
 # RV-C source address the virtual thermostat transmits from (spec thermostat
@@ -51,11 +51,15 @@ DEFAULT_STEP_CODES = {0xFFFC: +1, 0xFFFA: +1, 0xFFFB: -1, 0xFFF9: -1}
 
 # THERMOSTAT_STATUS_1 / COMMAND_1 operating mode codes (byte 1 bits 0-3).
 MODE_CODES = {"off": 0, "cool": 1, "auto": 3, "fan_only": 4, "dry": 6}
+CODE_MODES = {code: mode for mode, code in MODE_CODES.items()}
 # Fan speed n (1-5) <-> THERMOSTAT_STATUS_1 byte 2 in 0.5 % units; the panel
 # lights bar n when the byte is >= 40*n.
 FAN_STEP = 40
 # THERMOSTAT_STATUS_2 byte 3 / COMMAND_2 byte 2 bit position of each preset.
 PRESET_SHIFT = {"sleep": 0, "eco": 2, "turbo": 4}
+
+# Our own status DGNs: claim the echo at our instance, nothing else.
+OWN_STATUS_DGNS = ("1FFE2", "1FEFA", "1FF9C", "0FFA1")
 
 # HA publishes these when an entity is unavailable; ignore them quietly.
 _HA_PLACEHOLDERS = ("unavailable", "unknown", "none", "")
@@ -301,6 +305,113 @@ class VirtualAircon(EntityPluginBaseClass):
             return
         if self.state.report(field, value):
             self._dirty = True
+
+    # ---- RV-C in (panel commands) ---------------------------------------
+
+    def process_rvc_msg(self, new_message: dict) -> bool:
+        # Decode from the raw bytes: the setpoint step codes are not
+        # temperatures, and 0FFA0 isn't in rvc-spec.yml.
+        try:
+            data = bytes.fromhex(new_message.get("data") or "")
+        except ValueError:
+            return False
+        if not data or data[0] != self.rvc_instance:
+            return False
+        dgn = new_message.get("dgn")
+        handler = {"1FEF9": self._on_command_1,
+                   "1FEF8": self._on_command_2,
+                   "0FFA0": self._on_proprietary}.get(dgn)
+        if handler is not None:
+            self.Logger.debug(f"{self.name}: {dgn} {data.hex().upper()} from "
+                              f"source {new_message.get('source_id')}")
+            handler(data)
+            return True
+        if dgn in OWN_STATUS_DGNS:
+            self.Logger.debug(f"{self.name}: ignoring {dgn} echo for our instance from "
+                              f"source {new_message.get('source_id')}")
+            return True
+        return False
+
+    @staticmethod
+    def _byte(data: bytes, index: int):
+        """Byte at index, or None (no change) when the payload is short."""
+        return data[index] if len(data) > index else None
+
+    def _command(self, field: str, value):
+        """Make value effective now, publish it to HA and rebroadcast."""
+        self.state.command(field, value)
+        if isinstance(value, bool):
+            payload = "on" if value else "off"
+        else:
+            payload = str(value)
+        topic = self.set_topics[field]
+        self.Logger.info(f"{self.name}: {field} -> {payload} ({topic})")
+        self.mqtt_support.client.publish(topic, payload, retain=False)
+        self._dirty = True
+
+    def _clamp_setpoint(self, value: int) -> int:
+        return max(self.setpoint_min, min(self.setpoint_max, value))
+
+    def _on_command_1(self, data: bytes):
+        """THERMOSTAT_COMMAND_1: mode, fan mode/speed, cool setpoint."""
+        byte1 = self._byte(data, 1)
+        if byte1 is not None:
+            mode_code = byte1 & 0x0F
+            if mode_code in CODE_MODES:
+                self._command("mode", CODE_MODES[mode_code])
+            elif mode_code != 0x0F:
+                self.Logger.info(f"{self.name}: ignoring unsupported operating mode {mode_code}")
+            fan_mode = (byte1 >> 4) & 0b11
+            if fan_mode == 0b00:
+                self._command("fan", "auto")
+            elif fan_mode == 0b01:
+                speed = self._byte(data, 2)
+                if speed is not None and 1 <= speed <= 250:
+                    self._command("fan", max(1, min(5, _round_half_up(speed / FAN_STEP))))
+        if len(data) >= 7:
+            self._on_cool_setpoint(data[5] | data[6] << 8)
+
+    def _on_cool_setpoint(self, raw: int):
+        if raw == U16_NA:
+            return
+        if raw in self.step_codes:
+            step = self.step_codes[raw]
+            base = self.state.effective("setpoint", self.setpoint_default)
+            new = self._clamp_setpoint(base + step)
+            self.Logger.info(f"{self.name}: setpoint step code {raw:#06x} "
+                             f"({'up' if step > 0 else 'down'}): {base} -> {new}")
+            self._command("setpoint", new)
+            return
+        celsius = decode_temperature_u16(raw)
+        if celsius is None:
+            self.Logger.info(f"{self.name}: ignoring reserved cool setpoint {raw:#06x}")
+            return
+        value = celsius * 9 / 5 + 32 if self.temperature_unit == "F" else celsius
+        self._command("setpoint", self._clamp_setpoint(_round_half_up(value)))
+
+    def _on_command_2(self, data: bytes):
+        """THERMOSTAT_COMMAND_2 byte 2: the panel's independent Sleep/Eco/Turbo
+        toggles, folded onto the AC's single preset."""
+        byte2 = self._byte(data, 2)
+        if byte2 is None:
+            return
+        # Fixed order so a malformed frame with several "on"s ends deterministically.
+        for preset in ("turbo", "eco", "sleep"):
+            bits = (byte2 >> PRESET_SHIFT[preset]) & 0b11
+            if bits == 0b01:
+                self._command("preset", preset)
+            elif bits == 0b00 and self.state.effective("preset") == preset:
+                self._command("preset", "none")
+
+    def _on_proprietary(self, data: bytes):
+        """0FFA0 (ours): byte 1 bits 0-1 oscillate, bits 2-3 display."""
+        byte1 = self._byte(data, 1)
+        if byte1 is None:
+            return
+        for field, shift in (("oscillate", 0), ("display", 2)):
+            bits = (byte1 >> shift) & 0b11
+            if bits in (0b00, 0b01):
+                self._command(field, bits == 0b01)
 
     # ---- RV-C out -------------------------------------------------------
 

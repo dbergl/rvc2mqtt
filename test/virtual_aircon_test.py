@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import context  # add rvc2mqtt package to the python path using local reference
 from rvc2mqtt.rvc_encode import encode_temperature_u16
 from rvc2mqtt.entity.virtual_aircon import (
-    OptimisticState, VirtualAircon,
+    OptimisticState, VirtualAircon, COMMAND_FIELDS,
     parse_mode, parse_fan, parse_preset, parse_onoff, parse_number)
 
 
@@ -404,6 +404,173 @@ class Test_Tick(unittest.TestCase):
         e.tick(35.1)
         frames = {f['dgn']: f['data'] for f in _drain(e)}
         self.assertEqual(frames['1FFE2'][1] & 0x0F, 0)
+
+
+_DGN_NAMES = {'1FEF9': 'THERMOSTAT_COMMAND_1', '1FEF8': 'THERMOSTAT_COMMAND_2', '0FFA0': 'UNKNOWN-0FFA0',
+              '1FFE2': 'THERMOSTAT_STATUS_1', '1FFBD': 'DC_LOAD_STATUS'}
+
+
+def _rvc(entity, dgn, data, source_id='9F'):
+    msg = {'dgn': dgn, 'data': data, 'source_id': source_id, 'name': _DGN_NAMES.get(dgn, 'X'),
+           'instance': int(data[:2], 16) if data else None}
+    return entity.process_rvc_msg(msg)
+
+
+def _sets(entity, mock) -> list:
+    """[(field, payload)] published to set topics, in order."""
+    by_topic = {t: f for f, t in entity.set_topics.items()}
+    out = []
+    for topic, payload, retain in _published(mock):
+        if topic in by_topic:
+            assert retain is False, topic
+            out.append((by_topic[topic], payload))
+    return out
+
+
+class Test_PanelCommands(unittest.TestCase):
+
+    def test_power_cool_auto_dry_fan(self):
+        for data, want in (('07F1FFFFFFFFFFFF', [('mode', 'cool')]),
+                           ('07F0FFFFFFFFFFFF', [('mode', 'off')]),
+                           ('07C3FFFFFFFFFFFF', [('mode', 'auto'), ('fan', 'auto')]),
+                           ('07F6FFFFFFFFFFFF', [('mode', 'dry')]),
+                           ('07F4FFFFFFFFFFFF', [('mode', 'fan_only')])):
+            e, mock, _ = _make_entity()
+            self.assertTrue(_rvc(e, '1FEF9', data))
+            self.assertEqual(_sets(e, mock), want, data)
+            self.assertEqual(e.state.effective('mode'), want[0][1])
+
+    def test_fan_speeds(self):
+        e, mock, _ = _make_entity()
+        for byte2 in ('28', '50', '78', 'A0', 'C8'):
+            _rvc(e, '1FEF9', f'07DF{byte2}FFFFFFFFFF')
+        self.assertEqual(_sets(e, mock), [('fan', '1'), ('fan', '2'), ('fan', '3'), ('fan', '4'), ('fan', '5')])
+        self.assertEqual(e.state.effective('fan'), 5)
+
+    def test_setpoint_steps(self):
+        e, mock, _ = _make_entity()
+        _mqtt(e, 'setpoint', '24')
+        for code in ('FC', 'FB', 'FA', 'F9'):
+            _rvc(e, '1FEF9', f'07FFFFFFFF{code}FFFF')
+        self.assertEqual(_sets(e, mock), [('setpoint', '25'), ('setpoint', '24'),
+                                          ('setpoint', '25'), ('setpoint', '24')])
+
+    def test_held_arrow_no_snapback(self):
+        e, mock, _ = _make_entity()
+        _mqtt(e, 'setpoint', '24')
+        _rvc(e, '1FEF9', '07FFFFFFFFFCFFFF')
+        _mqtt(e, 'setpoint', '24')  # stale report arrives mid-hold
+        _rvc(e, '1FEF9', '07FFFFFFFFFCFFFF')
+        _rvc(e, '1FEF9', '07FFFFFFFFFCFFFF')
+        self.assertEqual(_sets(e, mock), [('setpoint', '25'), ('setpoint', '26'), ('setpoint', '27')])
+        self.assertEqual(e.state.effective('setpoint'), 27)
+
+    def test_step_clamps(self):
+        e, mock, _ = _make_entity()
+        _mqtt(e, 'setpoint', '30')
+        _rvc(e, '1FEF9', '07FFFFFFFFFCFFFF')
+        _mqtt(e, 'setpoint', '17')
+        e.state.expire()
+        e2, mock2, _ = _make_entity()
+        _mqtt(e2, 'setpoint', '17')
+        _rvc(e2, '1FEF9', '07FFFFFFFFFBFFFF')
+        self.assertEqual(_sets(e, mock), [('setpoint', '30')])
+        self.assertEqual(_sets(e2, mock2), [('setpoint', '17')])
+
+    def test_step_from_default_when_unknown(self):
+        e, mock, _ = _make_entity()
+        _rvc(e, '1FEF9', '07FFFFFFFFFCFFFF')
+        self.assertEqual(_sets(e, mock), [('setpoint', '25')])
+
+    def test_step_logged_at_info(self):
+        e, _, _ = _make_entity()
+        with self.assertLogs(level='INFO') as logs:
+            _rvc(e, '1FEF9', '07FFFFFFFFFCFFFF')
+        self.assertTrue(any('0xfffc' in r.getMessage().lower() for r in logs.records))
+
+    def test_absolute_setpoint(self):
+        e, mock, _ = _make_entity()
+        _rvc(e, '1FEF9', '07FFFFFFFF2025FF')
+        self.assertEqual(_sets(e, mock), [('setpoint', '24')])
+        e, mock, _ = _make_entity({'temperature_unit': 'F'})
+        _rvc(e, '1FEF9', '07FFFFFFFF2025FF')
+        self.assertEqual(_sets(e, mock), [('setpoint', '75')])
+
+    def test_presets(self):
+        e, mock, _ = _make_entity()
+        _rvc(e, '1FEF8', '07FFDFFFFFFFFFFF')   # turbo on
+        _rvc(e, '1FEF8', '07FFCFFFFFFFFFFF')   # turbo off
+        _rvc(e, '1FEF8', '07FFF7FFFFFFFFFF')   # eco on
+        _rvc(e, '1FEF8', '07FFCFFFFFFFFFFF')   # turbo off while eco: nothing
+        _rvc(e, '1FEF8', '07FFFDFFFFFFFFFF')   # sleep on
+        _rvc(e, '1FEF8', '07FFFCFFFFFFFFFF')   # sleep off
+        self.assertEqual(_sets(e, mock), [('preset', 'turbo'), ('preset', 'none'), ('preset', 'eco'),
+                                          ('preset', 'sleep'), ('preset', 'none')])
+
+    def test_preset_exclusive_in_status(self):
+        e, _, _ = _make_entity()
+        _mqtt(e, 'preset', 'eco')
+        _rvc(e, '1FEF8', '07FFDFFFFFFFFFFF')
+        self.assertEqual(bytes.fromhex(_frames(e)['1FEFA'])[3], 0xD0)
+
+    def test_oscillate_display(self):
+        e, mock, _ = _make_entity()
+        for data in ('07FDFFFFFFFFFFFF', '07FCFFFFFFFFFFFF', '07F7FFFFFFFFFFFF', '07F3FFFFFFFFFFFF'):
+            self.assertTrue(_rvc(e, '0FFA0', data))
+        self.assertEqual(_sets(e, mock), [('oscillate', 'on'), ('oscillate', 'off'),
+                                          ('display', 'on'), ('display', 'off')])
+
+    def test_toggle_immediate_echo(self):
+        e, _, clock = _make_entity(now=0.0)
+        e.tick(0.0)
+        _drain(e)
+        clock['now'] = 0.1
+        _rvc(e, '1FEF8', '07FFDFFFFFFFFFFF')
+        e.tick(0.1)
+        frames = {f['dgn']: f['data'] for f in _drain(e)}
+        self.assertEqual((frames['1FEFA'][3] >> 4) & 0b11, 0b01)
+
+    def test_ignores_instance_0(self):
+        e, mock, _ = _make_entity()
+        self.assertFalse(_rvc(e, '1FEF9', '000000FFFFFFFFFF'))
+        self.assertEqual(_sets(e, mock), [])
+
+    def test_claims_own_echo_only(self):
+        e, mock, _ = _make_entity()
+        self.assertTrue(_rvc(e, '1FFE2', '070000FFFFFFFFFF', source_id='58'))
+        self.assertFalse(_rvc(e, '1FFE2', '000000FFFFFFFFFF', source_id='58'))
+        self.assertTrue(_rvc(e, '1FEF9', '07F1FFFFFFFFFFFF', source_id='44'))
+        self.assertFalse(_rvc(e, '1FFBD', '07FFFFFFFFFFFFFF'))
+
+    def test_short_and_reserved_payloads(self):
+        e, mock, _ = _make_entity()
+        self.assertTrue(_rvc(e, '1FEF9', '07F1'))
+        self.assertEqual(_sets(e, mock), [('mode', 'cool')])
+        e, mock, _ = _make_entity()
+        self.assertTrue(_rvc(e, '1FEF9', '07FFFFFFFF10FEFF'))
+        self.assertTrue(_rvc(e, '1FEF8', '07'))
+        self.assertTrue(_rvc(e, '0FFA0', '07'))
+        self.assertEqual(_sets(e, mock), [])
+        self.assertFalse(_rvc(e, '1FEF9', ''))  # no instance byte at all
+
+    def test_all_no_change_publishes_nothing(self):
+        e, mock, _ = _make_entity()
+        e._dirty = False
+        for dgn in ('1FEF9', '1FEF8', '0FFA0'):
+            self.assertTrue(_rvc(e, dgn, '07FFFFFFFFFFFFFF'))
+        self.assertEqual(_sets(e, mock), [])
+        self.assertFalse(e._dirty)
+        for field in COMMAND_FIELDS:
+            self.assertFalse(e.state.is_pending(field))
+
+    def test_unconfirmed_command_reverts(self):
+        e, _, clock = _make_entity(now=0.0)
+        _rvc(e, '1FEF8', '07FFDFFFFFFFFFFF')
+        self.assertEqual(bytes.fromhex(_frames(e)['1FEFA'])[3], 0xD0)
+        clock['now'] = 36
+        e.tick(36)
+        frames = {f['dgn']: f['data'] for f in _drain(e)}
+        self.assertEqual(frames['1FEFA'][3], 0xC0)
 
 
 if __name__ == "__main__":
