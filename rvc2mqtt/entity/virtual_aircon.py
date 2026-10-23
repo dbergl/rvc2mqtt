@@ -162,6 +162,10 @@ class OptimisticState:
 
     def command(self, field: str, value) -> None:
         with self._lock:
+            if field not in self._pending and self._reported.get(field) == value:
+                # Already the AC's state: HA (publishing on change) will never
+                # confirm it, and a pending entry would hide real reports.
+                return
             self._pending[field] = (value, self._clock() + self.timeout)
 
     def effective(self, field: str, default=None):
@@ -393,6 +397,12 @@ class VirtualAircon(EntityPluginBaseClass):
             step = self.step_codes[raw]
             base = self.state.effective("setpoint", self.setpoint_default)
             new = self._clamp_setpoint(base + step)
+            if (new - base) * step <= 0:
+                # At the limit (a held arrow repeats), or the reported value is
+                # outside the configured range: never publish a no-op or a
+                # move the wrong way.
+                self.Logger.info(f"{self.name}: setpoint step code {raw:#06x} at limit ({base})")
+                return
             self.Logger.info(f"{self.name}: setpoint step code {raw:#06x} "
                              f"({'up' if step > 0 else 'down'}): {base} -> {new}")
             self._command("setpoint", new)

@@ -67,7 +67,7 @@ after each command.
 ## Panel behaviour worth knowing
 
 - **Setpoint arrows:** rvc2mqtt does the arithmetic. Each press, and each repeat while the
-  button is held, moves the setpoint one whole degree. It is clamped to
+  button is held, moves the setpoint one whole degree. At the limit, nothing is published. It is clamped to
   `setpoint_min`–`setpoint_max` and published as an integer on `set/setpoint`. Before any
   setpoint has been reported, stepping starts from `setpoint_default`.
   **Which arrow code means up is not yet confirmed.** Each press is logged as
@@ -121,12 +121,14 @@ These are a starting point only; nobody has run them yet. Replace `climate.velit
 your entity id.
 
 ```yaml
-# Commands: rvc2mqtt -> AC
+# Commands: rvc2mqtt -> AC (everything except the setpoint)
 - alias: "aircon: rvc2mqtt set -> climate"
   mode: queued
+  max: 20
   trigger:
     - platform: mqtt
       topic: rvc2mqtt/aircon/set/+
+  condition: "{{ trigger.topic.split('/')[-1] != 'setpoint' }}"
   action:
     - variables:
         field: "{{ trigger.topic.split('/')[-1] }}"
@@ -137,11 +139,6 @@ your entity id.
             - service: climate.set_hvac_mode
               target: {entity_id: climate.velit_ac}
               data: {hvac_mode: "{{ value }}"}
-        - conditions: "{{ field == 'setpoint' }}"
-          sequence:
-            - service: climate.set_temperature
-              target: {entity_id: climate.velit_ac}
-              data: {temperature: "{{ value | int }}"}
         - conditions: "{{ field == 'fan' and value != 'auto' }}"
           sequence:
             - service: climate.set_fan_mode
@@ -155,37 +152,52 @@ your entity id.
                 preset_mode: >-
                   {{ {'none': 'Cooling', 'eco': 'Eco', 'sleep': 'Sleep', 'turbo': 'Turbo'}[value] }}
 
-# State: AC -> rvc2mqtt
+# Setpoint: debounced, because a held arrow publishes one value per repeat.
+# mode: restart + delay sends only the last value once the arrow is released.
+- alias: "aircon: rvc2mqtt setpoint -> climate"
+  mode: restart
+  trigger:
+    - platform: mqtt
+      topic: rvc2mqtt/aircon/set/setpoint
+  action:
+    - delay: {milliseconds: 700}
+    - service: climate.set_temperature
+      target: {entity_id: climate.velit_ac}
+      data: {temperature: "{{ trigger.payload | int }}"}
+
+# State: AC -> rvc2mqtt.  Read attributes with state_attr() directly (a dict held
+# in a script variable doesn't survive HA's template rendering).  Skip while the
+# AC is unavailable, so good retained values aren't overwritten with junk.
 - alias: "aircon: climate -> rvc2mqtt state"
   mode: queued
   trigger:
     - platform: state
-      entity_id: climate.velit_ac
-    - platform: state
-      entity_id: climate.velit_ac
-      attribute: temperature
+      entity_id: climate.velit_ac        # also fires on attribute changes
     - platform: homeassistant
       event: start
+  condition: "{{ states('climate.velit_ac') not in ['unavailable', 'unknown'] }}"
   action:
-    - variables:
-        s: "{{ states('climate.velit_ac') }}"
-        a: "{{ states.climate.velit_ac.attributes }}"
     - service: mqtt.publish
-      data: {topic: rvc2mqtt/aircon/state/mode, retain: true, payload: "{{ s }}"}
+      data: {topic: rvc2mqtt/aircon/state/mode, retain: true,
+             payload: "{{ states('climate.velit_ac') }}"}
     - service: mqtt.publish
-      data: {topic: rvc2mqtt/aircon/state/setpoint, retain: true, payload: "{{ a.temperature }}"}
+      data: {topic: rvc2mqtt/aircon/state/setpoint, retain: true,
+             payload: "{{ state_attr('climate.velit_ac', 'temperature') }}"}
     - service: mqtt.publish
-      data: {topic: rvc2mqtt/aircon/state/temperature, retain: true, payload: "{{ a.current_temperature }}"}
+      data: {topic: rvc2mqtt/aircon/state/temperature, retain: true,
+             payload: "{{ state_attr('climate.velit_ac', 'current_temperature') }}"}
     - service: mqtt.publish
-      data: {topic: rvc2mqtt/aircon/state/fan, retain: true, payload: "{{ a.fan_mode }}"}
+      data: {topic: rvc2mqtt/aircon/state/fan, retain: true,
+             payload: "{{ state_attr('climate.velit_ac', 'fan_mode') }}"}
     - service: mqtt.publish
-      data: {topic: rvc2mqtt/aircon/state/preset, retain: true, payload: "{{ a.preset_mode or 'Cooling' }}"}
+      data: {topic: rvc2mqtt/aircon/state/preset, retain: true,
+             payload: "{{ state_attr('climate.velit_ac', 'preset_mode') or 'Cooling' }}"}
 ```
 
-A `state` trigger with no `attribute` fires on attribute changes too. The extra `temperature`
-trigger is only there for clarity. If HA reports `unavailable`, rvc2mqtt ignores it and keeps
-the last value. To have the panel show Off while the AC is unreachable, publish
-`online`/`offline` to an `availability_topic`.
+`climate.velit_ac` reports `preset_mode` only in cool mode (velit returns None otherwise),
+so the `or 'Cooling'` maps that to `none`. To make the panel show Off while the AC is
+unreachable, publish `online`/`offline` to an `availability_topic`. The state automation's
+condition deliberately leaves the last good state in place.
 
 ## Bench testing
 

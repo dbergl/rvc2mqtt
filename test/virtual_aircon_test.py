@@ -74,6 +74,24 @@ class Test_OptimisticState(unittest.TestCase):
         self.assertEqual(s.expire(), [])
         self.assertTrue(s.is_pending('setpoint'))
 
+    def test_redundant_command_not_pending(self):
+        """A command equal to the reported value gets no confirming report (HA
+        publishes on change only), so it must not hold off later real reports."""
+        s, _ = _make_state()
+        s.report('mode', 'cool')
+        s.command('mode', 'cool')
+        self.assertFalse(s.is_pending('mode'))
+        s.report('mode', 'off')
+        self.assertEqual(s.effective('mode'), 'off')
+
+    def test_command_back_to_reported_while_pending_stays_pending(self):
+        s, _ = _make_state()
+        s.report('setpoint', 24)
+        s.command('setpoint', 25)
+        s.command('setpoint', 24)
+        self.assertTrue(s.is_pending('setpoint'))
+        self.assertEqual(s.effective('setpoint'), 24)
+
     def test_unrelated_field_report_applies(self):
         s, _ = _make_state()
         s.command('mode', 'cool')
@@ -480,17 +498,47 @@ class Test_PanelCommands(unittest.TestCase):
         self.assertEqual(_sets(e, mock), [('setpoint', '25'), ('setpoint', '26'), ('setpoint', '27')])
         self.assertEqual(e.state.effective('setpoint'), 27)
 
-    def test_step_clamps(self):
+    def test_step_at_clamp_publishes_nothing(self):
+        """A held arrow at the limit must not flood HA (and the BT link) with
+        repeats of the same setpoint."""
         e, mock, _ = _make_entity()
         _mqtt(e, 'setpoint', '30')
-        _rvc(e, '1FEF9', '07FFFFFFFFFCFFFF')
-        _mqtt(e, 'setpoint', '17')
-        e.state.expire()
+        for _ in range(5):
+            _rvc(e, '1FEF9', '07FFFFFFFFFCFFFF')
         e2, mock2, _ = _make_entity()
         _mqtt(e2, 'setpoint', '17')
         _rvc(e2, '1FEF9', '07FFFFFFFFFBFFFF')
-        self.assertEqual(_sets(e, mock), [('setpoint', '30')])
-        self.assertEqual(_sets(e2, mock2), [('setpoint', '17')])
+        self.assertEqual(_sets(e, mock), [])
+        self.assertEqual(_sets(e2, mock2), [])
+        self.assertEqual(e.state.effective('setpoint'), 30)
+
+    def test_step_clamps_to_limit(self):
+        e, mock, _ = _make_entity({'setpoint_max': 25})
+        _mqtt(e, 'setpoint', '24')
+        for _ in range(3):
+            _rvc(e, '1FEF9', '07FFFFFFFFFCFFFF')
+        self.assertEqual(_sets(e, mock), [('setpoint', '25')])
+
+    def test_step_never_moves_wrong_way(self):
+        """Reported value outside the configured range: down must not raise it."""
+        e, mock, _ = _make_entity()
+        _mqtt(e, 'setpoint', '16')
+        _rvc(e, '1FEF9', '07FFFFFFFFFBFFFF')
+        e2, mock2, _ = _make_entity()
+        _mqtt(e2, 'setpoint', '31')
+        _rvc(e2, '1FEF9', '07FFFFFFFFFCFFFF')
+        self.assertEqual(_sets(e, mock), [])
+        self.assertEqual(_sets(e2, mock2), [])
+
+    def test_redundant_power_then_remote_off(self):
+        """Pressing Cool while already Cool, then turning the AC off from its
+        remote, must show Off at once (else the Power toggle sends the wrong command)."""
+        e, mock, _ = _make_entity()
+        _mqtt(e, 'mode', 'cool')
+        _rvc(e, '1FEF9', '07F1FFFFFFFFFFFF')
+        self.assertEqual(_sets(e, mock), [('mode', 'cool')])  # still forwarded to HA
+        _mqtt(e, 'mode', 'off')
+        self.assertEqual(bytes.fromhex(_frames(e)['1FFE2'])[1] & 0x0F, 0)
 
     def test_step_from_default_when_unknown(self):
         e, mock, _ = _make_entity()
