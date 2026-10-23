@@ -6,6 +6,7 @@ import queue
 import unittest
 from unittest.mock import MagicMock
 import context  # add rvc2mqtt package to the python path using local reference
+from rvc2mqtt.rvc_encode import encode_temperature_u16
 from rvc2mqtt.entity.virtual_aircon import (
     OptimisticState, VirtualAircon,
     parse_mode, parse_fan, parse_preset, parse_onoff, parse_number)
@@ -283,6 +284,126 @@ class Test_StateIngest(unittest.TestCase):
         e, _, _ = _make_entity()
         e.process_mqtt_msg('some/other/topic', 'x')
         e.process_mqtt_msg(e.state_topics['mode'], None)
+
+
+def _frames(entity) -> dict:
+    """dgn -> data hex (upper) from build_frames()."""
+    return {f['dgn']: f['data'].hex().upper() for f in entity.build_frames()}
+
+
+def _drain(entity) -> list:
+    out = []
+    while not entity.send_queue.empty():
+        out.append(entity.send_queue.get_nowait())
+    return out
+
+
+class Test_StatusFrames(unittest.TestCase):
+
+    def test_frames_before_any_report(self):
+        e, _, _ = _make_entity()
+        frames = e.build_frames()
+        self.assertEqual([f['dgn'] for f in frames], ['1FFE2', '1FEFA', '1FF9C', '0FFA1'])
+        self.assertTrue(all(f['source_id'] == '58' for f in frames))
+        self.assertTrue(all(len(f['data']) == 8 for f in frames))
+        self.assertEqual([f['data'].hex().upper() for f in frames],
+                         ['070000FFFFFFFFFF', '07FFFFC0FFFFFFFF', '07FFFFFFFFFFFFFF', '07F0FFFFFFFFFFFF'])
+
+    def test_frames_cool_fan3_24c(self):
+        e, _, _ = _make_entity()
+        for field, payload in (('mode', 'cool'), ('fan', '3'), ('setpoint', '24'), ('temperature', '22.5')):
+            _mqtt(e, field, payload)
+        f = _frames(e)
+        self.assertEqual(f['1FFE2'], '071178FFFF2025FF')
+        self.assertEqual(f['1FF9C'], '07F024FFFFFFFFFF')
+
+    def test_instance_in_byte0(self):
+        e, _, _ = _make_entity({'instance': 3})
+        self.assertTrue(all(h.startswith('03') for h in _frames(e).values()))
+
+    def test_fan_thresholds(self):
+        e, _, _ = _make_entity()
+        for speed, byte2 in ((1, 0x28), (2, 0x50), (3, 0x78), (4, 0xA0), (5, 0xC8)):
+            _mqtt(e, 'fan', str(speed))
+            data = bytes.fromhex(_frames(e)['1FFE2'])
+            self.assertEqual(data[2], byte2)
+            self.assertEqual((data[1] >> 4) & 0b11, 0b01)
+        _mqtt(e, 'fan', 'auto')
+        data = bytes.fromhex(_frames(e)['1FFE2'])
+        self.assertEqual(data[2], 0)
+        self.assertEqual((data[1] >> 4) & 0b11, 0b00)
+
+    def test_mode_codes(self):
+        e, _, _ = _make_entity()
+        for mode, code in (('off', 0), ('cool', 1), ('auto', 3), ('fan_only', 4), ('dry', 6)):
+            _mqtt(e, 'mode', mode)
+            self.assertEqual(bytes.fromhex(_frames(e)['1FFE2'])[1] & 0x0F, code, mode)
+
+    def test_preset_bits(self):
+        e, _, _ = _make_entity()
+        for preset, byte3 in (('none', 0xC0), ('sleep', 0xC1), ('eco', 0xC4), ('turbo', 0xD0)):
+            _mqtt(e, 'preset', preset)
+            self.assertEqual(bytes.fromhex(_frames(e)['1FEFA'])[3], byte3, preset)
+
+    def test_osc_display_bits(self):
+        e, _, _ = _make_entity()
+        _mqtt(e, 'oscillate', 'on')
+        _mqtt(e, 'display', 'off')
+        self.assertEqual(_frames(e)['0FFA1'], '07F1FFFFFFFFFFFF')
+        _mqtt(e, 'display', 'on')
+        self.assertEqual(_frames(e)['0FFA1'], '07F5FFFFFFFFFFFF')
+
+    def test_fahrenheit_encoding(self):
+        e, _, _ = _make_entity({'temperature_unit': 'F'})
+        _mqtt(e, 'setpoint', '75')
+        _mqtt(e, 'temperature', '72.5')
+        raw = encode_temperature_u16((75 - 32) * 5 / 9)
+        data = bytes.fromhex(_frames(e)['1FFE2'])
+        self.assertEqual(data[5] | data[6] << 8, raw)
+        data = bytes.fromhex(_frames(e)['1FF9C'])
+        self.assertEqual(data[1] | data[2] << 8, encode_temperature_u16((72.5 - 32) * 5 / 9))
+
+    def test_offline_reports_mode_off(self):
+        e, _, _ = _make_entity({'availability_topic': 'velit/ac/availability'})
+        _mqtt(e, 'mode', 'cool')
+        _mqtt(e, 'fan', '2')
+        e.process_mqtt_msg('velit/ac/availability', 'offline')
+        data = bytes.fromhex(_frames(e)['1FFE2'])
+        self.assertEqual(data[1] & 0x0F, 0)
+        self.assertEqual(data[2], 0x50)  # rest unchanged
+
+
+class Test_Tick(unittest.TestCase):
+
+    def test_tick_cadence(self):
+        e, _, clock = _make_entity(now=0.0)
+        e.initialize()
+        e.tick(0.0)
+        self.assertEqual(len(_drain(e)), 4)
+        e.tick(0.5)
+        self.assertEqual(len(_drain(e)), 0)
+        e.tick(1.0)
+        self.assertEqual(len(_drain(e)), 4)
+        clock['now'] = 1.2
+        _mqtt(e, 'mode', 'cool')
+        e.tick(1.2)
+        self.assertEqual(len(_drain(e)), 4)
+        e.tick(1.3)
+        self.assertEqual(len(_drain(e)), 0)
+
+    def test_tick_expiry_rebroadcasts(self):
+        e, _, clock = _make_entity(now=0.0)
+        _mqtt(e, 'mode', 'off')
+        e.state.command('mode', 'cool')
+        e.tick(0.0)
+        frames = {f['dgn']: f['data'] for f in _drain(e)}
+        self.assertEqual(frames['1FFE2'][1] & 0x0F, 1)
+        e.tick(0.5)
+        self.assertEqual(_drain(e), [])
+        clock['now'] = 35.1
+        e.tick(35.1)
+        frames = {f['dgn']: f['data'] for f in _drain(e)}
+        self.assertEqual(frames['1FFE2'][1] & 0x0F, 0)
 
 
 if __name__ == "__main__":

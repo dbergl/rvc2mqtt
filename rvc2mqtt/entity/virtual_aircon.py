@@ -27,6 +27,7 @@ import threading
 import time
 from rvc2mqtt.mqtt import MQTT_Support
 from rvc2mqtt.entity import EntityPluginBaseClass
+from rvc2mqtt.rvc_encode import U16_NA, encode_temperature_u16, u16_le
 
 
 # RV-C source address the virtual thermostat transmits from (spec thermostat
@@ -47,6 +48,14 @@ SETPOINT_DEFAULTS = {"C": (17, 30, 24), "F": (62, 86, 75)}
 # -> +1/-1 whole degree.  Which code is up/down is NOT confirmed (see the
 # panel interface spec); override per floorplan with step_codes.
 DEFAULT_STEP_CODES = {0xFFFC: +1, 0xFFFA: +1, 0xFFFB: -1, 0xFFF9: -1}
+
+# THERMOSTAT_STATUS_1 / COMMAND_1 operating mode codes (byte 1 bits 0-3).
+MODE_CODES = {"off": 0, "cool": 1, "auto": 3, "fan_only": 4, "dry": 6}
+# Fan speed n (1-5) <-> THERMOSTAT_STATUS_1 byte 2 in 0.5 % units; the panel
+# lights bar n when the byte is >= 40*n.
+FAN_STEP = 40
+# THERMOSTAT_STATUS_2 byte 3 / COMMAND_2 byte 2 bit position of each preset.
+PRESET_SHIFT = {"sleep": 0, "eco": 2, "turbo": 4}
 
 # HA publishes these when an entity is unavailable; ignore them quietly.
 _HA_PLACEHOLDERS = ("unavailable", "unknown", "none", "")
@@ -292,3 +301,72 @@ class VirtualAircon(EntityPluginBaseClass):
             return
         if self.state.report(field, value):
             self._dirty = True
+
+    # ---- RV-C out -------------------------------------------------------
+
+    def _to_celsius(self, value):
+        if value is None:
+            return None
+        if self.temperature_unit == "F":
+            return (value - 32) * 5 / 9
+        return value
+
+    def _frame(self, dgn: str, body: bytes) -> dict:
+        return {"dgn": dgn, "data": bytes([self.rvc_instance & 0xFF]) + body,
+                "source_id": self.source_id}
+
+    def _status_1_frame(self) -> dict:
+        """THERMOSTAT_STATUS_1: mode, fan mode, fan speed, cool setpoint."""
+        mode = self.state.effective("mode", "off") if self.available else "off"
+        fan = self.state.effective("fan")
+        manual_fan = isinstance(fan, int)
+        byte1 = (MODE_CODES[mode]
+                 | ((0b01 if manual_fan else 0b00) << 4)   # fan mode: on / auto
+                 | (0b00 << 6))                            # schedule mode: disabled
+        byte2 = fan * FAN_STEP if manual_fan else 0
+        setpoint = encode_temperature_u16(self._to_celsius(self.state.effective("setpoint")))
+        return self._frame("1FFE2", bytes([byte1, byte2]) + u16_le(U16_NA)   # heat setpoint: n/a
+                           + u16_le(setpoint) + b"\xff")
+
+    def _status_2_frame(self) -> dict:
+        """THERMOSTAT_STATUS_2: byte 3 holds the (single) Sleep/Eco/Turbo preset."""
+        byte3 = 0xC0
+        preset = self.state.effective("preset")
+        if preset in PRESET_SHIFT:
+            byte3 |= 0b01 << PRESET_SHIFT[preset]
+        return self._frame("1FEFA", bytes([0xFF, 0xFF, byte3]) + b"\xff" * 4)
+
+    def _ambient_frame(self) -> dict:
+        temp = encode_temperature_u16(self._to_celsius(self.state.effective("temperature")))
+        return self._frame("1FF9C", u16_le(temp) + b"\xff" * 5)
+
+    def _proprietary_status_frame(self) -> dict:
+        """0FFA1 (ours, mirrored in the panel firmware): byte 1 bits 0-1
+        oscillate, bits 2-3 display.  Unknown reads as off so the panel's
+        toggle sends "on"."""
+        byte1 = (0xF0
+                 | (0b01 if self.state.effective("oscillate") else 0b00)
+                 | ((0b01 if self.state.effective("display") else 0b00) << 2))
+        return self._frame("0FFA1", bytes([byte1]) + b"\xff" * 6)
+
+    def build_frames(self) -> list:
+        """The full status set the panel reads."""
+        return [self._status_1_frame(),
+                self._status_2_frame(),
+                self._ambient_frame(),
+                self._proprietary_status_frame()]
+
+    # ---- lifecycle ------------------------------------------------------
+
+    def initialize(self):
+        self._dirty = True
+
+    def tick(self, now: float):
+        if self.state.expire():
+            self._dirty = True
+        if not self._dirty and now < self.next_tx:
+            return
+        self._dirty = False
+        self.next_tx = now + self.interval
+        for frame in self.build_frames():
+            self.send_queue.put(frame)
