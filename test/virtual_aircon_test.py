@@ -616,6 +616,16 @@ class Test_PanelCommands(unittest.TestCase):
         self.assertEqual(_sets(e, mock), [])
         self.assertFalse(_rvc(e, '1FEF9', ''))  # no instance byte at all
 
+    def test_non_string_data_ignored(self):
+        """DATA_PACKET (0EBFF) decodes with its own 'data' field as an int
+        (seen on the bench); it must be declined, not raise."""
+        e, mock, _ = _make_entity()
+        msg = {'arbitration_id': '0x18ebff9c', 'data': 9132979057684563, 'dgn': '0EBFF',
+               'source_id': '9C', 'name': 'DATA_PACKET', 'packet_number': 1}
+        self.assertFalse(e.process_rvc_msg(msg))
+        self.assertFalse(e.process_rvc_msg({'dgn': '1FEF9', 'source_id': '9F'}))  # no data at all
+        self.assertEqual(_sets(e, mock), [])
+
     def test_all_no_change_publishes_nothing(self):
         e, mock, _ = _make_entity()
         e._dirty = False

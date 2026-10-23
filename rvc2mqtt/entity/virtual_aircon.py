@@ -333,9 +333,14 @@ class VirtualAircon(EntityPluginBaseClass):
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         # Decode from the raw bytes: the setpoint step codes are not
-        # temperatures, and 0FFA0 isn't in rvc-spec.yml.
+        # temperatures, and 0FFA0 isn't in rvc-spec.yml.  Some DGNs (e.g.
+        # DATA_PACKET) have a decoded parameter named "data" that replaces the
+        # raw hex string, so anything but a str isn't ours.
+        raw = new_message.get("data")
+        if not isinstance(raw, str):
+            return False
         try:
-            data = bytes.fromhex(new_message.get("data") or "")
+            data = bytes.fromhex(raw)
         except ValueError:
             return False
         if not data or data[0] != self.rvc_instance:
