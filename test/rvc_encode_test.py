@@ -3,6 +3,7 @@ import context  # add rvc2mqtt package to the python path using local reference
 from rvc2mqtt.rvc import RVC_Decoder
 from rvc2mqtt.rvc_encode import (
     U16_NA, encode_voltage_u16, encode_current_u16, encode_frequency_u16, u16_le,
+    encode_temperature_u16, decode_temperature_u16,
 )
 
 
@@ -45,6 +46,21 @@ class Test_Encoders(unittest.TestCase):
     def test_u16_le(self):
         self.assertEqual(u16_le(0x0410), b"\x10\x04")
         self.assertEqual(u16_le(U16_NA), b"\xff\xff")
+
+    def test_temperature_known_values(self):
+        self.assertEqual(encode_temperature_u16(24), 0x2520)
+        self.assertEqual(encode_temperature_u16(22.5), 0x24F0)
+        self.assertEqual(encode_temperature_u16(None), U16_NA)
+
+    def test_temperature_round_trips(self):
+        for c in (-10.0, 0.0, 17.0, 24.0, 30.0):
+            raw = encode_temperature_u16(c)
+            self.assertEqual(self.dec._convert_unit(raw, "deg c", "uint16"), c)
+
+    def test_decode_temperature(self):
+        self.assertEqual(decode_temperature_u16(0x2520), 24.0)
+        self.assertIsNone(decode_temperature_u16(0xFFFF))
+        self.assertIsNone(decode_temperature_u16(0xFFFC))
 
 
 if __name__ == "__main__":
