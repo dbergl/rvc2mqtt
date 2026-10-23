@@ -1,0 +1,202 @@
+# Virtual air conditioner — MQTT contract
+
+`rvc2mqtt/entity/virtual_aircon.py` makes an air conditioner that Home Assistant controls
+(over Bluetooth, via [velit-hass](https://github.com/JohnFreeborg/velit-hass)) appear on
+the RV-C bus as **thermostat instance 7**, the instance the Firefly panel's Climate page
+uses.
+
+```
+Firefly panel ──1FEF9/1FEF8/0FFA0──▶ virtual_aircon ──set topics──▶ your HA automation ──BT──▶ AC
+Firefly panel ◀──1FFE2/1FEFA/1FF9C/0FFA1── virtual_aircon ◀──state topics── your HA automation ◀──BT── AC
+```
+
+rvc2mqtt is **plumbing only**. It creates no Home Assistant entities (no discovery), because
+the AC already has its own climate entity. Your HA automations do the rest:
+
+1. **State:** publish the AC's real state to the *state* topics, retained, whenever it changes.
+2. **Commands:** turn messages on the *set* topics into calls on the AC's climate entity.
+
+Design background: `docs/superpowers/specs/2026-10-22-virtual-aircon-design.md`.
+
+## Topics
+
+All topics hang off `topic_base`, which defaults to `rvc2mqtt/aircon`.
+
+| Field | State topic (HA → rvc2mqtt, **retained**) | Set topic (rvc2mqtt → HA, not retained) | Payloads | Upstream velit-hass |
+|---|---|---|---|---|
+| mode | `state/mode` | `set/mode` | `off` `cool` `auto` `dry` `fan_only` | `off` `cool` `fan_only` only; **no `auto`, no `dry`** |
+| fan | `state/fan` | `set/fan` | `1`–`5`, `auto` | `1`–`5` only; **no `auto`** |
+| setpoint | `state/setpoint` | `set/setpoint` | integer, in `temperature_unit` | whole °C, 17–30 |
+| room temperature | `state/temperature` | — | number, in `temperature_unit` | yes (`current_temperature`) |
+| preset | `state/preset` | `set/preset` | `none` `eco` `sleep` `turbo` | yes, as `Cooling` `Eco` `Sleep` `Turbo` |
+| oscillate | `state/oscillate` | `set/oscillate` | `on` `off` | **not supported** |
+| display | `state/display` | `set/display` | `on` `off` | **not supported** |
+| availability (optional) | `availability_topic` | — | `online` `offline` | the integration's availability |
+
+**What rvc2mqtt accepts on the state topics:**
+- Mode: also `fan` (→ `fan_only`) and `heat_cool` (→ `auto`).
+- Preset: velit's `Cooling`/`Eco`/`Sleep`/`Turbo`, plus `boost` and `energy_saving`.
+- On/off: `on/off/1/0/true/false`.
+- Numbers formatted like `24.0` (the setpoint is rounded to an integer).
+- Everything case-insensitive.
+- HA's `unavailable`/`unknown` are ignored quietly, and the last value is kept. Other junk
+  logs one warning per field.
+
+The panel still sends commands for features upstream velit-hass doesn't have, and rvc2mqtt
+still publishes them, in case your modified integration supports them. If it doesn't, nothing
+confirms them and they revert (see below).
+
+## Confirm or revert
+
+When the panel sends a command, rvc2mqtt shows the new value on the panel **at once**. The
+panel's toggles choose "on"/"off" from the last status they saw, so a slow echo would make a
+second tap repeat the first command. The new value then stays until:
+
+- **the matching value arrives on the state topic.** It's confirmed and nothing more happens.
+- **`confirm_timeout` (default 35 s) passes without that.** The field reverts to the last
+  reported value, and an info line `<field>: ... not confirmed within 35.0s, reverting to ...`
+  is logged.
+
+While a field waits for confirmation, a *different* reported value is noted but not shown.
+This stops a late report of the old setpoint snapping a held arrow back. Reports for fields
+that aren't waiting (for example, changes made from the AC's own remote) show immediately.
+
+So your automations only need to publish on change, retained. They don't need to re-publish
+after each command.
+
+## Panel behaviour worth knowing
+
+- **Setpoint arrows:** rvc2mqtt does the arithmetic. Each press, and each repeat while the
+  button is held, moves the setpoint one whole degree. It is clamped to
+  `setpoint_min`–`setpoint_max` and published as an integer on `set/setpoint`. Before any
+  setpoint has been reported, stepping starts from `setpoint_default`.
+  **Which arrow code means up is not yet confirmed.** Each press is logged as
+  `setpoint step code 0xfffc (up): 24 -> 25`. If the arrows run backwards, swap them with
+  `step_codes`.
+- **Turbo/Eco/Sleep:** the panel has three independent toggles, but the AC has one preset.
+  Turning one on selects it, which turns the other two off. Turning off the active one sends
+  `none`.
+- **Power:** on sends `set/mode cool`; off sends `set/mode off`.
+- **Auto button:** it sends both `set/mode auto` and `set/fan auto`.
+- **Fan bars:** they show the reported speed (1–5). They stay dark for `auto` or an unknown speed.
+- **Before anything is reported, or while availability is `offline`:** the panel is told the
+  mode is Off, so it shows "Off" rather than "--".
+
+## Floorplan entry
+
+```yaml
+floorplan:
+  - name: VIRTUAL_AIRCON
+    type: virtual_aircon
+    instance: 7                  # the panel's Climate page uses 7; never 0 (the G12's)
+    instance_name: "Air Conditioner"
+    source_id: '58'              # RV-C address we transmit from; must be unused on the bus
+    topic_base: rvc2mqtt/aircon
+    temperature_unit: C          # C or F: the unit of setpoint/temperature on MQTT
+    # setpoint_min: 17           # F defaults: 62
+    # setpoint_max: 30           # F defaults: 86
+    # setpoint_default: 24       # F defaults: 75
+    # confirm_timeout: 35        # seconds before an unconfirmed command reverts
+    # interval: 1.0              # seconds between status broadcasts (also sent on every change)
+    # availability_topic: velit/aircon/availability
+    # step_codes:                # arrow step code -> up/down (merged over these defaults)
+    #   0xFFFC: up
+    #   0xFFFA: up
+    #   0xFFFB: down
+    #   0xFFF9: down
+    # fields:                    # per-field topic overrides, relative to topic_base
+    #   setpoint: {state: my/state/sp, set: my/set/sp}
+```
+
+**Source address:** `58` is the first address in the RV-C thermostat range (0x58–0x5D).
+Before you settle on it, run `candump can0` on the coach and check that nothing else sends
+from `58` (the last two hex digits of the CAN ID).
+
+Do not configure the existing `hvac` entity for instance 7. That entity *controls* a
+thermostat, whereas this one *is* the thermostat.
+
+## Example Home Assistant automations (untested)
+
+These are a starting point only; nobody has run them yet. Replace `climate.velit_ac` with
+your entity id.
+
+```yaml
+# Commands: rvc2mqtt -> AC
+- alias: "aircon: rvc2mqtt set -> climate"
+  mode: queued
+  trigger:
+    - platform: mqtt
+      topic: rvc2mqtt/aircon/set/+
+  action:
+    - variables:
+        field: "{{ trigger.topic.split('/')[-1] }}"
+        value: "{{ trigger.payload }}"
+    - choose:
+        - conditions: "{{ field == 'mode' }}"
+          sequence:
+            - service: climate.set_hvac_mode
+              target: {entity_id: climate.velit_ac}
+              data: {hvac_mode: "{{ value }}"}
+        - conditions: "{{ field == 'setpoint' }}"
+          sequence:
+            - service: climate.set_temperature
+              target: {entity_id: climate.velit_ac}
+              data: {temperature: "{{ value | int }}"}
+        - conditions: "{{ field == 'fan' and value != 'auto' }}"
+          sequence:
+            - service: climate.set_fan_mode
+              target: {entity_id: climate.velit_ac}
+              data: {fan_mode: "{{ value }}"}
+        - conditions: "{{ field == 'preset' }}"
+          sequence:
+            - service: climate.set_preset_mode
+              target: {entity_id: climate.velit_ac}
+              data:
+                preset_mode: >-
+                  {{ {'none': 'Cooling', 'eco': 'Eco', 'sleep': 'Sleep', 'turbo': 'Turbo'}[value] }}
+
+# State: AC -> rvc2mqtt
+- alias: "aircon: climate -> rvc2mqtt state"
+  mode: queued
+  trigger:
+    - platform: state
+      entity_id: climate.velit_ac
+    - platform: state
+      entity_id: climate.velit_ac
+      attribute: temperature
+    - platform: homeassistant
+      event: start
+  action:
+    - variables:
+        s: "{{ states('climate.velit_ac') }}"
+        a: "{{ states.climate.velit_ac.attributes }}"
+    - service: mqtt.publish
+      data: {topic: rvc2mqtt/aircon/state/mode, retain: true, payload: "{{ s }}"}
+    - service: mqtt.publish
+      data: {topic: rvc2mqtt/aircon/state/setpoint, retain: true, payload: "{{ a.temperature }}"}
+    - service: mqtt.publish
+      data: {topic: rvc2mqtt/aircon/state/temperature, retain: true, payload: "{{ a.current_temperature }}"}
+    - service: mqtt.publish
+      data: {topic: rvc2mqtt/aircon/state/fan, retain: true, payload: "{{ a.fan_mode }}"}
+    - service: mqtt.publish
+      data: {topic: rvc2mqtt/aircon/state/preset, retain: true, payload: "{{ a.preset_mode or 'Cooling' }}"}
+```
+
+A `state` trigger with no `attribute` fires on attribute changes too. The extra `temperature`
+trigger is only there for clarity. If HA reports `unavailable`, rvc2mqtt ignores it and keeps
+the last value. To have the panel show Off while the AC is unreachable, publish
+`online`/`offline` to an `availability_topic`.
+
+## Bench testing
+
+`tools/virtual_aircon_bench.sh [IFACE]` sends every panel frame with `cansend` and prints
+what to expect on MQTT and in `candump`. Run it on vcan first, then on the coach. Use the
+same session to settle the arrow up/down question.
+
+## Open items
+
+- **Arrow step codes:** which of `0xFFFC`/`0xFFFA`/`0xFFFB`/`0xFFF9` means up or down, and
+  what the panel's variant 0/1 means. Both are unconfirmed.
+- **`0FFA0`/`0FFA1`** (Oscillate/Display) are our own proprietary layout, mirrored in the
+  panel firmware. Change it in both places or neither.
+- **Not verified on the coach:** all the panel's climate controls.

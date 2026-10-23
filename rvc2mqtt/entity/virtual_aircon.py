@@ -1,8 +1,20 @@
 """
 Virtual air conditioner: presents a Home-Assistant-controlled air conditioner
-as RV-C thermostat instance 7 for the Firefly panel's Climate page.
+(Bluetooth, via velit-hass) as an RV-C thermostat (instance 7 for the Firefly
+panel's Climate page).  A *device*, like virtual_inverter; entity/hvac.py is
+the opposite (a controller) and must not be configured for this instance.
 
+Panel commands (THERMOSTAT_COMMAND_1/2, proprietary 0FFA0) are published to
+<topic_base>/set/<field>; HA publishes the AC's real state, retained, to
+<topic_base>/state/<field>.  THERMOSTAT_STATUS_1/2, THERMOSTAT_AMBIENT_STATUS
+and proprietary 0FFA1 are broadcast on every change and every `interval`.
+A command shows on the panel at once and reverts after `confirm_timeout`
+unless a matching state report confirms it.  No HA discovery: the AC already
+has its own climate entity.
+
+MQTT contract and floorplan keys: docs/virtual-aircon-mqtt.md
 Design: docs/superpowers/specs/2026-10-22-virtual-aircon-design.md
+Bench test: tools/virtual_aircon_bench.sh
 
 Copyright 2022 Sean Brogan
 SPDX-License-Identifier: Apache-2.0
