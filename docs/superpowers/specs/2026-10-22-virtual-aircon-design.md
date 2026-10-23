@@ -134,6 +134,11 @@ rounded report. The direction of each code is a floorplan map, because the mappi
 confirmed. Default guess: `0xFFFC`/`0xFFFA` = up and `0xFFFB`/`0xFFF9` = down. The
 variant (the panel's °F/°C setting) is ignored for step size, because the AC only takes
 whole °C through HA. Log every step code at info level so the bench capture settles it.
+*Update 2026-10-22, confirmed in firefly-emulator:* group 130 = up and 131 = down. The
+variant follows the panel's Temp Units setting: in °C it sends `0xFFFC` up / `0xFFFB` down,
+and in °F it sends `0xFFFA` up / `0xFFF9` down. So the default map is correct, and the °F
+codes mean a 1 °F step. How the °F codes should step is Dan's call; until then all four
+step one whole degree.
 Clamp to `setpoint_min`/`setpoint_max` (default 17–30 °C, velit's range). If no setpoint
 has been reported yet, step from `setpoint_default` (default 24 °C). Absolute cool
 setpoints in bytes 5–6 from another controller are accepted and rounded to an integer.

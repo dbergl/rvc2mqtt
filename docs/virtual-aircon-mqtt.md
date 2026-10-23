@@ -70,9 +70,12 @@ after each command.
   button is held, moves the setpoint one whole degree. At the limit, nothing is published. It is clamped to
   `setpoint_min`–`setpoint_max` and published as an integer on `set/setpoint`. Before any
   setpoint has been reported, stepping starts from `setpoint_default`.
-  **Which arrow code means up is not yet confirmed.** Each press is logged as
-  `setpoint step code 0xfffc (up): 24 -> 25`. If the arrows run backwards, swap them with
-  `step_codes`.
+  The arrow codes were confirmed in the firmware emulator. Upper arrow = up, lower = down.
+  The code depends on the panel's Temp Units setting: in °C the panel sends `0xFFFC`
+  (up) / `0xFFFB` (down), and in °F it sends `0xFFFA` (up) / `0xFFF9` (down). The °F codes
+  mean "1 °F", but rvc2mqtt currently steps one whole degree in `temperature_unit` for all
+  four, because the AC takes whole °C only. Each press is logged as
+  `setpoint step code 0xfffc (up): 24 -> 25`.
 - **Turbo/Eco/Sleep:** the panel has three independent toggles, but the AC has one preset.
   Turning one on selects it, which turns the other two off. Turning off the active one sends
   `none`.
@@ -203,12 +206,12 @@ condition deliberately leaves the last good state in place.
 
 `tools/virtual_aircon_bench.sh [IFACE]` sends every panel frame with `cansend` and prints
 what to expect on MQTT and in `candump`. Run it on vcan first, then on the coach. Use the
-same session to settle the arrow up/down question.
+same session to check the arrows step the right way under both Temp Units settings.
 
 ## Open items
 
-- **Arrow step codes:** which of `0xFFFC`/`0xFFFA`/`0xFFFB`/`0xFFF9` means up or down, and
-  what the panel's variant 0/1 means. Both are unconfirmed.
+- **°F arrow steps:** with the panel set to °F, each arrow press (`0xFFFA`/`0xFFF9`, meaning
+  1 °F) currently moves the setpoint by 1 °C. How it should step is undecided.
 - **`0FFA0`/`0FFA1`** (Oscillate/Display) are our own proprietary layout, mirrored in the
   panel firmware. Change it in both places or neither.
 - **Not verified on the coach:** all the panel's climate controls.

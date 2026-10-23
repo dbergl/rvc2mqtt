@@ -57,8 +57,12 @@ ALL_FIELDS = COMMAND_FIELDS + STATE_ONLY_FIELDS
 SETPOINT_DEFAULTS = {"C": (17, 30, 24), "F": (62, 86, 75)}
 
 # THERMOSTAT_COMMAND_1 cool-setpoint step codes the panel's arrow buttons send,
-# -> +1/-1 whole degree.  Which code is up/down is NOT confirmed (see the
-# panel interface spec); override per floorplan with step_codes.
+# -> +1/-1 whole degree.  Confirmed in firefly-emulator (v55): group 130 = up,
+# 131 = down; the variant follows the panel's Temp Units setting -- degC sends
+# 0xFFFC up / 0xFFFB down, degF sends 0xFFFA up / 0xFFF9 down.  So FFFA/FFF9
+# mean "1 degF step", but all four step one whole degree in temperature_unit
+# (the AC takes whole degC only); how degF steps should map is still open.
+# Override per floorplan with step_codes.
 DEFAULT_STEP_CODES = {0xFFFC: +1, 0xFFFA: +1, 0xFFFB: -1, 0xFFF9: -1}
 
 # THERMOSTAT_STATUS_1 / COMMAND_1 operating mode codes (byte 1 bits 0-3).

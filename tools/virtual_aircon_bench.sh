@@ -49,11 +49,12 @@ send 19FEF99F 07DF78FFFFFFFFFF "set/fan 3; byte2 78"
 send 19FEF99F 07DFA0FFFFFFFFFF "set/fan 4; byte2 A0"
 send 19FEF99F 07DFC8FFFFFFFFFF "set/fan 5; byte2 C8"
 
-# Setpoint arrows (direction unconfirmed; watch the 'setpoint step code' log line)
-send 19FEF99F 07FFFFFFFFFCFFFF "group 130 v0 (0xFFFC, default up): set/setpoint 25 if it was 24"
-send 19FEF99F 07FFFFFFFFFBFFFF "group 131 v0 (0xFFFB, default down): set/setpoint back down one"
-send 19FEF99F 07FFFFFFFFFAFFFF "group 130 v1 (0xFFFA, default up)"
-send 19FEF99F 07FFFFFFFFF9FFFF "group 131 v1 (0xFFF9, default down)"
+# Setpoint arrows (confirmed in firefly-emulator: group 130 up, 131 down; v0 when the
+# panel is in degC, v1 in degF; all four currently step 1 whole degree)
+send 19FEF99F 07FFFFFFFFFCFFFF "upper arrow, panel in C (0xFFFC, up): set/setpoint 25 if it was 24"
+send 19FEF99F 07FFFFFFFFFBFFFF "lower arrow, panel in C (0xFFFB, down): set/setpoint back down one"
+send 19FEF99F 07FFFFFFFFFAFFFF "upper arrow, panel in F (0xFFFA, up)"
+send 19FEF99F 07FFFFFFFFF9FFFF "lower arrow, panel in F (0xFFF9, down)"
 send 19FEF99F 07FFFFFFFF2025FF "absolute 24 C from another controller: set/setpoint 24"
 
 # THERMOSTAT_COMMAND_2 (1FEF8) presets
