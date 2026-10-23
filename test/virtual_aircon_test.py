@@ -340,7 +340,7 @@ class Test_StatusFrames(unittest.TestCase):
         self.assertTrue(all(f['source_id'] == '58' for f in frames))
         self.assertTrue(all(len(f['data']) == 8 for f in frames))
         self.assertEqual([f['data'].hex().upper() for f in frames],
-                         ['070000FFFFFFFFFF', '07FFFFC0FFFFFFFF', '07FFFFFFFFFFFFFF', '07F0FFFFFFFFFFFF'])
+                         ['0700FFFFFFFFFFFF', '07FFFFC0FFFFFFFF', '07FFFFFFFFFFFFFF', '07F0FFFFFFFFFFFF'])
 
     def test_frames_cool_fan3_24c(self):
         e, _, _ = _make_entity()
@@ -356,6 +356,7 @@ class Test_StatusFrames(unittest.TestCase):
 
     def test_fan_thresholds(self):
         e, _, _ = _make_entity()
+        _mqtt(e, 'mode', 'cool')
         for speed, byte2 in ((1, 0x28), (2, 0x50), (3, 0x78), (4, 0xA0), (5, 0xC8)):
             _mqtt(e, 'fan', str(speed))
             data = bytes.fromhex(_frames(e)['1FFE2'])
@@ -365,6 +366,21 @@ class Test_StatusFrames(unittest.TestCase):
         data = bytes.fromhex(_frames(e)['1FFE2'])
         self.assertEqual(data[2], 0)
         self.assertEqual((data[1] >> 4) & 0b11, 0b00)
+
+    def test_fan_speed_ff_while_off(self):
+        """Dan's call (emulator bench): with mode Off the panel's fan bars must
+        go dark, so byte 2 reads 0xFF (> 250 = off); the real speed returns
+        when a mode turns on."""
+        e, _, _ = _make_entity()
+        _mqtt(e, 'fan', '5')
+        _mqtt(e, 'mode', 'cool')
+        self.assertEqual(bytes.fromhex(_frames(e)['1FFE2'])[2], 0xC8)
+        _mqtt(e, 'mode', 'off')
+        data = bytes.fromhex(_frames(e)['1FFE2'])
+        self.assertEqual(data[2], 0xFF)
+        self.assertEqual(data[1] & 0x0F, 0)
+        _rvc(e, '1FEF9', '07F1FFFFFFFFFFFF')   # Power on -> cool
+        self.assertEqual(bytes.fromhex(_frames(e)['1FFE2'])[2], 0xC8)
 
     def test_mode_codes(self):
         e, _, _ = _make_entity()
@@ -403,7 +419,7 @@ class Test_StatusFrames(unittest.TestCase):
         e.process_mqtt_msg('velit/ac/availability', 'offline')
         data = bytes.fromhex(_frames(e)['1FFE2'])
         self.assertEqual(data[1] & 0x0F, 0)
-        self.assertEqual(data[2], 0x50)  # rest unchanged
+        self.assertEqual(data[2], 0xFF)  # reported Off, so fan bars dark
 
 
 class Test_Tick(unittest.TestCase):

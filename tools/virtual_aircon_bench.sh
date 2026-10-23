@@ -73,7 +73,7 @@ send 18FFA09F 07F3FFFFFFFFFFFF "Display off: set/display off; byte1 F0"
 # Must be ignored
 send 19FEF99F 000000FFFFFFFFFF "instance 0 (Options screen): NOTHING published, no status change"
 
-send 19FEF99F 07F0FFFFFFFFFFFF "Power off: set/mode off; byte1 low nibble 0"
+send 19FEF99F 07F0FFFFFFFFFFFF "Power off: set/mode off; byte1 low nibble 0, byte2 FF (fan bars dark)"
 
 echo
 echo "Done. Unconfirmed commands revert after confirm_timeout (35 s) unless state topics echo them."

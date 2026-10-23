@@ -73,15 +73,18 @@ after each command.
   The arrow codes were confirmed in the firmware emulator. Upper arrow = up, lower = down.
   The code depends on the panel's Temp Units setting: in °C the panel sends `0xFFFC`
   (up) / `0xFFFB` (down), and in °F it sends `0xFFFA` (up) / `0xFFF9` (down). The °F codes
-  mean "1 °F", but rvc2mqtt currently steps one whole degree in `temperature_unit` for all
-  four, because the AC takes whole °C only. Each press is logged as
+  mean "1 °F", but rvc2mqtt deliberately steps one whole degree in `temperature_unit` for all
+  four, because the AC takes whole °C only. So with the panel in °F, each press moves the
+  readout by 1–2 °F (75 → 77 → 78). Each press is logged as
   `setpoint step code 0xfffc (up): 24 -> 25`.
 - **Turbo/Eco/Sleep:** the panel has three independent toggles, but the AC has one preset.
   Turning one on selects it, which turns the other two off. Turning off the active one sends
   `none`.
 - **Power:** on sends `set/mode cool`; off sends `set/mode off`.
 - **Auto button:** it sends both `set/mode auto` and `set/fan auto`.
-- **Fan bars:** they show the reported speed (1–5). They stay dark for `auto` or an unknown speed.
+- **Fan bars:** they show the reported speed (1–5). They stay dark for `auto` or an unknown
+  speed, and always while the mode is Off (fan speed sent as 0xFF). The real speed shows again
+  as soon as a mode turns on.
 - **Before anything is reported, or while availability is `offline`:** the panel is told the
   mode is Off, so it shows "Off" rather than "--".
 
@@ -210,8 +213,6 @@ same session to check the arrows step the right way under both Temp Units settin
 
 ## Open items
 
-- **°F arrow steps:** with the panel set to °F, each arrow press (`0xFFFA`/`0xFFF9`, meaning
-  1 °F) currently moves the setpoint by 1 °C. How it should step is undecided.
 - **`0FFA0`/`0FFA1`** (Oscillate/Display) are our own proprietary layout, mirrored in the
   panel firmware. Change it in both places or neither.
 - **Not verified on the coach:** all the panel's climate controls.

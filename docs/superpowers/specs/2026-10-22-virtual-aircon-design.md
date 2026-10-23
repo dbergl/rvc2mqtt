@@ -137,8 +137,10 @@ whole °C through HA. Log every step code at info level so the bench capture set
 *Update 2026-10-22, confirmed in firefly-emulator:* group 130 = up and 131 = down. The
 variant follows the panel's Temp Units setting: in °C it sends `0xFFFC` up / `0xFFFB` down,
 and in °F it sends `0xFFFA` up / `0xFFF9` down. So the default map is correct, and the °F
-codes mean a 1 °F step. How the °F codes should step is Dan's call; until then all four
-step one whole degree.
+codes mean a 1 °F step. Dan decided to keep all four stepping one whole degree (1 °C),
+because the AC takes whole °C only. In °F the panel readout jumps 1–2 °F per press.
+*Update 2026-10-22, also Dan's decision:* while the mode is Off, 1FFE2 byte 2 (fan speed) is
+sent as 0xFF, so the panel's fan bars go dark.
 Clamp to `setpoint_min`/`setpoint_max` (default 17–30 °C, velit's range). If no setpoint
 has been reported yet, step from `setpoint_default` (default 24 °C). Absolute cool
 setpoints in bytes 5–6 from another controller are accepted and rounded to an integer.

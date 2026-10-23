@@ -61,7 +61,8 @@ SETPOINT_DEFAULTS = {"C": (17, 30, 24), "F": (62, 86, 75)}
 # 131 = down; the variant follows the panel's Temp Units setting -- degC sends
 # 0xFFFC up / 0xFFFB down, degF sends 0xFFFA up / 0xFFF9 down.  So FFFA/FFF9
 # mean "1 degF step", but all four step one whole degree in temperature_unit
-# (the AC takes whole degC only); how degF steps should map is still open.
+# (the AC takes whole degC only).  Deliberate (Dan, 2026-10-22): a degF press
+# moves 1 degC, so the panel's degF readout jumps 1-2 degF per press.
 # Override per floorplan with step_codes.
 DEFAULT_STEP_CODES = {0xFFFC: +1, 0xFFFA: +1, 0xFFFB: -1, 0xFFF9: -1}
 
@@ -468,7 +469,10 @@ class VirtualAircon(EntityPluginBaseClass):
         byte1 = (MODE_CODES[mode]
                  | ((0b01 if manual_fan else 0b00) << 4)   # fan mode: on / auto
                  | (0b00 << 6))                            # schedule mode: disabled
-        byte2 = fan * FAN_STEP if manual_fan else 0
+        if mode == "off":
+            byte2 = 0xFF   # the panel reads > 250 as off: fan bars dark while Off
+        else:
+            byte2 = fan * FAN_STEP if manual_fan else 0
         setpoint = encode_temperature_u16(self._to_celsius(self.state.effective("setpoint")))
         return self._frame("1FFE2", bytes([byte1, byte2]) + u16_le(U16_NA)   # heat setpoint: n/a
                            + u16_le(setpoint) + b"\xff")
