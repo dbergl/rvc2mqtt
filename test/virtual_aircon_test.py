@@ -252,6 +252,21 @@ class Test_StateIngest(unittest.TestCase):
             _mqtt(e, 'fan', 'banana')
         self.assertEqual(e.state.effective('fan'), 3)
 
+    def test_bad_payload_warning_is_bounded(self):
+        """A source publishing ever-changing junk warns once per field (until a
+        good value arrives) and doesn't grow memory per distinct payload."""
+        e, _, _ = _make_entity()
+        with self.assertLogs(level='WARNING') as logs:
+            for i in range(50):
+                _mqtt(e, 'fan', f'junk-{i}' + 'x' * 500)
+        self.assertEqual(len(logs.records), 1)
+        self.assertLess(len(logs.records[0].getMessage()), 200)
+        self.assertLessEqual(len(e._warned), 1)
+        _mqtt(e, 'fan', '2')
+        with self.assertLogs(level='WARNING') as logs:
+            _mqtt(e, 'fan', 'junk-again')
+        self.assertEqual(len(logs.records), 1)
+
     def test_float_formatted_payloads(self):
         e, _, _ = _make_entity()
         _mqtt(e, 'setpoint', '24.0')

@@ -299,10 +299,13 @@ class VirtualAircon(EntityPluginBaseClass):
         if value is None:
             if _norm(payload) in _HA_PLACEHOLDERS:
                 self.Logger.debug(f"{self.name}: ignoring placeholder {payload!r} for {field}")
-            elif (field, payload) not in self._warned:
-                self._warned.add((field, payload))
-                self.Logger.warning(f"{self.name}: ignoring bad payload {payload!r} for {field}")
+            elif field not in self._warned:
+                # Once per field until a good value arrives: bounded however
+                # many distinct bad payloads a misbehaving source sends.
+                self._warned.add(field)
+                self.Logger.warning(f"{self.name}: ignoring bad payload {str(payload)[:60]!r} for {field}")
             return
+        self._warned.discard(field)
         if self.state.report(field, value):
             self._dirty = True
 
