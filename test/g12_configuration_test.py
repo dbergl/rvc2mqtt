@@ -1095,17 +1095,39 @@ class Test_G12_Configuration(unittest.TestCase):
             g.process_rvc_msg(self._make_input_status(0xA1, 1))
         g.mqtt_support.client.publish.assert_not_called()
 
-    def test_bf_is_ignored(self):
-        """0xBF brackets ignition-off with an all-zero tail.  Undecoded: act on nothing."""
+    # Frames from the coach, 2026-10-22 (coach-tests-can1-run2.log): BF 02 at the
+    # 16:23:25 / 16:27:32 auto-starts, BF 01 at the 16:46:19 auto-stop, each released by
+    # BF 00.
+
+    def test_bf_start_and_stop_publish_engine_command(self):
         g = self._make_g12()
-        g.process_rvc_msg(self._make_input_status(0xA1, 1))
+        for state, command in ((2, "start"), (1, "stop")):
+            g.mqtt_support.client.publish.reset_mock()
+            self.assertTrue(g.process_rvc_msg(self._make_input_status(0xBF, state)))
+            g.mqtt_support.client.publish.assert_called_once_with(
+                'g12/status/aes/engine_command', command, retain=True)
+
+    def test_bf_release_publishes_nothing(self):
+        """BF 00 only releases the pulse; the topic keeps the last command."""
+        g = self._make_g12()
+        g.process_rvc_msg(self._make_input_status(0xBF, 2))
         g.mqtt_support.client.publish.reset_mock()
-        result = g.process_rvc_msg(self._make_input_status(0xBF, 1))
-        self.assertTrue(result)
+        self.assertTrue(g.process_rvc_msg(self._make_input_status(0xBF, 0)))
         g.mqtt_support.client.publish.assert_not_called()
-        result = g.process_rvc_msg(self._make_input_status(0xBF, 0))
-        self.assertTrue(result)
-        g.mqtt_support.client.publish.assert_not_called()
+
+    def test_bf_repeated_stop_publishes_once(self):
+        """After a panel Stop the G12 repeats BF 01 every 5 s until AES is re-enabled."""
+        g = self._make_g12()
+        for state in (1, 0, 1, 0, 1, 0):
+            g.process_rvc_msg(self._make_input_status(0xBF, state))
+        g.mqtt_support.client.publish.assert_called_once_with(
+            'g12/status/aes/engine_command', "stop", retain=True)
+
+    def test_bf_is_not_an_input(self):
+        g = self._make_g12()
+        g.process_rvc_msg(self._make_input_status(0xBF, 1))
+        published = [c[0][0] for c in g.mqtt_support.client.publish.call_args_list]
+        self.assertFalse([t for t in published if '/inputs/' in t])
 
     def test_unheard_pin_is_unknown_not_inactive(self):
         """An idle pin is silent, so silence carries no information."""
@@ -1135,7 +1157,7 @@ class Test_G12_Configuration(unittest.TestCase):
             g.process_rvc_msg(self._make_input_status(0xAA, 1))
         g.process_rvc_msg(self._make_input_status(0xFB, 0))    # ignition off
         g.process_rvc_msg(self._make_input_status(0xAA, 0))
-        g.process_rvc_msg(self._make_input_status(0xBF, 1))    # transition frames
+        g.process_rvc_msg(self._make_input_status(0xBF, 1))    # AES stop pulse
         g.process_rvc_msg(self._make_input_status(0xBF, 0))
         g.process_rvc_msg(self._make_input_status(0xA9, 1))    # pump, no FB anywhere
         g.process_rvc_msg(self._make_input_status(0xA9, 1))
@@ -1143,6 +1165,7 @@ class Test_G12_Configuration(unittest.TestCase):
         self.assertEqual(pub, [
             ('g12/status/inputs/10/active', "true"),
             ('g12/status/inputs/10/active', "false"),
+            ('g12/status/aes/engine_command', "stop"),
             ('g12/status/inputs/9/active', "true"),
             ('g12/status/inputs/9/active', "false"),
         ])

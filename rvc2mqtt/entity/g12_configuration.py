@@ -191,6 +191,9 @@ class G12_Configuration(EntityPluginBaseClass):
         # never heard from, which is UNKNOWN rather than inactive.
         self._input_state = {}
 
+        # 1FBDA instance 0xBF -- the AES engine command pulse (02 start, 01 stop, 00 release).
+        self._aes_engine_command = None
+
         # Internal state - initialized to "unknown" so first received value always publishes
         self._max_engine_run_time = "unknown"
         self._time_at_start_volts = "unknown"
@@ -260,6 +263,7 @@ class G12_Configuration(EntityPluginBaseClass):
             self.ags_retry_interval_topic    = str(f"{topic_base}/ags/retry_interval")
             self.max_charge_rate_topic       = str(f"{topic_base}/charger/max_charge_rate")
             self.aes_enabled_topic           = str(f"{topic_base}/aes/enabled")
+            self.aes_engine_command_topic    = str(f"{topic_base}/aes/engine_command")
             if self._engine_relay_configured():
                 self.engine_running_topic    = str(f"{topic_base}/engine/running")
 
@@ -450,13 +454,23 @@ class G12_Configuration(EntityPluginBaseClass):
             # frames apart from the instance.  One sense line reported twice: fold it onto
             # pin 10 so the two can never disagree, and so the 1 Hz pair does not publish
             # twice per second.
+            if instance == 0xBF:
+                # Not an input: the AES engine command pulse (coach 2026-10-22, see
+                # rvc-spec.yml).  02 start, 01 stop, then 00 releases the pulse -- the release
+                # carries nothing, so the topic keeps the last command.  After a panel Stop
+                # the G12 repeats BF 01 every 5 s, which the change check absorbs.
+                command = {1: "stop", 2: "start"}.get(state)
+                if command is not None and command != self._aes_engine_command:
+                    self._aes_engine_command = command
+                    if hasattr(self, 'aes_engine_command_topic'):
+                        self.mqtt_support.client.publish(
+                            self.aes_engine_command_topic, command, retain=True)
+                return True
             if instance == 0xFB:
                 n = 10
             elif 0xA1 <= instance <= 0xAA:
                 n = instance & 0x0F
             else:
-                # 0xBF lands here.  It is not an input -- its payload tail is all zeros
-                # rather than 0xFF -- and nothing decodes it, so do not act on it.
                 self.Logger.debug(
                     f"G12_INPUT_STATUS instance {hex(instance)} is not an input, ignoring")
                 return True
@@ -1351,6 +1365,12 @@ class G12_Configuration(EntityPluginBaseClass):
             else:
                 aes_cmp['p'] = 'binary_sensor'
             cmps['aes_enabled'] = aes_cmp
+
+        if hasattr(self, 'aes_engine_command_topic'):
+            cmps['aes_engine_command'] = {
+                'p': 'sensor', 'name': 'AES Last Engine Command',
+                'state_topic': self.aes_engine_command_topic,
+                'unique_id': self.unique_device_id + '_aes_engine_command'}
 
         # --- newly discovered on/off settings (switch when writable) ---
         onoff_specs = [

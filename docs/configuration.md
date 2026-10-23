@@ -193,6 +193,7 @@ to channel 18, which is correct for all AES 1-wire wiring.
 | `/fault/lamp` | DM_RV lamp state |
 | `/product_id` | Product identification string |
 | `/inputs/<n>/active` | G12 physical input n — `true`/`false`, see note below |
+| `/aes/engine_command` | Last AES engine command the G12 announced — `start`/`stop`, see note below |
 
 `/inputs/<n>/active` tracks the G12's physical input pins (`1FBDA`). Three things to know:
 a pin is published only once it has been heard from, so **absent means unknown, not
@@ -201,6 +202,13 @@ nothing because the state has not changed. And pin **10 is the ignition sense**,
 G12 broadcasts under two instances (`0xAA` and `0xFB`); both are folded onto pin 10, so they
 can never disagree. Confirmed on the coach 2026-08-24 — firefly-firmware `BUS-BASELINE.md`
 PC.24.
+
+`/aes/engine_command` comes from the G12's AES command pulse (`1FBDA` instance `0xBF`): `start`
+when AES cranks the engine on low volts, `stop` when it stops the engine, gives up on a failed
+start, is disabled, or the panel's AES Stop is pressed. It is the last command, not the engine
+state — a start that never cranks still reads `start`, and the same command twice in a row
+publishes once. Confirmed on the coach 2026-10-22 (firefly-firmware
+`captures/2026-10-22-coach-tests/`).
 
 `/charger/max_charge_rate` has no command topic. The selector behind it (`0x92`) takes a
 *signed delta* rather than an absolute value, so a write would have to compute

@@ -6408,8 +6408,20 @@ Z0005:
     one OFF frame with no repeat. An idle input is silent, so silence carries no information
     -- treat a pin never seen as UNKNOWN, not inactive.
 
-    Instance 0xBF is NOT an input. Observed twice, bracketing an ignition-off transition, and
-    its payload tail is all ZEROS rather than 0xFF. Undecoded; ignore it rather than guessing.
+    Instance 0xBF is NOT an input: it is the AES engine command pulse, and its payload tail
+    is all ZEROS rather than 0xFF. Byte 1 = 0x02 start, 0x01 stop, then 0x00 0.15-1 s later
+    to release it. Inside the G12 it is the loop-back of 1FED9 rules that set its AES state
+    (cell 0x7D := 2 start, := 1 stop). The G12 (9C) sends it on every AES start and stop;
+    the panel (9F) sends BF 01 when its AES Stop is pressed, which the G12 echoes at once and
+    then repeats every 5 s until AES is enabled again. Observed on the coach 2026-10-22
+    (firefly-firmware captures/2026-10-22-coach-tests/coach-tests-can1-run2.log):
+      * low-volts auto-start: BF 02 with the start output (1FEDB instance 0x12 ON), 15.0 s
+        after AES Enable with the battery below Start At;
+      * automatic stop (battery above Stop Volts for Time At Stop Volts): BF 01 as the start
+        output goes off, the ignition (0xFB/0xAA) dropping ~0.5 s later -- which is why the
+        earlier captures saw it "bracketing an ignition-off transition";
+      * an abandoned start (no engine 60 s after the ignition dropped): BF 01, AES disabled;
+      * AES disabled from the panel: one G12 BF 01 pulse.
 
     Confirmed on the coach 2026-08-24 -- see firefly-firmware docs/BUS-BASELINE.md PC.24 and
     captures/pc24-input-pins-2026-08-24.log. That capture REPLACED an earlier reading of this
