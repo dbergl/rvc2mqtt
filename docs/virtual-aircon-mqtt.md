@@ -22,9 +22,9 @@ Design background: `docs/superpowers/specs/2026-10-22-virtual-aircon-design.md`.
 
 All topics hang off `topic_base`, which defaults to `rvc2mqtt/aircon`.
 
-| Field | State topic (HA → rvc2mqtt, **retained**) | Set topic (rvc2mqtt → HA, not retained) | Payloads | Upstream velit-hass |
+| Field | State topic (HA → rvc2mqtt, **retained**) | Set topic (rvc2mqtt → HA, not retained) | Payloads | velit-hass support |
 |---|---|---|---|---|
-| mode | `state/mode` | `set/mode` | `off` `cool` `auto` `dry` `fan_only` | `off` `cool` `fan_only` only; **no `auto`, no `dry`** |
+| mode | `state/mode` | `set/mode` | `off` `cool` `auto` `dry` `fan_only` | all five in your integration (upstream has only `off` `cool` `fan_only`) |
 | fan | `state/fan` | `set/fan` | `1`–`5`, `auto` | `1`–`5` only; **no `auto`** |
 | setpoint | `state/setpoint` | `set/setpoint` | integer, in `temperature_unit` | whole °C, 17–30 |
 | room temperature | `state/temperature` | — | number, in `temperature_unit` | yes (`current_temperature`) |
@@ -136,7 +136,7 @@ your entity id.
     - choose:
         - conditions: "{{ field == 'mode' }}"
           sequence:
-            - service: climate.set_hvac_mode
+            - service: climate.set_hvac_mode    # passes off/cool/auto/dry/fan_only through
               target: {entity_id: climate.velit_ac}
               data: {hvac_mode: "{{ value }}"}
         - conditions: "{{ field == 'fan' and value != 'auto' }}"
