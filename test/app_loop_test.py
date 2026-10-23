@@ -187,3 +187,48 @@ class Test_ReloadClearsTickFailures(unittest.TestCase):
         a._tick_failed_ids = {"broken-entity"}
         a._do_reload()
         self.assertEqual(a._tick_failed_ids, set())
+
+
+class Test_RxLoopIsolation(unittest.TestCase):
+    """2026-10-22: an entity's exception in process_rvc_msg ended the rx loop."""
+
+    def _app(self, entities):
+        import queue
+        a = AppClass.__new__(AppClass)
+        a.Logger = MagicMock()
+        a.rxQueue = queue.Queue()
+        a.rvc_decoder = MagicMock()
+        a.rvc_decoder.rvc_decode.return_value = {"name": "THERMOSTAT_STATUS_1", "source_id": "9C"}
+        a.entity_list = entities
+        return a
+
+    def _msg(self, a):
+        m = MagicMock()
+        m.arbitration_id, m.data = 0x19FFE29C, bytes(8)
+        a.rxQueue.put(m)
+        a.message_rx_loop()
+
+    def test_exception_is_contained_and_logged_once(self):
+        bad, later = MagicMock(id="hvac-1"), MagicMock(id="later")
+        bad.process_rvc_msg.side_effect = ValueError("'auto' is not a valid HvacMode")
+        a = self._app([bad, later])
+        self._msg(a)
+        self._msg(a)
+        self.assertEqual(bad.process_rvc_msg.call_count, 2)
+        later.process_rvc_msg.assert_not_called()       # consumed by the entity that raised
+        a.Logger.exception.assert_called_once()
+        self.assertEqual(a._rx_failed_ids, {"hvac-1"})
+
+    def test_reload_clears_rx_failures(self):
+        a = AppClass.__new__(AppClass)
+        a.Logger = MagicMock()
+        a._reload_requested = threading.Event()
+        a._floorplan_path1 = None
+        a._floorplan_path2 = None
+        a._entity_factory_list = []
+        a.tx_RVC_Buffer = MagicMock()
+        a.mqtt_client = None
+        a.entity_list = []
+        a._rx_failed_ids = {"broken-entity"}
+        a._do_reload()
+        self.assertEqual(a._rx_failed_ids, set())

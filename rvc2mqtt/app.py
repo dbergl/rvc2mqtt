@@ -225,6 +225,7 @@ class app(object):
         # Entities are rebuilt below; reset tick-failure suppression so a fresh
         # instance with the same id gets its failures logged again.
         self._tick_failed_ids = set()
+        self._rx_failed_ids = set()
 
         # 5. Reload floorplan files
         new_fp = []
@@ -347,7 +348,27 @@ class app(object):
         # Pass to object
 
         for item in self.entity_list:
-            if item.process_rvc_msg(MsgDict):
+            try:
+                handled = item.process_rvc_msg(MsgDict)
+            except Exception:
+                # Same isolation as tick(): one entity's exception must not end the
+                # rx loop (an HvacMode ValueError did, on the coach 2026-10-22, and
+                # the bridge kept "running" with no bus traffic handled).  The
+                # message counts as consumed by the entity that raised; the traceback
+                # is logged once per entity, later failures at debug.
+                failed_ids = getattr(self, "_rx_failed_ids", None)
+                if failed_ids is None:
+                    failed_ids = set()
+                    self._rx_failed_ids = failed_ids
+                if item.id not in failed_ids:
+                    failed_ids.add(item.id)
+                    self.Logger.exception(
+                        f"entity {item.id} process_rvc_msg() failed on {MsgDict}; "
+                        "further failures from it logged at debug")
+                else:
+                    self.Logger.debug(f"entity {item.id} process_rvc_msg() failed on {MsgDict}")
+                return
+            if handled:
                 # Should we allow processing by more than one obj.
                 ##
                 return
