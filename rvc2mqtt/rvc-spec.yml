@@ -1799,6 +1799,23 @@ API_VERSION: 0
       values:
         00: disabled
         01: enabled
+      comment: The units shall operate in a low noise emission mode.
+    - byte: 3
+      bit: 2-3
+      name: eco mode
+      type: bit2
+      values:
+        00: disabled
+        01: enabled
+      comment: The units shall operate in a low energy operation mode.
+    - byte: 3
+      bit: 4-5
+      name: turbo mode
+      type: bit2
+      values:
+        00: disabled
+        01: enabled
+      comment: The units shall operate in a high-performance mode.
 
 1FEF9:
   name: THERMOSTAT_COMMAND_1
@@ -1814,6 +1831,33 @@ API_VERSION: 0
     - byte: 1
       name: current schedule instance
       type: uint8
+      values:
+        251: reset to current instance
+      comment: 251 forces the unit to check its schedule and resume the scheduled instance.
+    - byte: 2
+      bit: 0-1
+      name: reduced noise mode
+      type: bit2
+      values:
+        00: disabled
+        01: enabled
+      comment: The units shall operate in a low noise emission mode.
+    - byte: 2
+      bit: 2-3
+      name: eco mode
+      type: bit2
+      values:
+        00: disabled
+        01: enabled
+      comment: The units shall operate in a low energy operation mode.
+    - byte: 2
+      bit: 4-5
+      name: turbo mode
+      type: bit2
+      values:
+        00: disabled
+        01: enabled
+      comment: The units shall operate in a high-performance mode.
 
 1FEF7:
   name: THERMOSTAT_SCHEDULE_STATUS_1
