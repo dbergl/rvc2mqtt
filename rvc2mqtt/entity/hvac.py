@@ -98,10 +98,13 @@ class HvacMode(Enum):
     COOL = 'cool'
     FAN_ONLY = 'fan_only'
     HEAT = 'heat'
+    AUTO = 'auto'
 
     @property
     def rvc_mode_for_rvc_msg(self) -> str:
-        if self == HvacMode.HEAT:
+        if self == HvacMode.AUTO:
+            return 3
+        elif self == HvacMode.HEAT:
             return 5
         elif self == HvacMode.FAN_ONLY:
             return 4
@@ -112,12 +115,15 @@ class HvacMode(Enum):
 
     @staticmethod
     def get_hvac_mode_from_rvc(rvc_mode:str):
+        '''None for a mode with no HA equivalent (e.g. window defrost/dehumidify)'''
         if rvc_mode == 'aux heat':
             return HvacMode.HEAT
         elif rvc_mode == "fan only":
             return HvacMode.FAN_ONLY
-        else:
+        try:
             return HvacMode(rvc_mode)
+        except ValueError:
+            return None
 
 
 class HvacClass(EntityPluginBaseClass):
@@ -163,8 +169,10 @@ class HvacClass(EntityPluginBaseClass):
 
     FACTORY_MATCH_ATTRIBUTES = {"name": "THERMOSTAT_STATUS_1", "type": "hvac"}
 
-    # HA MQTT HVAC supported modes - must be a subset of default
-    MQTT_SUPPORTED_MODES = [e.value for e in HvacMode]
+    # HA MQTT HVAC supported modes - must be a subset of default.  Auto is only offered when
+    # a floorplan lists it in hvac_modes: a Firefly panel shows it only with the Heat Pump
+    # option set.
+    MQTT_SUPPORTED_MODES = [e.value for e in HvacMode if e is not HvacMode.AUTO]
 
     MIN_TEMP = 12
     MAX_TEMP = 30
@@ -354,7 +362,14 @@ class HvacClass(EntityPluginBaseClass):
             self.set_point_temperaturef = round(((new_message["setpoint_temp_cool"])*1.8) + 32)
             if new_message["setpoint_temp_cool"] != new_message["setpoint_temp_heat"]:
                 self.Logger.error(f"Expected cool and heat set temperatures to always be the same.  They are not")
-            self.mode = HvacMode.get_hvac_mode_from_rvc(new_message["operating_mode_definition"])
+            # Auto (3) arrives once the Firefly panel's Heat Pump option is on (coach,
+            # 2026-10-22); before it was an HvacMode the ValueError killed the rx loop.
+            mode = HvacMode.get_hvac_mode_from_rvc(new_message["operating_mode_definition"])
+            if mode is None:
+                self.Logger.warning(
+                    f"Unsupported operating mode {new_message['operating_mode_definition']!r}, keeping {self.mode.value}")
+            else:
+                self.mode = mode
             self._update_mqtt_topics_with_changed_values()
             return True
         elif self._is_entry_match(self.rvc_match_command, new_message):

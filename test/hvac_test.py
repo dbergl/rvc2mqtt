@@ -80,6 +80,11 @@ class Test_HvacMode(unittest.TestCase):
         self.assertEqual(HvacMode.get_hvac_mode_from_rvc('fan only'), HvacMode.FAN_ONLY)
         self.assertEqual(HvacMode.get_hvac_mode_from_rvc('aux heat'), HvacMode.HEAT)
         self.assertEqual(HvacMode.get_hvac_mode_from_rvc('cool'), HvacMode.COOL)
+        self.assertEqual(HvacMode.get_hvac_mode_from_rvc('auto'), HvacMode.AUTO)
+        self.assertIsNone(HvacMode.get_hvac_mode_from_rvc('window defrost/dehumidify'))
+
+    def test_auto_to_rvc(self):
+        self.assertEqual(HvacMode.AUTO.rvc_mode_for_rvc_msg, 3)
 
 
 def _make_mock():
@@ -164,6 +169,22 @@ class Test_HvacClimate(unittest.TestCase):
             {'instance': 1, 'instance_name': "test hvac", 'fan_modes': ['auto', 'high', 'low']},
             mock)
         self.assertEqual(entity._fan_modes, ['auto', 'high', 'low'])
+
+    def test_auto_status_does_not_raise(self):
+        """Coach 2026-10-22: THERMOSTAT_STATUS_1 mode 3 (auto) raised ValueError and
+        killed the rx loop."""
+        entity, mock = _make_hvac()
+        self.assertTrue(entity.process_rvc_msg(_make_status_msg(mode_def='auto')))
+        self.assertEqual(entity.mode, HvacMode.AUTO)
+
+    def test_unsupported_status_mode_keeps_the_last_mode(self):
+        entity, mock = _make_hvac()
+        entity.process_rvc_msg(_make_status_msg(mode_def='cool'))
+        self.assertTrue(entity.process_rvc_msg(_make_status_msg(mode_def='window defrost/dehumidify')))
+        self.assertEqual(entity.mode, HvacMode.COOL)
+
+    def test_auto_not_offered_by_default(self):
+        self.assertNotIn('auto', HvacClass.MQTT_SUPPORTED_MODES)
 
     def test_hvac_modes_default_when_not_specified(self):
         mock = _make_mock()
