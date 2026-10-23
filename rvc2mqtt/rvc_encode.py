@@ -17,7 +17,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 Inverse of RVC_Decoder._convert_unit for the uint16 types used by the
-virtual inverter.  See RV-C spec table 5.3.
+virtual entities (inverter, air conditioner).  See RV-C spec table 5.3.
 """
 
 import math
@@ -64,6 +64,20 @@ def encode_amp_hours_u16(ah) -> int:
     if ah is None:
         return U16_NA
     return _clamp_u16(ah)
+
+
+def encode_temperature_u16(celsius) -> int:
+    """0.03125 deg C/bit, -273 deg C offset."""
+    if celsius is None:
+        return U16_NA
+    return _clamp_u16((celsius + 273) / 0.03125)
+
+
+def decode_temperature_u16(raw: int):
+    """Inverse of encode_temperature_u16; None for not-available/reserved (>= 0xFE00)."""
+    if raw >= 0xFE00:
+        return None
+    return raw * 0.03125 - 273
 
 
 def u16_le(value: int) -> bytes:
