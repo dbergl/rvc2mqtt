@@ -158,6 +158,28 @@ a capture of the touchscreen disabling AES, and a command frame cannot starve
 another entity. It uses `engine_relay_instance` when set and otherwise falls back
 to channel 18, which is correct for all AES 1-wire wiring.
 
+`bms_source_id` is optional and opt-in. It names the source address of a Renogy BMS
+running the patched firmware (`renogyBMS`, `0x70` on the coach). With it set, this entity
+exposes the custom panel's **Battery Heater** and **Ignore Alarms** buttons. These are not
+G12 messages: they are `0EF70` commands addressed to the BMS (`AA55…` heater lease,
+`4D53…` alarm-mask lease), and the BMS answers each accepted command at once on its
+`0FF70` status broadcast (`RENOGY_BMS_HEATER_STATUS`, also sent every ~2 s). `on` sends
+the lease the panel sends (60 min heater, 10 min alarm mask), and `off` cancels it. A stock
+BMS neither honours the commands nor sends the status, so leave this key out on one.
+
+```yaml
+    bms_source_id: '70'
+```
+
+`/pump/link` and `/pump/auto_off_minutes` decode selector `0xEE`, which only the custom
+panel build uses (`myfirmware` v54, ops `pumplink` and `pumpauto`). It is one u16: the
+Pump Link flag in the high byte and the Auto Off minutes in the low byte. The minutes are
+`0` for disabled, or 5–60 in steps of 5. Stock firmware leaves it unset (`0xFFFF`), and
+then nothing is published. A command rewrites the whole word, so it is refused until the
+G12 has reported the current value. Each write is followed by a read-back, which the G12
+answers within about 1 ms. The live countdown runs inside the panel and is never sent on
+the bus, so it is not exposed.
+
 **Status topics** (relative to `status_topic`):
 
 | Sub-topic | Description |
@@ -188,6 +210,11 @@ to channel 18, which is correct for all AES 1-wire wiring.
 | `/lights/cargo_bath_ch25` | Cargo/bath light channel 25 |
 | `/lights/bunk_accent` | Bunk accent light setting |
 | `/engine/running` | Engine relay state (on/off) — requires `engine_relay_instance` |
+| `/pump/link` | Pump Link — water pump follows the bath light (on/off), selector `0xEE` |
+| `/pump/auto_off_minutes` | Water Pump Auto Off minutes (`0` = disabled), selector `0xEE` |
+| `/bms/battery_heater` | BMS manual heater session armed (on/off) — requires `bms_source_id` |
+| `/bms/battery_heater_contactor` | BMS heater relay actually closed (on/off) — requires `bms_source_id` |
+| `/bms/ignore_alarms` | BMS alarm-report mask active (on/off) — requires `bms_source_id` |
 | `/fault/code` | DM_RV fault code |
 | `/fault/description` | DM_RV fault description |
 | `/fault/lamp` | DM_RV lamp state |
@@ -242,6 +269,10 @@ been driven from this code. Adjust it on the touchscreen.
 | `/lights/bunk_accent` | Set bunk accent light |
 | `/ags/retry_interval` | Set AGS retry interval |
 | `/engine/start` | Start/stop engine — requires `engine_relay_instance` |
+| `/pump/link` | Set Pump Link (`on`/`off`) |
+| `/pump/auto_off_minutes` | Set Auto Off minutes (0–60, rounded to 5) |
+| `/bms/battery_heater` | `on` = 60-min heater lease, `off` = cancel — requires `bms_source_id` |
+| `/bms/ignore_alarms` | `on` = 10-min alarm mask, `off` = cancel — requires `bms_source_id` |
 
 **Floorplan entry example:**
 
@@ -254,6 +285,7 @@ floorplan:
     status_topic: rvc/state/g12
     command_topic: rvc/set/g12
     engine_relay_instance: 18   # optional; omit to disable the engine entities
+    bms_source_id: '70'         # optional; patched Renogy BMS heater / alarm mask
 ```
 
 ### G12 DC system (`dc_system` / `DC_SOURCE_STATUS_G12`)

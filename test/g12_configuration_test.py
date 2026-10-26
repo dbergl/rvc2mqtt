@@ -1366,10 +1366,12 @@ class Test_G12_ConfigurationHADiscovery(unittest.TestCase):
         g.publish_ha_discovery_config()
         configs = self._get_published_configs(g)
         matches = [c for c in configs
-                   if c.get('unit_of_measurement') == 'min'
-                   and 'state_topic' in c and 'command_topic' in c]
+                   if c.get('unique_id', '').endswith('_max_engine_run_time')]
         self.assertEqual(len(matches), 1)
-        self.assertIn('max_engine_run_time', matches[0]['unique_id'])
+        self.assertEqual(matches[0]['p'], 'number')
+        self.assertEqual(matches[0]['unit_of_measurement'], 'min')
+        self.assertIn('state_topic', matches[0])
+        self.assertIn('command_topic', matches[0])
 
     def test_publish_ha_discovery_config_publishes_number_for_stop_at_voltage(self):
         g = self._make_g12_for_discovery()
@@ -1483,6 +1485,208 @@ class Test_G12_ConfigurationHADiscovery(unittest.TestCase):
         with patch.object(g, 'publish_ha_discovery_config') as mock_pub:
             g.process_rvc_msg(msg)
             mock_pub.assert_called_once()
+
+
+class Test_G12_Pump_And_BMS(unittest.TestCase):
+    """Selector 0xEE (Pump Link + Auto Off) and the patched BMS's heater / alarm mask --
+    the custom panel build's (myfirmware mcf-dan-v54) four additions."""
+
+    def _make(self, bms_source_id=None, discovery=False):
+        mock = MagicMock()
+        mock.make_device_topic_string.return_value = 'topic_string'
+        mock.make_ha_auto_discovery_config_topic.return_value = 'ha/config/topic'
+        mock.get_bridge_ha_name.return_value = 'rvc2mqtt_bridge'
+        mock.bridge_state_topic = 'rvc2mqtt/bridge/state'
+        mock.TOPIC_BASE = 'rvc2mqtt'
+        mock.client_id = 'bridge'
+        data = {'instance': 1, 'instance_name': 'test g12', 'source_id': '9C',
+                'status_topic': 'g12/status', 'command_topic': 'g12/set'}
+        if bms_source_id is not None:
+            data['bms_source_id'] = bms_source_id
+        g = G12_Configuration(data, mock)
+        g.set_rvc_send_queue(queue.Queue())
+        return g
+
+    def _drain(self, g):
+        out = []
+        while not g.send_queue.empty():
+            out.append(g.send_queue.get_nowait())
+        return out
+
+    def _ee(self, g, data):
+        return g.process_rvc_msg({'name': 'G12_CONFIGURATION', 'source_id': '9C',
+                                  'message_type': 'EE', 'data': data})
+
+    def _bms(self, g, data, source_id='70'):
+        return g.process_rvc_msg({'name': 'RENOGY_BMS_HEATER_STATUS',
+                                  'source_id': source_id, 'data': data})
+
+    # --- 0xEE status ---
+
+    def test_ee_publishes_link_and_minutes(self):
+        g = self._make()
+        self.assertTrue(self._ee(g, 'EE001E0100000000'))   # 0x011E: link on, 30 min
+        g.mqtt_support.client.publish.assert_has_calls([
+            call('g12/status/pump/link', 'on', retain=True),
+            call('g12/status/pump/auto_off_minutes', 30, retain=True)])
+
+    def test_ee_zero_minutes_is_disabled_not_dropped(self):
+        g = self._make()
+        self._ee(g, 'EE00000000000000')
+        g.mqtt_support.client.publish.assert_has_calls([
+            call('g12/status/pump/link', 'off', retain=True),
+            call('g12/status/pump/auto_off_minutes', 0, retain=True)])
+
+    def test_ee_unset_publishes_nothing(self):
+        g = self._make()
+        self.assertTrue(self._ee(g, 'EE00FFFF00000000'))
+        g.mqtt_support.client.publish.assert_not_called()
+        self.assertIsNone(g._pump_word)
+
+    def test_ee_borrowed_words_ignored(self):
+        """PC.47: a D2 delta borrows across the byte boundary; the panel repairs it."""
+        g = self._make()
+        for data in ('EE001EFF00000000',    # flag byte 0xFF (link -0x100 while off)
+                     'EE00FB0000000000',    # minutes 0xFB (0 - 5)
+                     'EE001F0100000000'):   # 31 min, off the 5-minute grid
+            self._ee(g, data)
+        g.mqtt_support.client.publish.assert_not_called()
+        self.assertIsNone(g._pump_word)
+
+    def test_ee_no_publish_when_unchanged(self):
+        g = self._make()
+        self._ee(g, 'EE001E0100000000')
+        g.mqtt_support.client.publish.reset_mock()
+        self._ee(g, 'EE001E0100000000')
+        g.mqtt_support.client.publish.assert_not_called()
+
+    # --- 0xEE commands ---
+
+    def test_pump_link_set_preserves_minutes(self):
+        g = self._make()
+        self._ee(g, 'EE00190000000000')                     # link off, 25 min
+        g.process_mqtt_msg('g12/set/pump/link', 'on')
+        sent = self._drain(g)
+        self.assertEqual([i['dgn'] for i in sent], ['1FED9', '1FED9'])
+        self.assertEqual(bytes(sent[0]['data']), bytes.fromhex('FF96EE0F1901D1EA'))
+        self.assertEqual(bytes(sent[1]['data']), bytes.fromhex('FF96EE0FFFFFD3FF'))
+
+    def test_pump_auto_off_set_preserves_link_and_rounds(self):
+        g = self._make()
+        self._ee(g, 'EE001E0100000000')                     # link on, 30 min
+        g.process_mqtt_msg('g12/set/pump/auto_off_minutes', '42')
+        sent = self._drain(g)
+        self.assertEqual(bytes(sent[0]['data']), bytes.fromhex('FF96EE0F2801D1EA'))  # 40 min
+
+    def test_pump_auto_off_set_clamps(self):
+        g = self._make()
+        self._ee(g, 'EE001E0000000000')
+        g.process_mqtt_msg('g12/set/pump/auto_off_minutes', '500')
+        self.assertEqual(bytes(self._drain(g)[0]['data'])[4:6], bytes([60, 0]))
+        g.process_mqtt_msg('g12/set/pump/auto_off_minutes', '-5')
+        self.assertEqual(bytes(self._drain(g)[0]['data'])[4:6], bytes([0, 0]))
+
+    def test_pump_set_refused_before_ee_known(self):
+        g = self._make()
+        g.process_mqtt_msg('g12/set/pump/link', 'on')
+        self._ee(g, 'EE00FFFF00000000')
+        g.process_mqtt_msg('g12/set/pump/auto_off_minutes', '30')
+        self.assertEqual(self._drain(g), [])
+
+    def test_1fed9_ee_delta_not_snooped(self):
+        """The panel's stepper sends D2 deltas; a delta is not a state."""
+        g = self._make()
+        msg = {'name': 'GENERIC_INDICATOR_COMMAND', 'source_id': '9F',
+               'group': '10010110', 'data': 'FF96EE0F0500D2EA'}
+        self.assertTrue(g.process_rvc_msg(msg))
+        g.mqtt_support.client.publish.assert_not_called()
+
+    # --- BMS ---
+
+    def test_bms_not_claimed_without_source_id(self):
+        g = self._make()
+        self.assertFalse(self._bms(g, '70040300B80BCEFF'))
+        self.assertFalse(hasattr(g, 'battery_heater_topic'))
+        self.assertFalse(hasattr(g, 'battery_heater_set_topic'))
+
+    def test_bms_status_publishes_three_bits(self):
+        g = self._make(bms_source_id='70')
+        # byte 1 = 0x04 (contactor closed), byte 2 = 0x03 (session armed + mask active)
+        self.assertTrue(self._bms(g, '70040300B80BCEFF'))
+        g.mqtt_support.client.publish.assert_has_calls([
+            call('g12/status/bms/battery_heater', 'on', retain=True),
+            call('g12/status/bms/battery_heater_contactor', 'on', retain=True),
+            call('g12/status/bms/ignore_alarms', 'on', retain=True)])
+
+    def test_bms_status_all_off(self):
+        g = self._make(bms_source_id='70')
+        self._bms(g, '7008080000000000')     # ready + running only
+        g.mqtt_support.client.publish.assert_has_calls([
+            call('g12/status/bms/battery_heater', 'off', retain=True),
+            call('g12/status/bms/battery_heater_contactor', 'off', retain=True),
+            call('g12/status/bms/ignore_alarms', 'off', retain=True)])
+
+    def test_bms_status_wrong_source_ignored(self):
+        g = self._make(bms_source_id='70')
+        self.assertFalse(self._bms(g, '70040300B80BCEFF', source_id='71'))
+
+    def test_bms_status_bad_tag_claimed_not_published(self):
+        g = self._make(bms_source_id='70')
+        self.assertTrue(self._bms(g, '00040300B80BCEFF'))
+        g.mqtt_support.client.publish.assert_not_called()
+
+    def test_battery_heater_commands_match_panel(self):
+        g = self._make(bms_source_id='70')
+        g.process_mqtt_msg('g12/set/bms/battery_heater', 'on')
+        g.process_mqtt_msg('g12/set/bms/battery_heater', 'off')
+        sent = self._drain(g)
+        self.assertEqual([(i['dgn'], i['priority']) for i in sent], [('0EF70', '6')] * 2)
+        self.assertEqual(bytes(sent[0]['data']), bytes.fromhex('AA55000000008CA0'))
+        self.assertEqual(bytes(sent[1]['data']), bytes.fromhex('AA55000000000000'))
+
+    def test_ignore_alarms_commands_match_panel(self):
+        g = self._make(bms_source_id='70')
+        g.process_mqtt_msg('g12/set/bms/ignore_alarms', 'on')
+        g.process_mqtt_msg('g12/set/bms/ignore_alarms', 'off')
+        sent = self._drain(g)
+        self.assertEqual(bytes(sent[0]['data']), bytes.fromhex('4D53000000001770'))
+        self.assertEqual(bytes(sent[1]['data']), bytes.fromhex('4D53000000000000'))
+
+    def test_bms_command_arbitration_id(self):
+        from rvc2mqtt.rvc import RVC_Decoder
+        g = self._make(bms_source_id='70')
+        g.process_mqtt_msg('g12/set/bms/battery_heater', 'on')
+        item = self._drain(g)[0]
+        self.assertEqual(RVC_Decoder()._rvc_to_can_frame(item) >> 8, 0x18EF70)
+
+    # --- discovery ---
+
+    def _cmps(self, g):
+        import json as _json
+        g.publish_ha_discovery_config()
+        for c in g.mqtt_support.client.publish.call_args_list:
+            payload = _json.loads(c[0][1])
+            if 'cmps' in payload:
+                return payload['cmps']
+        self.fail('no discovery config published')
+
+    def test_discovery_pump_entities(self):
+        cmps = self._cmps(self._make())
+        self.assertEqual(cmps['pump_link']['p'], 'switch')
+        self.assertEqual(cmps['pump_link']['command_topic'], 'g12/set/pump/link')
+        self.assertEqual(cmps['pump_auto_off']['p'], 'number')
+        self.assertEqual((cmps['pump_auto_off']['min'], cmps['pump_auto_off']['max'],
+                          cmps['pump_auto_off']['step']), (0, 60, 5))
+
+    def test_discovery_bms_entities_only_when_configured(self):
+        cmps = self._cmps(self._make())
+        for k in ('battery_heater', 'ignore_alarms', 'battery_heater_contactor'):
+            self.assertNotIn(k, cmps)
+        cmps = self._cmps(self._make(bms_source_id='70'))
+        self.assertEqual(cmps['battery_heater']['p'], 'switch')
+        self.assertEqual(cmps['battery_heater']['command_topic'], 'g12/set/bms/battery_heater')
+        self.assertEqual(cmps['ignore_alarms']['p'], 'switch')
+        self.assertEqual(cmps['battery_heater_contactor']['p'], 'binary_sensor')
 
 
 if __name__ == '__main__':

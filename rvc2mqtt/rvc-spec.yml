@@ -5605,7 +5605,7 @@ Z0005:
         "E9": bath fan
         "EB": heat pump
         "EC": black tank
-        "EE": unidentified (observed)
+        "EE": pump link / pump auto off (custom panel firmware)
         "EF": generator/aes mode
         "F1": unidentified (floorplan-adjacent)
         "F2": unidentified (floorplan-adjacent)
@@ -5835,6 +5835,24 @@ Z0005:
   "EC":
     - byte: 2
       name: enabled
+      type: uint8
+      values:
+        0: "off"
+        1: "on"
+  "EE":
+    # Unused by stock firmware (sweeps as FFFF, "unset"). The custom Firefly panel
+    # build (myfirmware mcf-dan-v54, ops `pumplink` and `pumpauto`) packs two fields
+    # into this one u16 -- low byte = Water Pump Auto Off minutes (0 = disabled, else
+    # 5..60 in steps of 5), high byte = Pump Link flag (1 = the pump follows the bath
+    # light). The G12 stores it as a raw u16 with no clamp, so D2 deltas can borrow
+    # across the bytes; the panel repairs that within one tick, and the entity ignores
+    # off-grid values. See fireflymcf src/fireflymcf/pumpauto.py and
+    # docs/BUS-BASELINE.md PC.42/PC.45/PC.47.
+    - byte: 2
+      name: auto off minutes
+      type: uint8
+    - byte: 3
+      name: pump link
       type: uint8
       values:
         0: "off"
@@ -6322,6 +6340,68 @@ Z0005:
   comment: non-standard DGN for address claim
   name: ADDRESS_CLAIM
   alias: 0EEFF
+
+0FF70:
+  # Proprietary-B status broadcast by the PATCHED Renogy RBT210LFP51S-12 BMS (source
+  # 0x70, CAN ID 18FF7070), every ~2 s and right after any accepted 0EF70 heater/mask
+  # command. Not sent by stock BMS firmware. Layout from renogyBMS
+  # analysis/HEATER_STATUS_BROADCAST.md:
+  #   70 RR FF AA LL LL TT TT
+  #   byte 0   tag, always 0x70
+  #   byte 1   heater relay object: b0 request, b2 actual output (contactor), b3 ready
+  #   byte 2   flags: b0 manual heater session armed, b1 alarm mask active,
+  #            b2 over-temperature inhibit, b3 system running (state 3)
+  #   byte 3   charge low-temperature alarm object
+  #   byte 4-5 manual heater lease remaining, uint16 LE, 0.1 s
+  #   byte 6-7 minimum cell temperature, int16 LE, 0.1 degC (decoded raw here --
+  #            rvc.py has no signed type)
+  # The commands go the other way on 0EF70 (destination 0x70), 8 bytes big-endian:
+  #   AA 55 00 00 00 00 HH LL   manual heater lease, 100 ms units, 0 cancels
+  #   4D 53 00 00 00 00 HH LL   CAN1 alarm-report mask lease ("Ignore Alarms"), same
+  # entity/g12_configuration.py sends and decodes these (opt-in, `bms_source_id`).
+  name: RENOGY_BMS_HEATER_STATUS
+  parameters:
+    - byte: 0
+      name: tag
+      type: uint8
+    - byte: 1
+      bit: 0
+      name: heater request
+      type: uint1
+    - byte: 1
+      bit: 2
+      name: heater output
+      type: uint1
+    - byte: 1
+      bit: 3
+      name: heater ready
+      type: uint1
+    - byte: 2
+      bit: 0
+      name: manual session armed
+      type: uint1
+    - byte: 2
+      bit: 1
+      name: alarm mask active
+      type: uint1
+    - byte: 2
+      bit: 2
+      name: overtemperature inhibit
+      type: uint1
+    - byte: 2
+      bit: 3
+      name: system running
+      type: uint1
+    - byte: 3
+      name: charge low temperature alarm
+      type: uint8
+      unit: bitmap
+    - byte: 4-5
+      name: manual lease remaining
+      type: uint16
+    - byte: 6-7
+      name: minimum cell temperature raw
+      type: uint16
 
 0FF01:
   comment: >

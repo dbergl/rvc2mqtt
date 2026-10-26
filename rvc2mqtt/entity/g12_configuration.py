@@ -68,6 +68,25 @@ _SELECTOR_NAMES = {
 # status messages.
 AES_1WIRE_ENGINE_RELAY_INSTANCE = 18
 
+# Selector 0xEE, as the custom panel build (myfirmware mcf-dan-v54, ops `pumplink` and
+# `pumpauto`) uses it: one G12-stored u16 holding the Pump Link flag in the HIGH byte and
+# the Water Pump Auto Off minutes in the LOW byte (0 disables Auto Off, else 5..60 in steps
+# of 5). The layout is forced by the G12 storing it as a raw u16 with no clamp -- a delta
+# borrows across the byte boundary (fireflymcf BUS-BASELINE.md PC.47, pumpauto.py).
+PUMP_SELECTOR = 0xEE
+PUMP_UNSET = 0xFFFF            # what the G12 sweeps before anything has ever been stored
+PUMP_AUTO_OFF_MAX = 60
+PUMP_AUTO_OFF_STEP = 5
+
+# The patched Renogy BMS's 0EF70 commands (renogyBMS ..._rvc_status_patch.README.md), with
+# the leases the v54 panel buttons send (fireflymcf aescompact.py, ops `battheat` and
+# `alarms`). 8 bytes, BIG-endian: 2-byte magic, 4 reserved zero bytes, lease in 100 ms
+# ticks. A lease of 0 cancels.
+BMS_HEATER_MAGIC = 0xAA55
+BMS_ALARM_MASK_MAGIC = 0x4D53
+BMS_HEATER_LEASE = 36000       # 60 min -- the panel's "Battery Heater" hold
+BMS_ALARM_MASK_LEASE = 6000    # 10 min -- the panel's "Ignore Alarms" hold
+
 # Sanity envelopes for the two fields that have been observed carrying garbage
 # (65531, 0, and a raw value implying 7200 s while the entity was still in the
 # AES range) during an AGS/AES mode switch on 2026-09-01. These are the union of
@@ -105,6 +124,8 @@ class G12_Configuration(EntityPluginBaseClass):
       0xCE - 67%-100% tank threshold (value)
       0xE4 - bath light (mutually exclusive with 0xE3)
       0xEB - heat pump (on/off)
+      0xEE - Pump Link flag (high byte) + Water Pump Auto Off minutes (low byte);
+             custom panel firmware only, see PUMP_SELECTOR
 
     Note on 0xE3/0xE4: these are one bath-light choice, not two switches. Exactly one is
     active, and the touchscreen writes both together in opposite directions. The
@@ -132,6 +153,13 @@ class G12_Configuration(EntityPluginBaseClass):
         instance_name: "Generator Controller"
         status_topic: "rvc/g12/config"
         engine_relay_instance: 18   # optional; 18 on Ethos/Launch/Terrain
+        bms_source_id: '70'         # optional; patched Renogy BMS heater/alarm mask
+
+    Optionally exposes the custom panel's two BMS buttons, Battery Heater and Ignore
+    Alarms, which are not G12 messages at all: they are 0EF70 commands to the patched
+    Renogy BMS, which answers on 0FF70 (RENOGY_BMS_HEATER_STATUS). Opt-in via
+    `bms_source_id`, because a stock BMS neither sends that status nor honours the
+    commands.
     """
 
     def __init__(self, data: dict, mqtt_support: MQTT_Support):
@@ -156,6 +184,12 @@ class G12_Configuration(EntityPluginBaseClass):
         # entities - see _engine_relay_configured().
         self.engine_relay_instance = data.get('engine_relay_instance')
 
+        # The patched Renogy BMS's address (0x70 on the coach). Opt-in: without it this
+        # entity neither claims 0FF70 nor advertises the heater / alarm mask controls.
+        self.bms_source_id = data.get('bms_source_id')
+        if self.bms_source_id is not None:
+            self.bms_source_id = str(self.bms_source_id).upper()
+
         # RVC message must match the following to be this device
         self.rvc_match_g12_config     = {"name": "G12_CONFIGURATION", "source_id": self.source_id}
         self.rvc_match_initial_packet = {"name": "INITIAL_PACKET", "source_id": self.source_id}
@@ -173,6 +207,10 @@ class G12_Configuration(EntityPluginBaseClass):
             self.rvc_match_engine_status = {
                 "name": "DC_DIMMER_STATUS_3", "source_id": self.source_id,
                 "instance": self.engine_relay_instance}
+        self.rvc_match_bms_status = None
+        if self._bms_configured():
+            self.rvc_match_bms_status = {
+                "name": "RENOGY_BMS_HEATER_STATUS", "source_id": self.bms_source_id}
 
         # DM_RV
         self._fault_code = "unknown"
@@ -226,6 +264,12 @@ class G12_Configuration(EntityPluginBaseClass):
         self._aes_enabled            = "unknown"  # 0x9B (on/off)
         self._engine_running         = "unknown"  # engine on/off (from DC_DIMMER_STATUS_3 instance 18)
         self._max_charge_rate        = "unknown"  # 0x92 (percent; raw is 0.5%/bit)
+        self._pump_word              = None       # 0xEE last valid u16, for read-modify-write
+        self._pump_link              = "unknown"  # 0xEE high byte
+        self._pump_auto_off          = "unknown"  # 0xEE low byte (minutes, 0 = disabled)
+        self._battery_heater         = "unknown"  # 0FF70 byte 2 bit 0 (manual session armed)
+        self._battery_heater_output  = "unknown"  # 0FF70 byte 1 bit 2 (heater contactor)
+        self._ignore_alarms          = "unknown"  # 0FF70 byte 2 bit 1 (alarm mask active)
 
         if 'status_topic' in data:
             topic_base = str(data['status_topic'])
@@ -264,6 +308,12 @@ class G12_Configuration(EntityPluginBaseClass):
             self.max_charge_rate_topic       = str(f"{topic_base}/charger/max_charge_rate")
             self.aes_enabled_topic           = str(f"{topic_base}/aes/enabled")
             self.aes_engine_command_topic    = str(f"{topic_base}/aes/engine_command")
+            self.pump_link_topic             = str(f"{topic_base}/pump/link")
+            self.pump_auto_off_topic         = str(f"{topic_base}/pump/auto_off_minutes")
+            if self._bms_configured():
+                self.battery_heater_topic    = str(f"{topic_base}/bms/battery_heater")
+                self.battery_heater_output_topic = str(f"{topic_base}/bms/battery_heater_contactor")
+                self.ignore_alarms_topic     = str(f"{topic_base}/bms/ignore_alarms")
             if self._engine_relay_configured():
                 self.engine_running_topic    = str(f"{topic_base}/engine/running")
 
@@ -293,8 +343,13 @@ class G12_Configuration(EntityPluginBaseClass):
             self.go_power_controllers_set_topic  = str(f"{topic_base}/go_power/controller_count")
             self.ags_retry_interval_set_topic    = str(f"{topic_base}/ags/retry_interval")
             self.aes_enabled_set_topic           = str(f"{topic_base}/aes/enabled")
+            self.pump_link_set_topic             = str(f"{topic_base}/pump/link")
+            self.pump_auto_off_set_topic         = str(f"{topic_base}/pump/auto_off_minutes")
             if self._engine_relay_configured():
                 self.engine_start_set_topic      = str(f"{topic_base}/engine/start")
+            if self._bms_configured():
+                self.battery_heater_set_topic    = str(f"{topic_base}/bms/battery_heater")
+                self.ignore_alarms_set_topic     = str(f"{topic_base}/bms/ignore_alarms")
 
             self.mqtt_support.register(self.max_engine_run_time_set_topic, self.process_mqtt_msg)
             self.mqtt_support.register(self.time_at_start_volts_set_topic, self.process_mqtt_msg)
@@ -319,8 +374,13 @@ class G12_Configuration(EntityPluginBaseClass):
             self.mqtt_support.register(self.go_power_controllers_set_topic, self.process_mqtt_msg)
             self.mqtt_support.register(self.ags_retry_interval_set_topic, self.process_mqtt_msg)
             self.mqtt_support.register(self.aes_enabled_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.pump_link_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.pump_auto_off_set_topic, self.process_mqtt_msg)
             if self._engine_relay_configured():
                 self.mqtt_support.register(self.engine_start_set_topic, self.process_mqtt_msg)
+            if self._bms_configured():
+                self.mqtt_support.register(self.battery_heater_set_topic, self.process_mqtt_msg)
+                self.mqtt_support.register(self.ignore_alarms_set_topic, self.process_mqtt_msg)
 
     def _engine_relay_configured(self) -> bool:
         """True when the floorplan declared which dimmer channel is the engine relay.
@@ -330,6 +390,27 @@ class G12_Configuration(EntityPluginBaseClass):
         to the dimmer entities) or advertise engine controls it cannot drive.
         """
         return self.engine_relay_instance is not None
+
+    def _bms_configured(self) -> bool:
+        """True when the floorplan declared the patched Renogy BMS's source address."""
+        return self.bms_source_id is not None
+
+    def _bms_command(self, magic: int, lease: int) -> dict:
+        """A 0EF70-family send_queue item: proprietary-A, destination = the BMS.
+
+        The BMS accepts the command from any source address (18EF70xx), so the bridge's
+        own address is fine. Priority 6 is what the panel sends at.
+        """
+        return {"dgn": f"0EF{int(self.bms_source_id, 16):02X}", "priority": "6",
+                "data": bytearray(struct.pack(">HIH", magic, 0, lease))}
+
+    def _publish_change(self, attr: str, topic_attr: str, val):
+        """Store val in self.<attr> and publish it to self.<topic_attr> if it changed."""
+        if getattr(self, attr) == val:
+            return
+        setattr(self, attr, val)
+        if hasattr(self, topic_attr):
+            self.mqtt_support.client.publish(getattr(self, topic_attr), val, retain=True)
 
     def _engine_relay_frame(self, on: bool, instance: int = None) -> bytes:
         """Build the DC_DIMMER_COMMAND_2 (1FEDB) frame that drives the engine relay.
@@ -492,6 +573,24 @@ class G12_Configuration(EntityPluginBaseClass):
                 if hasattr(self, 'engine_running_topic'):
                     self.mqtt_support.client.publish(
                         self.engine_running_topic, val, retain=True)
+            return True
+
+        if (self.rvc_match_bms_status is not None
+                and self._is_entry_match(self.rvc_match_bms_status, new_message)):
+            raw = bytes.fromhex(new_message.get("data", ""))
+            if len(raw) < 3 or raw[0] != 0x70:
+                self.Logger.warning(
+                    f"RENOGY_BMS_HEATER_STATUS: unexpected payload {new_message.get('data')}")
+                return True
+            # What the v54 panel shows: the Battery Heater button lights on byte 2 bit 0
+            # (manual session armed), its contactor mark on byte 1 bit 2 (relay output),
+            # and Ignore Alarms on byte 2 bit 1 (alarm mask active).
+            self._publish_change('_battery_heater', 'battery_heater_topic',
+                                 "on" if raw[2] & 0x01 else "off")
+            self._publish_change('_battery_heater_output', 'battery_heater_output_topic',
+                                 "on" if raw[1] & 0x04 else "off")
+            self._publish_change('_ignore_alarms', 'ignore_alarms_topic',
+                                 "on" if raw[2] & 0x02 else "off")
             return True
 
         if self._is_entry_match(self.rvc_match_g12_indicator, new_message):
@@ -838,6 +937,31 @@ class G12_Configuration(EntityPluginBaseClass):
                     self.mqtt_support.client.publish(
                         self.black_tank_setting_topic, val, retain=True)
 
+        elif msg_type == "EE":  # 0xEE - Pump Link flag + Auto Off minutes
+            # Decoded from the raw bytes rather than the spec's two fields so the u16 can
+            # be kept whole for the read-modify-write in process_mqtt_msg. The panel's
+            # writes (D2 deltas, D1 clamp repairs) are not snooped from 1FED9: a delta is
+            # not a value, and the G12's sweep / D3 reply reports the result either way.
+            raw_data = bytes.fromhex(new_message.get("data", ""))
+            if len(raw_data) < 4:
+                self.Logger.warning(
+                    f"G12_CONFIGURATION EE payload too short: {new_message.get('data')}")
+                return True
+            word = raw_data[2] | (raw_data[3] << 8)
+            minutes, flag = word & 0xFF, word >> 8
+            if word == PUMP_UNSET:
+                # Never written (stock firmware, or a cleared cell). Nothing to report.
+                return True
+            if (flag not in (0, 1) or minutes > PUMP_AUTO_OFF_MAX
+                    or minutes % PUMP_AUTO_OFF_STEP):
+                # A borrow the panel's per-tick clamp repairs within ~16 ms; the next
+                # sweep or read-back will carry the corrected word.
+                self.Logger.debug(f"G12 0xEE off-grid word {word:#06x}, ignoring")
+                return True
+            self._pump_word = word
+            self._publish_change('_pump_link', 'pump_link_topic', "on" if flag else "off")
+            self._publish_change('_pump_auto_off', 'pump_auto_off_topic', minutes)
+
         elif msg_type == "EF":  # 0xEF - generator/AES mode
             val = new_message.get("mode_definition", new_message.get("mode"))
             if val is not None and val != self._gen_aes_mode:
@@ -1138,6 +1262,43 @@ class G12_Configuration(EntityPluginBaseClass):
                 self._publish_aes_enabled("on" if enable else "off")
                 return
 
+            elif topic in (self.pump_link_set_topic, self.pump_auto_off_set_topic):
+                # Both fields share one u16, written absolute (D1) and read back (D3), the
+                # same pair the panel's own routine sends. The other field is carried over
+                # from the last valid word, so it must be known first.
+                if self._pump_word is None:
+                    self.Logger.warning(
+                        f"Cannot set {topic}: selector 0xEE not yet reported by the G12 "
+                        f"(or never set -- set it once on the touchscreen).")
+                    return
+                minutes, link = self._pump_word & 0xFF, self._pump_word >> 8
+                if topic == self.pump_link_set_topic:
+                    link = 1 if payload.lower() == 'on' else 0
+                else:
+                    stepped = round(float(payload) / PUMP_AUTO_OFF_STEP) * PUMP_AUTO_OFF_STEP
+                    minutes = max(0, min(PUMP_AUTO_OFF_MAX, stepped))
+                word = (link << 8) | minutes
+                frames = [
+                    struct.pack("<BBBBHBB", 0xFF, 0x96, PUMP_SELECTOR, 0x0F, word, 0xD1, 0xEA),
+                    struct.pack("<BBBBHBB", 0xFF, 0x96, PUMP_SELECTOR, 0x0F, 0xFFFF, 0xD3, 0xFF),
+                ]
+                for f in frames:
+                    self.send_queue.put({"dgn": "1FED9", "data": bytearray(f)})
+                return
+
+            elif self._bms_configured() and topic in (self.battery_heater_set_topic,
+                                                      self.ignore_alarms_set_topic):
+                # On sends the panel's lease, off cancels it. Nothing is published here:
+                # the BMS answers an accepted command with a 0FF70 status within ms.
+                on = payload.lower() == 'on'
+                if topic == self.battery_heater_set_topic:
+                    item = self._bms_command(BMS_HEATER_MAGIC, BMS_HEATER_LEASE if on else 0)
+                else:
+                    item = self._bms_command(BMS_ALARM_MASK_MAGIC,
+                                             BMS_ALARM_MASK_LEASE if on else 0)
+                self.send_queue.put(item)
+                return
+
             elif (self._engine_relay_configured()
                     and topic == self.engine_start_set_topic):
                 frame = self._engine_relay_frame(on=payload.lower() == 'on')
@@ -1371,6 +1532,50 @@ class G12_Configuration(EntityPluginBaseClass):
                 'p': 'sensor', 'name': 'AES Last Engine Command',
                 'state_topic': self.aes_engine_command_topic,
                 'unique_id': self.unique_device_id + '_aes_engine_command'}
+
+        # --- Water Pump: Pump Link + Auto Off (selector 0xEE, custom panel firmware) ---
+        cmps['pump_link'] = {
+            'p': 'switch' if has_new_cmd else 'binary_sensor',
+            'name': 'Pump Link',
+            'state_topic': self.pump_link_topic,
+            'payload_on': 'on', 'payload_off': 'off',
+            'unique_id': self.unique_device_id + '_pump_link'}
+        if has_new_cmd:
+            cmps['pump_link']['command_topic'] = self.pump_link_set_topic
+
+        cmps['pump_auto_off'] = {
+            'p': 'number' if has_new_cmd else 'sensor',
+            'name': 'Pump Auto Off',
+            'state_topic': self.pump_auto_off_topic,
+            'unit_of_measurement': 'min',
+            'min': 0, 'max': PUMP_AUTO_OFF_MAX, 'step': PUMP_AUTO_OFF_STEP, 'mode': 'auto',
+            'unique_id': self.unique_device_id + '_pump_auto_off'}
+        if has_new_cmd:
+            cmps['pump_auto_off']['command_topic'] = self.pump_auto_off_set_topic
+
+        # --- BMS Battery Heater / Ignore Alarms (requires bms_source_id) ---
+        if hasattr(self, 'battery_heater_topic'):
+            bms_cmd = hasattr(self, 'battery_heater_set_topic')
+            for sub_id, state_topic, cmd_topic, label in (
+                    ('battery_heater', self.battery_heater_topic,
+                     getattr(self, 'battery_heater_set_topic', None), 'Battery Heater'),
+                    ('ignore_alarms', self.ignore_alarms_topic,
+                     getattr(self, 'ignore_alarms_set_topic', None), 'Ignore Alarms')):
+                cmp = {'name': label, 'state_topic': state_topic,
+                       'payload_on': 'on', 'payload_off': 'off',
+                       'unique_id': self.unique_device_id + '_' + sub_id}
+                if bms_cmd:
+                    cmp['p'] = 'switch'
+                    cmp['command_topic'] = cmd_topic
+                else:
+                    cmp['p'] = 'binary_sensor'
+                cmps[sub_id] = cmp
+            cmps['battery_heater_contactor'] = {
+                'p': 'binary_sensor', 'name': 'Battery Heater Contactor',
+                'state_topic': self.battery_heater_output_topic,
+                'device_class': 'heat',
+                'payload_on': 'on', 'payload_off': 'off',
+                'unique_id': self.unique_device_id + '_battery_heater_contactor'}
 
         # --- newly discovered on/off settings (switch when writable) ---
         onoff_specs = [
