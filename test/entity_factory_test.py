@@ -100,6 +100,13 @@ class Test_EntityFactory(unittest.TestCase):
 
     # --- general matching behavior ---
 
+    def test_virtual_aircon_type_resolves(self):
+        entity = self._make({'name': 'VIRTUAL_AIRCON', 'type': 'virtual_aircon', 'instance': 7,
+                             'instance_name': 'Air Conditioner'})
+        self.assertIsNotNone(entity)
+        self.assertEqual(type(entity).__name__, 'VirtualAircon')
+        self.assertEqual(entity.id, 'virtual-aircon-1FFE2-i7')
+
     def test_unknown_type_returns_none(self):
         self.assertIsNone(self._make({'name': 'DC_DIMMER_STATUS_3', 'instance': 1,
                                       'type': 'not_a_real_type',
