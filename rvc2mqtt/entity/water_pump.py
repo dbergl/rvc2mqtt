@@ -163,6 +163,8 @@ class WaterPumpClass(EntityPluginBaseClass):
 
     def process_mqtt_msg(self, topic, payload, properties = None):
         """ mqtt message to turn on or off the power switch for the pump"""
+        if not payload:
+            return
 
         self.Logger.debug(
             f"MQTT Msg Received on topic {topic} with payload {payload}")

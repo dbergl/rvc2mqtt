@@ -24,6 +24,35 @@ from paho.mqtt.properties import Properties
 from paho.mqtt.packettypes import PacketTypes
 
 
+class _RetainTracker:
+    """Transparent proxy around a paho client that tracks:
+    - retain=True publish topics (for state cleanup on reload)
+    - HA discovery config topics (retain=False, for HA entity removal on reload)
+    """
+    def __init__(self, real_client, ha_discovery_prefix=None):
+        self._real_client = real_client
+        self._retained_topics: set = set()
+        self._discovery_topics: set = set()
+        self._ha_discovery_prefix = ha_discovery_prefix
+
+    def publish(self, topic, payload=None, qos=0, retain=False, properties=None):
+        is_real_payload = payload is not None and payload != "" and payload != b""
+        if retain:
+            if is_real_payload:
+                self._retained_topics.add(topic)
+            else:
+                self._retained_topics.discard(topic)
+        elif self._ha_discovery_prefix and topic.startswith(self._ha_discovery_prefix):
+            if is_real_payload:
+                self._discovery_topics.add(topic)
+            else:
+                self._discovery_topics.discard(topic)
+        return self._real_client.publish(topic, payload, qos, retain, properties)
+
+    def __getattr__(self, name):
+        return getattr(self._real_client, name)
+
+
 class MQTT_Support(object):
     TOPIC_BASE = "rvc2mqtt"
     HA_AUTO_BASE = "homeassistant"
@@ -47,13 +76,51 @@ class MQTT_Support(object):
         self.registered_mqtt_devices = {}
 
 
-    def register(self, topic, func):
-        self.registered_mqtt_devices[topic] = func
+    def register(self, topic, func, retain_ok=False):
+        """Register a topic handler.
+
+        retain_ok=False (default): retained messages delivered on subscribe are
+        silently dropped.  Use this for command/set topics so that a previously
+        retained command is never re-executed when the bridge restarts.
+
+        retain_ok=True: retained messages are passed through.  Use this when
+        subscribing to a state topic purely to pre-seed local state on startup.
+        """
+        self.registered_mqtt_devices[topic] = (func, retain_ok)
         if self._connected:
+            if not retain_ok:
+                self.client.publish(topic, "", retain=True)
             self.client.subscribe(topic, options=SubscribeOptions(qos=0), properties=Properties(PacketTypes.SUBSCRIBE))
 
     def set_client(self, client: mqc):
-        self.client = client
+        self.client = _RetainTracker(client, MQTT_Support.HA_AUTO_BASE)
+
+    def clear_all_retained(self):
+        """Clear all retained state topics. Does NOT clear discovery topics — call
+        clear_stale_discovery_topics() after re-initializing entities to remove only
+        the topics that were not re-published."""
+        for topic in list(self.client._retained_topics):
+            self.client.publish(topic, "", retain=True)
+        self.client._retained_topics.clear()
+
+    def get_discovery_topics(self) -> set:
+        """Return a snapshot of the currently tracked discovery topics."""
+        return set(self.client._discovery_topics)
+
+    def clear_stale_discovery_topics(self, old_topics: set):
+        """Send empty payloads for discovery topics that existed before a reload
+        but were not re-published afterward (i.e. entities removed from the floorplan)."""
+        stale = old_topics - self.client._discovery_topics
+        for topic in stale:
+            self.client.publish(topic, "", retain=False)
+
+    def unregister_all(self):
+        """Unsubscribe from all registered topics and clear the registry."""
+        topics = list(self.registered_mqtt_devices.keys())
+        if topics and self._connected:
+            self.client.unsubscribe(topics)
+        self.registered_mqtt_devices = {}
+
 
     def on_connect(self, client, userdata, flags, reason_code, properties):
         """ callback function for when it has been connected.
@@ -65,6 +132,11 @@ class MQTT_Support(object):
             self.client.publish(self.bridge_state_topic, "online", retain=True)
             
             self._connected = True
+            # Clear stale retained messages on command/set topics BEFORE subscribing
+            # so the broker drops the retained message before it can be delivered to us.
+            for topic, (_, retain_ok) in self.registered_mqtt_devices.items():
+                if not retain_ok:
+                    self.client.publish(topic, "", retain=True)
             topic_tuple_list = [(x, 0) for x in self.registered_mqtt_devices.keys()]
             if len(topic_tuple_list) > 0:
                 self.client.subscribe(topic_tuple_list)
@@ -77,7 +149,10 @@ class MQTT_Support(object):
 
     def on_message(self, client, userdata, msg, properties=None):
         if msg.topic in self.registered_mqtt_devices:
-            func = self.registered_mqtt_devices[msg.topic]
+            func, retain_ok = self.registered_mqtt_devices[msg.topic]
+            if msg.retain and not retain_ok:
+                self.Logger.debug(f"Dropping retained message on topic '{msg.topic}' (retain_ok=False)")
+                return
             func(msg.topic, msg.payload.decode('utf-8'), msg.properties)
         else:
             self.Logger.warning("Received mqtt message without a device registered '" + str(msg.payload) + "' on topic '" + msg.topic + "' with QoS " + str(msg.qos))
@@ -133,9 +208,17 @@ class MQTT_Support(object):
 
 
 
+    def publish_bridge_online(self):
+        """Publish bridge availability as online."""
+        self.client.publish(self.bridge_state_topic, "online", retain=True)
+
+    def publish_bridge_offline(self):
+        """Publish bridge availability as offline."""
+        self.client.publish(self.bridge_state_topic, "offline", retain=True)
+
     def shutdown(self):
         """ shutdown.  Tell server we are going offline"""
-        self.client.publish(self.bridge_state_topic, "offline", retain=True)
+        self.publish_bridge_offline()
         
  ## GLOBALS ##       
 gMQTTObj:MQTT_Support = None
@@ -174,7 +257,6 @@ def MqttInitalize(host:str, port:str, user:str, password:str, client_id:str, top
 
     try:
         logging.getLogger(__name__).info(f"Connecting to MQTT broker {host}:{port}")
-        connproperties = Properties(PacketTypes.CONNECT)
         mqttc.connect(host, port=port, properties=Properties(PacketTypes.CONNECT))
         return gMQTTObj
     

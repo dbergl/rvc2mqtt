@@ -48,6 +48,24 @@ Then to run the docker image.  Personally I use portainer to make the image with
 all the environment variables, volumes, and values setup.  Docker_compose would make more sense for easy sharing here. 
 
 
+## Reloading configuration without restart
+
+Send `SIGHUP` to the running process to reload the floorplan and override files without
+restarting the container.  The app will tear down existing entities, clear stale Home
+Assistant discovery configs, re-read both floorplan files (and the override file), and
+republish discovery for all entities.
+
+```bash
+# Docker: find the PID inside the container and signal it
+docker exec <container_name> kill -HUP 1
+
+# Or if running directly
+kill -HUP $(pgrep -f rvc2mqtt.app)
+```
+
+The override file is also re-read on every reload, so threshold or naming changes take
+effect without editing the primary floorplan.
+
 ## build it locally
 
 ```bash

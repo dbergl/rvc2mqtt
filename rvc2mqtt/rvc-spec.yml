@@ -75,7 +75,46 @@ API_VERSION: 0
       unit: hex
 
 0EE00:
-  name: ADDRESS_CLAIMED
+  name: ADDRESS_CLAIM
+  parameters:
+    - byte: 0
+      name: serial number-lsb
+    - byte: 1
+      name: serial number
+    - byte: 2
+      bit: 0-4
+      name: serial number-msb
+    - byte: 2
+      bit: 5-7
+      name: manufacturer code-lsb
+    - byte: 3
+      name: manufacturer code
+    - byte: 4
+      bit: 0-2
+      name: node instance
+    - byte: 4
+      bit: 3-7
+      name: function instance
+    - byte: 5
+      name: compatibility field 0
+    - byte: 6
+      bit: 0
+      name: reserved
+    - byte: 6
+      bit: 1-7 
+      name: compatibility field 1
+    - byte: 7
+      bit: 0-3 
+      name: compatibility field 2
+    - byte: 7
+      bit: 4-6 
+      name: compatibility field 3
+    - byte: 7
+      bit: 7 
+      name: arbitrary address capable
+      values:
+        00: node supports address claiming
+        01: node uses fixed source address
 
 17F:
   name: GENERAL_RESET
@@ -1015,17 +1054,548 @@ API_VERSION: 0
       name: tag axle left right spring
       type: uint8
 
-1FFEE:
-  name: LEVELING_CONTROL_COMMAND
-
 1FFED:
   name: LEVELING_CONTROL_STATUS
+  parameters:
+    - byte: 0
+      name: Operating mode
+      type: uint8
+      values:
+        0: Inactive
+        1: Suspension raise (all air springs) active
+        2: Suspension dump (all air springs) active
+        3: Store active (store jacks/go to ride height)
+        4: Manual air leveling (Deprecated in favor of 41-44)
+        5: Automatic air leveling started
+        6: Start deploy kick-down jacks
+        7: Manual hydraulic leveling (Deprecated in favor of 71-74)
+        8: Automatic hydraulic/electric leveling started
+        9: Kneel started (dump front air springs only)
+        10: Auto hitch height
+        11: Abort Function
+        12: Careen Left. (i.e. Tilt towards street side.)
+        13: Careen Right. (i.e. Tilt towards curb side.)
+        14: Squat. (i.e. Dump rear bags only.)
+        34: Jack calibration mode
+        41: Manual air leveling - Four point
+        42: Manual air leveling - Biax mode
+        43: Manual air leveling - 3 point mode
+        44: Manual air leveling - Multi point mode 5+
+        51: Automatic air leveling - Four point
+        52: Automatic air leveling - Biax mode
+        53: Automatic air leveling - 3 point mode
+        54: Automatic air leveling - Multi point mode 5+
+        71: Manual hydraulic/electric leveling - Four point
+        72: Manual hydraulic/electric leveling - Biax mode
+        73: Manual hydraulic/electric leveling - 3 point mode
+        74: Manual hydraulic leveling - Multi point mode 5+
+        81: Automatic hydraulic leveling - Four point
+        82: Automatic hydraulic leveling - Biax mode
+        83: Automatic hydraulic leveling - 3 point mode
+        84: Automatic hydraulic leveling - Multi point mode 5+
+        99: Clear Jack error
+    - byte: 1
+      bit: 0-1
+      name: Automatic Jack stabilization status
+      type: uint2
+      values:
+        0: Automatic jack stabilization not in process
+        1: Automatic jack stabilization in process
+    - byte: 1
+      bit: 2-3
+      name: Air leveling sleep mode
+      type: uint2
+      values:
+        0: Air leveling in active mode
+        1: Air leveling in sleep mode
+    - byte: 1
+      bit: 4-5
+      name: Air re-leveling mode
+      type: uint2
+      values:
+        0: Re-leveling not active
+    - byte: 2
+      bit: 0-1
+      name: Excessive slope initial warning
+      type: uint2
+      values:
+        0: No warning
+        1: Warning - excessive slope prevents leveling; unit shall try again later
+    - byte: 2
+      bit: 2-3
+      name: Excessive slope final warning
+      type: uint2
+      values:
+        0: No warning
+        1: Warning - excessive slope prevents leveling; no further attempt shall be made
+    - byte: 2
+      bit: 4-5
+      name: Leveling system master warning
+      comment: This bit field was added as a way to signal a general warning such as jacks are deployed, etc. This should be deprecated in favor of the newer "GENERIC_ALARM" DGN’s
+      type: uint2
+      values:
+        0: No warning
+        1: Warning
+    - byte: 3
+      bit: 0-1
+      name: Jack Retract /Air Spring Dump 1
+      comment: Four point mode - Left Rear, Biax mode - Rear, 3 point mode - Left Rear, Multi point mode - Left Rear
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 3
+      bit: 2-3
+      name: Jack Extend /Air Spring Fill 1
+      comment: Four point mode - Left Rear, Biax mode - Rear, 3 point mode - Left Rear, Multi point mode - Left Rear
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 3
+      bit: 4-5
+      name: Jack Retract /Air Spring Dump 2
+      comment: Four point mode - Right Front, Biax mode - Front, 3 point mode - N/A, Multi point mode - Right Front
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 3
+      bit: 6-7
+      name: Jack Extend /Air Spring Fill 2
+      comment: Four point mode - Right Front, Biax mode - Front, 3 point mode - N/A, Multi point mode - Right Front
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 4
+      bit: 0-1
+      name: Jack Retract /Air Spring Dump 3
+      comment: Four point mode - Right Rear, Biax mode - Right, 3 point mode - Right, Multi point mode - Right Rear
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 4
+      bit: 2-3
+      name: Jack Extend /Air Spring Fill 3
+      comment: Four point mode - Right Rear, Biax mode - Rear, 3 point mode - Right , Multi point mode - Right Rear
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 4
+      bit: 4-5
+      name: Jack Retract /Air Spring Dump 4
+      comment: Four point mode - Left Front, Biax mode - Left, 3 point mode - Front, Multi point mode - Left Front
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 4
+      bit: 6-7
+      name: Jack Extend /Air Spring Fill 4
+      comment: Four point mode - Left Front, Biax mode - Left, 3 point mode - Front, Multi point mode - Left Front
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 5
+      bit: 0-1
+      name: Jack Retract /Air Spring Dump 5
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Left Middle
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 5
+      bit: 2-3
+      name: Jack Extend /Air Spring Fill 5
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Left Middle
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 5
+      bit: 4-5
+      name: Jack Retract /Air Spring Dump 6
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Right Middle
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 5
+      bit: 6-7
+      name: Jack Extend /Air Spring Fill 6
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Right Middle
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 6
+      bit: 0-1
+      name: Jack Retract 7
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Tongue
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 6
+      bit: 2-3
+      name: Jack Extend 7
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Tongue
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 7
+      bit: 0-1
+      name: Park Brake
+      comment: The status of the park brake lock, typically derived from the Chassis Mobility Status DGN but possibly from another source
+      type: uint2
+      values:
+        0: Leveling system may operate
+        1: Leveling system may not operate because of Park Brake status
+
+
+1FFEE:
+  name: LEVELING_CONTROL_COMMAND
+  parameters:
+    - byte: 0
+      name: Operating mode
+      type: uint8
+      values:
+        0: Inactive
+        1: Suspension raise (all air springs) active
+        2: Suspension dump (all air springs) active
+        3: Store active (store jacks/go to ride height)
+        4: Manual air leveling (Deprecated in favor of 41-44)
+        5: Automatic air leveling started
+        6: Start deploy kick-down jacks
+        7: Manual hydraulic leveling (Deprecated in favor of 71-74)
+        8: Automatic hydraulic/electric leveling started
+        9: Kneel started (dump front air springs only)
+        10: Auto hitch height
+        11: Abort Function
+        12: Careen Left. (i.e. Tilt towards street side.)
+        13: Careen Right. (i.e. Tilt towards curb side.)
+        14: Squat. (i.e. Dump rear bags only.)
+        34: Jack calibration mode
+        41: Manual air leveling - Four point
+        42: Manual air leveling - Biax mode
+        43: Manual air leveling - 3 point mode
+        44: Manual air leveling - Multi point mode 5+
+        51: Automatic air leveling - Four point
+        52: Automatic air leveling - Biax mode
+        53: Automatic air leveling - 3 point mode
+        54: Automatic air leveling - Multi point mode 5+
+        71: Manual hydraulic/electric leveling - Four point
+        72: Manual hydraulic/electric leveling - Biax mode
+        73: Manual hydraulic/electric leveling - 3 point mode
+        74: Manual hydraulic leveling - Multi point mode 5+
+        81: Automatic hydraulic leveling - Four point
+        82: Automatic hydraulic leveling - Biax mode
+        83: Automatic hydraulic leveling - 3 point mode
+        84: Automatic hydraulic leveling - Multi point mode 5+
+        99: Clear Jack error
+    - byte: 1
+      bit: 0-1
+      name: Jack Retract /Air Spring Dump 1
+      comment: Four point mode - Left Rear, Biax mode - Rear, 3 point mode - Left Rear, Multi point mode - Left Rear
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 1
+      bit: 2-3
+      name: Jack Extend /Air Spring Fill 1
+      comment: Four point mode - Left Rear, Biax mode - Rear, 3 point mode - Left Rear, Multi point mode - Left Rear
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 1
+      bit: 4-5
+      name: Jack Retract /Air Spring Dump 2
+      comment: Four point mode - Right Front, Biax mode - Front, 3 point mode - N/A, Multi point mode - Right Front
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 1
+      bit: 6-7
+      name: Jack Extend /Air Spring Fill 2
+      comment: Four point mode - Right Front, Biax mode - Front, 3 point mode - N/A, Multi point mode - Right Front
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 2
+      bit: 0-1
+      name: Jack Retract /Air Spring Dump 3
+      comment: Four point mode - Right Rear, Biax mode - Right, 3 point mode - Right, Multi point mode - Right Rear
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 2
+      bit: 2-3
+      name: Jack Extend /Air Spring Fill 3
+      comment: Four point mode - Right Rear, Biax mode - Rear, 3 point mode - Right , Multi point mode - Right Rear
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 2
+      bit: 4-5
+      name: Jack Retract /Air Spring Dump 4
+      comment: Four point mode - Left Front, Biax mode - Left, 3 point mode - Front, Multi point mode - Left Front
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 2
+      bit: 6-7
+      name: Jack Extend /Air Spring Fill 4
+      comment: Four point mode - Left Front, Biax mode - Left, 3 point mode - Front, Multi point mode - Left Front
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 3
+      bit: 0-1
+      name: Jack Retract /Air Spring Dump 5
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Left Middle
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 3
+      bit: 2-3
+      name: Jack Extend /Air Spring Fill 5
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Left Middle
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 3
+      bit: 4-5
+      name: Jack Retract /Air Spring Dump 6
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Right Middle
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 3
+      bit: 6-7
+      name: Jack Extend /Air Spring Fill 6
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Right Middle
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 4
+      bit: 0-1
+      name: Jack Retract 7
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Tongue
+      type: uint2
+      values:
+        0: Off
+        1: On
+    - byte: 4
+      bit: 2-3
+      name: Jack Extend 7
+      comment: Four point mode - N/A, Biax mode - N/A, 3 point mode - N/A, Multi point mode - Tongue
+      type: uint2
+      values:
+        0: Off
+        1: On
 
 1FFEC:
   name: LEVELING_JACK_STATUS
+  parameters:
+    - byte: 0
+      bit: 0-3
+      name: Jack type
+      type: uint4
+      values:
+        0: Straight Acting
+        1: Kick-Down
+    - byte: 0
+      bit: 4-7
+      name: Number of jacks
+      type: uint4
+    - byte: 1
+      bit: 0-1
+      name: Extension
+      comment: Left rear (four point), Left rear (three point)
+      type: uint2
+      values:
+        0: No Action
+        1: Jack is Extended. Coach is not safe to move
+    - byte: 1
+      bit: 2-3
+      name: Extension
+      comment: Right front (four point), N/A (three point)
+      type: uint2
+      values:
+        0: No Action
+        1: Jack is Extended. Coach is not safe to move
+    - byte: 1
+      bit: 4-5
+      name: Extension
+      comment: Right rear (four point), Right rear (three point)
+      type: uint2
+      values:
+        0: No Action
+        1: Jack is Extended. Coach is not safe to move
+    - byte: 1
+      bit: 6-7
+      name: Extension
+      comment: Left front (four point), Front (three point)
+      type: uint2
+      values:
+        0: No Action
+        1: Jack is Extended. Coach is not safe to move
+    - byte: 2
+      bit: 0-1
+      name: Extension - Auxiliary jack #1
+      type: uint2
+      values:
+        0: No Action
+        1: Jack is Extended. Coach is not safe to move
+    - byte: 2
+      bit: 2-3
+      name: Extension - Auxiliary jack #2
+      type: uint2
+      values:
+        0: No Action
+        1: Jack is Extended. Coach is not safe to move
+    - byte: 2
+      bit: 4-5
+      name: Extension - Auxiliary jack #3
+      type: uint2
+      values:
+        0: No Action
+        1: Jack is Extended. Coach is not safe to move
+    - byte: 2
+      bit: 6-7
+      name: Extension - Auxiliary jack #4
+      type: uint2
+      values:
+        0: No Action
+        1: Jack is Extended. Coach is not safe to move
+    - byte: 3
+      bit: 0-1
+      name: Stability
+      comment: Left rear (four point), Left rear (three point)
+      type: uint2
+      values:
+        0: No Action
+        1: Pressure detected. Jack is bearing weight on the ground
+    - byte: 3
+      bit: 2-3
+      name: Stability
+      comment: Right front (four point), N/A (three point)
+      type: uint2
+      values:
+        0: No Action
+        1: Pressure detected. Jack is bearing weight on the ground
+    - byte: 3
+      bit: 4-5
+      name: Stability
+      comment: Right rear (four point), Right rear (three point)
+      type: uint2
+      values:
+        0: No Action
+        1: Pressure detected. Jack is bearing weight on the ground
+    - byte: 3
+      bit: 6-7
+      name: Stability
+      comment: Left front (four point), Front (three point)
+      type: uint2
+      values:
+        0: No Action
+        1: Pressure detected. Jack is bearing weight on the ground
+    - byte: 4
+      bit: 0-1
+      name: Stability - Auxiliary jack #1
+      type: uint2
+      values:
+        0: No Action
+        1: Pressure detected. Jack is bearing weight on the ground
+    - byte: 4
+      bit: 2-3
+      name: Stability - Auxiliary jack #2
+      type: uint2
+      values:
+        0: No Action
+        1: Pressure detected. Jack is bearing weight on the ground
+    - byte: 4
+      bit: 4-5
+      name: Stability - Auxiliary jack #3
+      type: uint2
+      values:
+        0: No Action
+        1: Pressure detected. Jack is bearing weight on the ground
+    - byte: 4
+      bit: 6-7
+      name: Stability - Auxiliary jack #4
+      type: uint2
+      values:
+        0: No Action
+        1: Pressure detected. Jack is bearing weight on the ground
 
 1FFEB:
   name: LEVELING_SENSOR_STATUS
+  parameters:
+    - byte: 0
+      bit: 0-1
+      name: Vehicle attitude - Driver side
+      type: uint2
+      values:
+        0: Side is at or above level
+        1: Side is below level
+    - byte: 0
+      bit: 2-3
+      name: Vehicle attitude - Front
+      type: uint2
+      values:
+        0: Side is at or above level
+        1: Side is below level
+    - byte: 0
+      bit: 4-5
+      name: Vehicle attitude - Passenger side
+      type: uint2
+      values:
+        0: Side is at or above level
+        1: Side is below level
+    - byte: 0
+      bit: 6-7
+      name: Vehicle attitude - Rear
+      type: uint2
+      values:
+        0: Side is at or above level
+        1: Side is below level
+    - byte: 1-2
+      name: Pitch
+      comment: Precision = 1/128 Deg, Offset = -200 Deg, Value range = -200 to 300 Deg, Negative = Nose is low, Positive = Nose is high, 0 = Level
+      type: uint16
+      unit: deg
+    - byte: 3-4
+      name: Roll
+      comment: Precision = 1/128 Deg, Offset = -200 Deg, Value range = -200 to 300 Deg, Negative = Driver side is low, Positive = Driver side is high, 0 = Level
+      type: uint16
+      unit: deg
+    - byte: 5-6
+      name: Secondary Pitch
+      comment: Precision = 1/128 Deg, Offset = -200 Deg, Value range = -200 to 300 Deg, Negative = Nose is low, Positive = Nose is high, 0 = Level
+      type: uint16
+      unit: deg
+    - byte: 7
+      name: Instance
+      comment: 0-250 = Sensor instance, 255 = Single sensor system
+      type: uint8
 
 1FFEA:
   name: HYDRAULIC_PUMP_STATUS
@@ -1229,6 +1799,23 @@ API_VERSION: 0
       values:
         00: disabled
         01: enabled
+      comment: The units shall operate in a low noise emission mode.
+    - byte: 3
+      bit: 2-3
+      name: eco mode
+      type: bit2
+      values:
+        00: disabled
+        01: enabled
+      comment: The units shall operate in a low energy operation mode.
+    - byte: 3
+      bit: 4-5
+      name: turbo mode
+      type: bit2
+      values:
+        00: disabled
+        01: enabled
+      comment: The units shall operate in a high-performance mode.
 
 1FEF9:
   name: THERMOSTAT_COMMAND_1
@@ -1244,6 +1831,33 @@ API_VERSION: 0
     - byte: 1
       name: current schedule instance
       type: uint8
+      values:
+        251: reset to current instance
+      comment: 251 forces the unit to check its schedule and resume the scheduled instance.
+    - byte: 2
+      bit: 0-1
+      name: reduced noise mode
+      type: bit2
+      values:
+        00: disabled
+        01: enabled
+      comment: The units shall operate in a low noise emission mode.
+    - byte: 2
+      bit: 2-3
+      name: eco mode
+      type: bit2
+      values:
+        00: disabled
+        01: enabled
+      comment: The units shall operate in a low energy operation mode.
+    - byte: 2
+      bit: 4-5
+      name: turbo mode
+      type: bit2
+      values:
+        00: disabled
+        01: enabled
+      comment: The units shall operate in a high-performance mode.
 
 1FEF7:
   name: THERMOSTAT_SCHEDULE_STATUS_1
@@ -2949,6 +3563,22 @@ API_VERSION: 0
         00: operating status is zero
         01: operating status is non-zero or flashing
         11: interlock command is not supported
+    - byte: 6
+      name: reserved
+      comment: used by G12 to indicate a fault, indicator goes red on G12 Outputs screen
+      type: bit2
+      bit: 4-5
+      values:
+        01: G12 output fault indicator
+    - byte: 6
+      name: undercurrent
+      type: bit2
+      bit: 6-7
+      values:
+        00: undercurrent not active
+        01: undercurrent active
+        10: undercurrent status timeout (error)
+        11: undercurrent not supported
     - byte: 7
       name: master memory value
       type: uint8
@@ -3058,7 +3688,90 @@ API_VERSION: 0
         17: ramp brightness to new value
         51: flash alternate
 
+16F00:
+  # Firefly/Spyder proprietary per-output LOAD CURRENT report (PDU1, PF=0x6F, DP=1).
+  # Directed message: on the observed coach the G12 panel (source 0x9C, the node whose
+  # NAME string reads "Spyder Control(s) G12 Panel 2v2 3v0d") sends it to destination
+  # 0x84 (the load-driver module). NOTE: another coach's touchscreen may claim a
+  # different source address -- the 1FED9 notes below reference a 0x9F touchscreen;
+  # match on the NAME/product-id, not a hardcoded address.
+  #
+  # Full arbitration example: 0x196F849C  ff 20 ff ff 0f 7d 05 00
+  #   priority 6, DP=1, PF=6F, PS(dest)=84, SA(src)=9C
+  #
+  # CORRECTED 2026-10-21: byte 4 is the output's measured LOAD CURRENT (unit unknown),
+  # not a 0-15 brightness level. With the same commanded brightness (1FEDA byte 2 = 200,
+  # output on) different outputs report different, stable values across the coach
+  # captures (firefly-firmware/captures/pc*.log):
+  #   output 24: 0x0a (567 frames, 5 captures)    output 43: 0x02 (358 frames, 3)
+  #   output 32: 0x0f (60, 3)    output 22: 0x0a/0x0b    output 23: 0x16    output 21: 0x07
+  #   output 26: 0x00 (62, 2)    output 38: 0x00 (78, 4)  -- on, drawing nothing measured
+  #   outputs 3/4 (awning motors): 0x37..0x79, varying while the level stays 200
+  # Outputs 9-20 (the G12's half-bridge outputs) send FF FF in bytes 4-5: no current
+  # sense. For a dimmable load the current follows the delivered brightness, so on
+  # output 32, whose full-load value happens to be 0x0f, floor(brightness * 15 / 200)
+  # holds: the 2026-08-30 sweep (captures/lyra-brightness-sweep.log, output 32 only)
+  # fits it at 24 of 25 levels (120 -> 8, not 9). That sweep exercising a single output
+  # is why the value was first read as a 0-15 level ("0x0f = full" is output 32's load).
+  #
+  # It follows the ACTUAL output, which fades in over ~0.7 s, so it shows the fade that
+  # 1FEDA (which reports the commanded target at once) does not. Sent every 1 s while
+  # the output is on, plus a zero frame (byte 6 = 00) when the output switches on and
+  # when it is switched off by toggle (cmd 5) or memory-off (cmd 6); nothing while off.
+  # 1FEDA repeats every 2 s while on.
+  #
+  # Renamed 2026-10-21 from DC_DIMMER_LEVEL_16_SPYDER (byte 4 was "level").
+  #
+  # This is a report directed at the load driver; injecting it to actuate a load has
+  # not been tested. Use the standard DC_DIMMER_COMMAND_2 (1FEDB) for control.
+  name: DC_DIMMER_LOAD_CURRENT_SPYDER
+  parameters:
+    - byte: 0
+      name: reserved
+      type: uint8
+    - byte: 1
+      name: instance
+      type: uint8
+    - byte: 2
+      name: reserved
+      type: uint8
+    - byte: 3
+      name: reserved
+      type: uint8
+    - byte: 4
+      name: load current
+      type: uint8
+      # unit unknown -- see the note above. Scales with the
+      # delivered brightness; full-load value is per output (0x0f on output 32, 0x0a on
+      # 24, 0x02 on 43, 0x00 on 26/38). 0xff on outputs 9-20 (no current sense).
+    - byte: 5
+      name: reserved
+      type: uint8
+      # 0x7D on outputs with current sense; 0xFF on outputs 9-20
+    - byte: 6
+      name: output active
+      type: uint8
+      values:
+        0: 'off (output settled off)'
+        5: 'on (output energized/driven)'
+    - byte: 7
+      name: reserved
+      type: uint8
+
 1FED9:
+  # NOTE: group 0x94 also exists on this DGN and is NOT decoded here.
+  # Only group 0x96 (G12 configuration) is handled. The touchscreen (0x9F) also emits
+  # 1FED9 frames with byte 1 = 0x94 and a DIFFERENT byte layout -- captured examples:
+  #   FF 94 FF FF FF FF F0 FF
+  #   FF 94 01 FF 1C FF E5 FF
+  #   FF 94 00 FF 1E FF E3 FF
+  # Reverse engineering of the Firefly MCF bundle identified these as STORED MESSAGES
+  # the panel replays from its own binding table, where each 8-byte RV-C payload is
+  # held byte-reversed per u32. All three payloads above were found byte-for-byte in
+  # the 13.6 MCF. The byte roles are unknown -- byte 6 holds an option selector
+  # (E3/E4/E5) in 15 entries but holds 0xE0 more often than anything else, so do not
+  # read it as a selector. Recorded so these frames are recognised rather than mistaken
+  # for corruption; not enough is known to decode them.
   name: GENERIC_INDICATOR_COMMAND
   parameters:
     - byte: 0
@@ -3092,6 +3805,47 @@ API_VERSION: 0
         17: ramp brightness to new value
         51: flash alternate
 
+# G12 (Firefly) repurposes 1FED9 as a configuration command when byte[1]=0x96 (group bitmap).
+# Byte layout for G12 config use:
+#   byte[0] = 0xFF  (broadcast instance)
+#   byte[1] = 0x96  (G12 group, bitmap "10010110")
+#   byte[2] = selector  (config parameter, matches 15FCE message_type byte)
+#   byte[3] = 0x0F  (bank select)
+#   bytes[4-5] = uint16 LE value (new value for SET, 0xFFFF for QUERY)
+#   byte[6] = function  (0xD1/0xD2 = SET, 0xD3 = QUERY)
+#   byte[7] = 0xEA (SET) / 0xFF (QUERY)
+# Selector mapping (same as 15FCE byte[0]):
+#   0x0C = time at start volts (sec), 0x0D = stop at voltage (v),
+#   0x0E = time at stop volts (sec),  0x16 = max engine run time (min),
+#   0x2B = quiet time start (byte[4]=min, byte[5]=hr),
+#   0x2C = quiet time stop  (byte[4]=min, byte[5]=hr),
+#   0x31 = start at voltage (v),
+#   0xCC/0xCD/0xCE = tank thresholds 0-33/33-67/67-100%
+#   0x92 = max charge rate (raw 0.5%/bit)
+# Source: log analysis of UNHANDLED_RVC.log (410 messages, source_id=0x9F touchscreen)
+#
+# DELTA vs ABSOLUTE: some selectors take a SIGNED DELTA in bytes[4-5], not the value you
+# want. Writing an absolute to a delta selector ADDS it to the current setting. This is
+# per selector and there is no rule that predicts it -- test before writing a new one.
+#
+#   confirmed DELTA    0xCC, 0xCD, 0xCE   (tank thresholds; capture 2026-08-12)
+#                      0x82, 0x86, 0x88, 0x92, 0x99
+#                        (transmit probe 2026-08-24, firefly-firmware BUS-BASELINE PC.23:
+#                         each moved by exactly the signed amount written and returned
+#                         exactly on the reverse write)
+#   confirmed ABSOLUTE 0x16   (observed)
+#   UNTESTED           0x0C, 0x0D, 0x0E, 0x31 and every option toggle. This file writes
+#                      them as absolutes and the coach has not contradicted that, but no
+#                      probe has confirmed it either. Treat as unknown, not as safe.
+#
+# Note 0x92 is in the delta list AND is now a named parameter (max charge rate). Anything
+# that adds a write for it must send a delta, exactly as the CC/CD/CE path does.
+#
+# READ-BACK is universal and side-effect-free. "FF 96 <selector> 0F FF FF D3 FF" makes the
+# G12 answer on the very next frame with 195FCE9C#<sel> 00 <u16 value LE> 00 00 00 00, and
+# provokes no other traffic -- verified across five selectors with zero non-baseline frames
+# in the capture. Selectors ABSENT from the G12's periodic sweep still answer, so this is a
+# safe way to poll any selector's current value without writing anything.
 1FEE0:
   name: DC_MOTOR_CONTROL_STATUS
 
@@ -4806,20 +5560,704 @@ Z0005:
   alias: 1FE8B
 
 15FCE:
-  comment: Broadcast in Ethos 20DL
-  name: UNKNOWN-15FCE
+  comment: G12 Parameter storage in Ethos 20DL. Hopefully Firefly doesn't reuse message types across floorplans
+  name: G12_CONFIGURATION
+  usefirstbyte: true
+  parameters:
+    - byte: 0
+      name: message type
+      type: uint8
+      unit: hex
+      values:
+        "00": unidentified (observed)
+        "01": involves aes enabled
+        "03": involves aes enabled
+        "04": unidentified (observed)
+        "05": aes state machine
+        "06": unidentified (observed)
+        "0A": measured battery voltage
+        "0C": time at start volts
+        "0D": stop at voltage
+        "0E": time at stop volts
+        "0F": companion of 0E (role unknown)
+        "11": unidentified (observed)
+        "15": ags config (gen start retries / mode)
+        "16": max engine run time
+        "2B": quiet time start
+        "2C": quiet time stop
+        "2E": unidentified (observed)
+        "2F": ags low volts trigger
+        "31": start at voltage
+        "75": unidentified (observed)
+        "92": max charge rate
+        "95": unidentified (observed)
+        "9B": involves aes enabled
+        "CC": 0%-33% threshold
+        "CD": 33%-67% threshold
+        "CE": 67%-100% threshold
+        "D7": number of go power! controllers
+        "D8": number of batteries
+        "E3": cargo/bath light ch.25
+        "E4": bath light
+        "E5": bunk accent
+        "E6": progressive inverter
+        "E8": unidentified (observed)
+        "E9": bath fan
+        "EB": heat pump
+        "EC": black tank
+        "EE": pump link / pump auto off (custom panel firmware)
+        "EF": generator/aes mode
+        "F1": unidentified (floorplan-adjacent)
+        "F2": unidentified (floorplan-adjacent)
+        "F5": selected floorplan
+        "F7": ags time between retries (sec)
+  # Types marked "unidentified (observed)" are broadcast by the G12 but their meaning is
+  # unknown. They are listed so they decode as recognised rather than falling through to
+  # the unhandled-type log. Observed on a Jayco B-Van (floorplan WD) 2026-08-12 by
+  # passive candump; see the firefly-firmware project's docs/BUS-BASELINE.md.
+  #
+  # 92 is "Max Chrge Rate", in PERCENT, and is the only one of the twelve formerly
+  # unidentified selectors to gain a real name. Identified 2026-08-24 by a transmit probe
+  # on the coach (firefly-firmware docs/BUS-BASELINE.md PC.23) plus the G12's own relay
+  # table: the touchscreen control is labelled "Max Chrge Rate" with unit %, and G12 rule
+  # #53 forwards the value to 1FF95 (CHARGER_CONFIGURATION_COMMAND) payload[1], instance 1.
+  # The raw value is RV-C's 0.5 %/bit, so the panel DIVIDES BY 2 to display it: raw 200 =
+  # 100 %, raw 180 = 90 %. The panel's own +/- step is 20 raw = 10 % on screen.
+  #
+  # F1 and F2 have a ROLE but no name. Both ride in a single 1FACF broadcast (G12 rule #44)
+  # at payload[2] and payload[7], alongside F5 -- the floorplan -- at payload[5]. So they
+  # are floorplan-adjacent configuration. Coach values are 0x0D and 0x06. Do not name an
+  # entity from this; travelling with the floorplan is not a meaning.
+  #
+  # E8 is a boolean the TOUCHSCREEN writes (both 0 and 1 arms found in the panel's frame
+  # pool), so it is a panel option toggle rather than a read-only broadcast. Its name was
+  # not recovered -- no OPTIONS row carries it. 11 reads as an adjustable number with a
+  # step of 5 (coach value 45); 2E as a boolean. All three are SHAPE, NOT MEANING.
+  #
+  # 00, 04, 06, 11, 2E, 75, 95, E8 and EE drive no G12 relay rule at all, which is itself
+  # information: whatever they are, the G12 does not forward them to RV-C.
+  #
+  # NOTE on 00 and 04: the firefly-firmware project briefly published decoded roles for
+  # these two and RETRACTED them on 2026-08-24 (docs/RVC-GAPS.md section 1). The claims came
+  # from reading one G12 rule table's substitution-mask semantics into another table where
+  # the same byte is a gesture phase mask. This spec never carried those roles, so nothing
+  # here needed correcting -- recorded so the retraction is not "re-discovered" as news.
+  #
+  # DELTA vs ABSOLUTE -- per selector, and NOT guessable. See the 1FED9 write notes below.
+  #
+  # E3 and E4 are MUTUALLY EXCLUSIVE — one bath-light choice, not two switches. The
+  # touchscreen writes both in a single transaction, in opposite directions. Never write
+  # one without the other.
+  #
+  # 0A is the measured pack voltage, confirmed by a load test: it tracked the AES screen
+  # from 53.0 V down to 52.1 V and back while 0D/31 held at their setpoints.
+  #
+  # CAUTION: 0A, 0D, 0E, 0F, 16 and 31 carry a DIFFERENT parameter profile depending on
+  # the mode in EF. Under AES they describe the 48 V engine/lithium system (0D = 54.40 V);
+  # under AGS they describe a 12 V generator system (0D = 13.50 V). Same encoding,
+  # different applicable range.
+  # Byte 2 was observed tracking the AES enabled flag exactly (0 disabled / 1 enabled,
+  # engine off) across a touchscreen toggle on 2026-08-04 — it is NOT the state machine
+  # the earlier mapping assumed, and "1 = triggered" was wrong. The 3/64/131 codes below
+  # are retained as unverified; they have never been seen on this coach and need a
+  # capture with the engine actually cranking/running to confirm.
+  #
+  # That capture exists now: firefly-firmware BUS-BASELINE.md PC.28,
+  # captures/pc28-aes-engine-run-2026-08-24.log -- 365 s with the van-side AES idling the
+  # engine. Byte 2 held 0x40 (64) while the engine ran AND for 75 s after it stopped, so
+  # 64 is NOT "running". It then held 0xC0 (192) for exactly 30.0 s starting 0.5 s after
+  # the ignition sense dropped -- keyed to the sense, not to the engine relay, which had
+  # opened 74 s earlier. 131 never appeared. 192 was previously undocumented.
+  #
+  # No interpretation is offered for either value: one capture, with the VAN's AES driving
+  # rather than the Firefly's (selector 9B read 0 = disabled throughout), is not enough to
+  # name a state.
+  # Byte 3 held 0x03 in both states, matching message type EF (gen/aes mode = AES Single
+  # Output), so it is likely the mode rather than a state.
+  "05":
+    - byte: 2
+      name: aes state
+      type: uint8
+      unit: hex
+      values:
+        0: "disabled"
+        1: "enabled"
+        3: "cranking (unverified)"
+        64: "observed - engine running AND long after it stopped"
+        192: "observed - 30s transient after the ignition sense drops"
+        131: "running (unverified, never observed)"
+  # Confirmed 2026-08-04 by toggling AES on the touchscreen (0x9F) and diffing the
+  # 15FCE table: 9B00010000000000 while enabled, 9B00000000000000 while disabled.
+  # Note the value is at byte 2 like every other 15FCE type — the 1FED9 *command*
+  # form of the same setting carries it at byte 4 instead.
+  "9B":
+    - byte: 2
+      name: aes enabled
+      type: uint8
+      values:
+        0: "disabled"
+        1: "enabled"
+  "16":
+    - byte: 2-3
+      name: minutes
+      type: uint16
+      unit: min
+  # Raw units are 0.5 %/bit (RV-C charge-rate encoding). Divide by 2 for the percentage the
+  # touchscreen shows: raw 200 = 100 %. Relayed by the G12 to 1FF95 payload[1], instance 1.
+  "92":
+    - byte: 2-3
+      name: max charge rate raw
+      type: uint16
+  "0C":
+    - byte: 2-3
+      name: duration
+      type: uint16
+      unit: sec
+  "0D":
+    - byte: 2-3
+      name: volts
+      type: uint16
+      unit: v
+  "0E":
+    - byte: 2-3
+      name: duration
+      type: uint16
+      unit: sec
+  "2B":
+    - byte: 2
+      name: minutes
+      type: uint8
+      unit: min
+    - byte: 3
+      name: hours
+      type: uint8
+      unit: hr
+  "2C":
+    - byte: 2
+      name: minutes
+      type: uint8
+      unit: min
+    - byte: 3
+      name: hours
+      type: uint8
+      unit: hr
+  "CC":
+    - byte: 2-3
+      name: value
+      type: uint16
+  "CD":
+    - byte: 2-3
+      name: value
+      type: uint16
+  "CE":
+    - byte: 2-3
+      name: value
+      type: uint16
+  "31":
+    - byte: 2-3
+      name: volts
+      type: uint16
+      unit: v
+  "15":
+    - byte: 2
+      name: gen start retries
+      type: uint8
+    - byte: 3
+      name: mode indicator
+      type: uint8
+      unit: hex
+  "2F":
+    - byte: 2
+      name: enabled
+      type: uint8
+      values:
+        0: "off"
+        1: "on"
+  "D7":
+    - byte: 2
+      name: controller count
+      type: uint8
+  "D8":
+    - byte: 2
+      name: battery count
+      type: uint8
+      values:
+        0: "1 battery"
+        1: "2 batteries"
+  "0A":
+    - byte: 2-3
+      name: volts
+      type: uint16
+      unit: v
+  "E3":
+    - byte: 2
+      name: enabled
+      type: uint8
+      values:
+        0: "off"
+        1: "on"
+  # Mutually exclusive with E3 — see the note on the message-type table above.
+  "E4":
+    - byte: 2
+      name: enabled
+      type: uint8
+      values:
+        0: "off"
+        1: "on"
+  "EB":
+    - byte: 2
+      name: enabled
+      type: uint8
+      values:
+        0: "off"
+        1: "on"
+  "E5":
+    - byte: 2
+      name: enabled
+      type: uint8
+      values:
+        0: "off"
+        1: "on"
+  "E6":
+    - byte: 2
+      name: enabled
+      type: uint8
+      values:
+        0: "off"
+        1: "on"
+  "E9":
+    - byte: 2
+      name: enabled
+      type: uint8
+      values:
+        0: "off"
+        1: "on"
+  "EC":
+    - byte: 2
+      name: enabled
+      type: uint8
+      values:
+        0: "off"
+        1: "on"
+  "EE":
+    # Unused by stock firmware (sweeps as FFFF, "unset"). The custom Firefly panel
+    # build (myfirmware mcf-dan-v54, ops `pumplink` and `pumpauto`) packs two fields
+    # into this one u16 -- low byte = Water Pump Auto Off minutes (0 = disabled, else
+    # 5..60 in steps of 5), high byte = Pump Link flag (1 = the pump follows the bath
+    # light). The G12 stores it as a raw u16 with no clamp, so D2 deltas can borrow
+    # across the bytes; the panel repairs that within one tick, and the entity ignores
+    # off-grid values. See fireflymcf src/fireflymcf/pumpauto.py and
+    # docs/BUS-BASELINE.md PC.42/PC.45/PC.47.
+    - byte: 2
+      name: auto off minutes
+      type: uint8
+    - byte: 3
+      name: pump link
+      type: uint8
+      values:
+        0: "off"
+        1: "on"
+  "EF":
+    - byte: 2
+      name: mode
+      type: uint8
+      values:
+        0: "disabled"
+        1: "AGS"
+        2: "AES"
+        3: "AES Single Output"
+  # PER-BUILD DATA, NOT A PROTOCOL CONSTANT. This enum was observed 2026-08-12 by
+  # selecting every floorplan on the touchscreen of a Jayco B-Van running the
+  # "Jayco B-Van V13" configuration (Firefly MCF 13.6), and reading the resulting F5
+  # write. Values 1-10 with no gaps. The screen groups these as Generator Models
+  # (RA RY RD RT CB) and Li-AES Models (WA WD WT TB SY). A "Ship Mode" button also
+  # exists; its value is deliberately unmapped.
+  #
+  # The mapping DIFFERS BETWEEN BUILDS. Decoding the other two MCF files in the same
+  # corpus gives different tables:
+  #   * "Jayco B-Van V14" (14.7): nine codes including RE, and NO RD or WD. The values
+  #     do not line up with V13's.
+  #   * "Jayco Ethos/Swift V11" (11.23): a different naming scheme entirely --
+  #     3RT / 4RT / 3WD / 4WD ... -- with no selection screen to confirm values.
+  # rvc2mqtt's original four values (4 SY, 7 WA, 8 WD, 9 WT) came from an Ethos 20DL and
+  # happen to agree with V13 where they overlap. Treat this table as correct for V13 and
+  # verify before trusting it on another coach.
+  #
+  # Selecting a floorplan writes a 12-selector transaction, not just F5:
+  #   F5, EF, E5, E9, E4, EB, E3, E6, D7, EC, 15, F7
+  # Those eleven other values are the NEWLY SELECTED FLOORPLAN'S DEFAULTS -- not the
+  # coach's current settings. Confirmed 2026-08-13: selecting TB wrote E5=0 and E3=0
+  # while the coach had both set to 1. An earlier reading of this as "the profile is
+  # re-asserted" was wrong; the settings only appeared to survive because the coach's
+  # own floorplan's defaults matched them. See g12_configuration.FLOORPLAN_OPTION_DEFAULTS.
+  "F5":
+    - byte: 2
+      name: floorplan
+      type: uint8
+      values:
+        1: "RT"
+        2: "RA"
+        3: "RD"
+        4: "SY"
+        5: "TB"
+        6: "CB"
+        7: "WA"
+        8: "WD"
+        9: "WT"
+        10: "RY"
+  "F7":
+    - byte: 2
+      name: retry interval
+      type: uint8
+      unit: sec
 
 0EF70:
-  comment: APS-500. likely J1939 message according to wakespeed
-  name: UNKNOWN-0EF70
+  # Proprietary point-to-point link between the APS-500 (source 0x80, which
+  # is what actually holds RV-C address 0x80 -- it is the "battery" as far
+  # as the rest of the RV-C bus is concerned) and the real hardware BMS, a
+  # Renogy RBT210LFP51S-12 (source 0x70). Not RV-C parameter-formatted;
+  # decode is handled statefully in entity/aps500.py because the response
+  # (0EF80) doesn't self-identify which query it answers.
+  #
+  # 8-byte query payload: `13 <reg> 00 04 FF FF FF FF`. Byte0=0x13 is the
+  # steady-state "read register" opcode; byte1 is the register being polled.
+  # The APS-500 round-robins registers 0x88, 0x8F, 0x95, 0x92, 0x8A roughly
+  # every 460ms (0x88 twice per round) plus an occasional 0x43-tagged frame
+  # with a fixed, unrelated payload (`00 43 43 2A 00 7D 79 00`) that the BMS
+  # never answers. If the BMS doesn't answer a query in time, the APS-500
+  # gives up and moves on to the next one rather than retrying -- so on a
+  # marginal link, registers can go missing from a given round entirely.
+  #
+  # On (re)boot only -- right after the APS-500 (re)claims its RV-C address
+  # (0EEFF) and before the steady-state round-robin starts -- it also sends
+  # a one-time identify sequence, confirmed reproducible across two
+  # commanded reboots (2026-09-04):
+  #   query  `14 02 00 08 FF FF FF FF` (opcode 0x14, not 0x13; length 0x08)
+  #   reply  `52 42 54 32 31 30 4C 46` + `50 35 31 53 2D 31 32 00`
+  #          -> "RBT210LFP51S-12" (exact battery model, 2 response frames)
+  #   query  `13 A5 00 04 FF FF FF FF`
+  #   reply  `00 02 17 55 52 42 54 32` (reproduced identically both times;
+  #          meaning not yet understood -- bytes 3-7 read as ASCII "URBT2")
+  #
+  # Known steady-state registers (byte1 of the query; all replies are 8
+  # bytes, decoded manually against a live Renogy 48V/210Ah pack and cross-
+  # checked against the BMS's own native protocol on can0, see can2mqtt):
+  #   0x95  4x uint16 BE, scale 0.1 -> degC. Confirmed: matches can0's
+  #         bms/temps/t1-t4 to within ~0.1-0.2C.
+  #   0x88  bytes0-1 SIGNED int16 BIG-ENDIAN, scale 0.01 -> A: the BMS's
+  #         ACTUAL/MEASURED current (always 0x0000 in real traffic while at
+  #         rest). CONFIRMED via injection: setting 0x00FF (2.55A) made the
+  #         APS-500's own DC_SOURCE_STATUS_1 (1FFFD) dc_current jump from
+  #         0.0 to exactly 2.55, its BATTERY_STATUS_11 dc_power to 135
+  #         (= 53.15V * 2.55A), and its DC_SOURCE_STATUS_2 time_remaining
+  #         from "n/a" to 4941 min (= 209.78Ah / 2.55A) -- three independent
+  #         cross-checks agreeing to within rounding. This also resolves
+  #         the "dc_current - does not seem to actually be reported ??"
+  #         comment that used to be in entity/aps500.py: it's real, it was
+  #         just always 0.
+  #         SIGN CONVENTION and BYTE ORDER CONFIRMED against a real charge
+  #         event (2026-09-05, van running, real BMS live on can1, ~85-87A
+  #         actual physical charge current per can0's independent ammeter):
+  #         the raw register reads e.g. `DE 68` during that charge, which
+  #         as BIG-ENDIAN signed int16 is -8600 -> -86.00A -- i.e. this
+  #         register uses NEGATIVE for charging, the OPPOSITE sign
+  #         convention from can0's native protocol (and from the
+  #         hypothetical single-byte injection test above, which only
+  #         proved magnitude/scale, not sign/endianness, since one of the
+  #         two bytes was always zero). Treat the earlier LE assumption
+  #         anywhere on this link as SUPERSEDED by this live result --
+  #         see 0x8F bytes2-3 below, which had the identical error.
+  #         Bytes2-3 uint16, previously guessed as "a slowly-varying value,
+  #         possibly a cycle count" from idle-only observation (~538-539
+  #         at rest). REVISED after watching it during the same real charge
+  #         event: it tracks smoothly with |actual current| -- ~543 at
+  #         ~85A, dropping to ~536-538 as current fell to ~0A and climbing
+  #         back in step as current ramped back up. Best current guess is
+  #         a secondary/coarse redundant current reading the APS
+  #         cross-checks against bytes0-1, NOT an arbitrary counter -- which
+  #         would also explain the finding below (a value here that doesn't
+  #         agree with the reported actual current, e.g. while actual
+  #         current sits at 0, reads as "newly connected BMS" and invalidates
+  #         state). Still CONFIRMED to matter and confirmed BROAD: with a
+  #         clean 25-37s isolation window either side, every synthetically
+  #         tested value that differed from the then-current one (0x0000,
+  #         0x0001, 0x0002, 0x0003, 0xFFFE, 0xFFFF, all while bytes0-1 sat
+  #         at 0) made the APS-500 treat the BMS as newly connected -- it
+  #         invalidates SOC/capacity/current (same "n/a" fallback as the
+  #         0x8F validity flag below) and re-issues a one-time
+  #         identify-style query (`13 A5 00 04 ...` or `14 02 00 08 ...`).
+  #         An earlier, more tightly-spaced sweep saw 0x00FF/0x1000 NOT
+  #         trigger it, but that run didn't isolate tests long enough to
+  #         rule out still-recovering-from-the-prior-probe contamination.
+  #         Bytes4-7 uint32, scale 0.001 -> Ah -- "remaining capacity".
+  #         CONFIRMED live: climbs continuously during real charging (e.g.
+  #         204.175 -> 204.647 Ah over ~20s at ~85A, matching Ah = A*t/3600
+  #         to within rounding), not merely a static near-full-pack value.
+  #   0x8A  bytes0-3 uint32 scale 0.001 -> Ah, matches 0x88's remaining-
+  #         capacity field exactly -- CONFIRMED: this is exactly what the
+  #         APS-500 relays as state_of_charge (1FFFC) / capacity_remaining
+  #         (1FFFB), see 0x8F below for how that was proven. bytes4-7
+  #         uint32 scale 0.001 -> Ah, constant at exactly 210.000 -- matches
+  #         the pack's rated capacity and the native can0 protocol's AH
+  #         setting register (2100 * 0.1).
+  #   0x8F  constant `02 23 00 00 00 00 00 00` in all real traffic observed
+  #         so far.
+  #         Bytes0-1 are a REQUIRED VALIDITY FLAG: mutating them away from
+  #         `02 23` (tried `00 00` and `FF FF`, both fail -- so it's not
+  #         merely "any nonzero passes", either an exact match or a
+  #         checksum over the other registers) makes the APS-500 blank
+  #         state_of_charge, capacity_remaining and source_temperature to
+  #         their RV-C "not available" sentinels in its own standard
+  #         DC_SOURCE_STATUS_2 (1FFFC) / DC_SOURCE_STATUS_3 (1FFFB)
+  #         broadcasts -- even though the 0EF70/0EF80 link itself keeps
+  #         working normally. This is how 0x88/0x8A's capacity decode above
+  #         was independently cross-confirmed: with `02 23`, a simulated
+  #         ~209.8/210.0 Ah pair shows up as exactly state_of_charge=100.0,
+  #         capacity_remaining=210 on the standard broadcast.
+  #         Bytes2-3 are a SIGNED int16, scale 0.01 -> A: the BMS's
+  #         REQUESTED/desired charge current. Byte order and sign
+  #         CORRECTED on 2026-09-05 against real charge traffic (earlier
+  #         single-byte injection tests couldn't distinguish LE from BE
+  #         because one byte was always zero): it is BIG-ENDIAN, and the
+  #         sign convention is NEGATIVE for charging, matching 0x88
+  #         bytes0-1 above. Confirmed two ways during a live ~85-87A real
+  #         charge: raw `EF 98` = -4200 -> -42.00A, and the APS-500's own
+  #         charge_current broadcast that instant read +42.0 (unclipped);
+  #         raw `D6 FC` = -10500 -> -105.00A (the BMS's fallback/"no limit"
+  #         sentinel value, seen whenever the real charge-current
+  #         calculation resets -- see the CV cycling note below) produced a
+  #         charge_current broadcast of +90.0, i.e. the APS-500 clips the
+  #         passthrough at its own internal max: charge_current =
+  #         min(-desired_raw, 90). At the historical idle-observed value
+  #         (0x0000) this is exactly the 0.0A always seen in real traffic
+  #         at rest -- distinct from 0x88 bytes0-1's ACTUAL current above.
+  #         Bytes4-7 constant zero in real traffic; individually forced to
+  #         0xFF with no observed effect, and specifically tried as a
+  #         possible desired-VOLTAGE field (uint16 BE at bytes4-5, scale
+  #         0.01 -> tried 5470/54.70V matching the observed fixed target,
+  #         5000/50.00V, and a full 0xFFFFFFFF sentinel) with zero effect on
+  #         any RV-C broadcast, not even jitter -- ruled out. With every
+  #         register now probed at least once and none of them moving
+  #         desired_dc_voltage, the fixed 54.7V looks like a value
+  #         configured into the APS-500's own charge profile for this
+  #         battery type, not something transmitted over this link at all.
+  #   0x92  byte7 is a free-running uint8 counter (increments ~1/round) in
+  #         real traffic. Bytes 0-6 looked constant-zero in real traffic,
+  #         but are in fact the BMS alarm word -- see the fault-injection
+  #         note under 0EF80 below. Bytes 2 and 4 carry an identical map, so
+  #         are likely a duplicated/redundant copy of the same alarm word.
+  #         Byte0 and byte6 tested across their full value range (0x01,
+  #         0x7F, 0x80, 0xFF) with no effect on any observed RV-C broadcast.
+  #
+  # Register 0x95 (temperature) also feeds the APS-500's OWN hardware-limit
+  # fault path, separate from the 0x92 BMS-alarm path: holding all 4
+  # channels at 70.0C for ~14s (clean run, no other registers touched)
+  # produced DM_RV fault code "12" (Battery Temperature greatly exceeded
+  # configured upper limit), latched until reset. 0.0C produced no fault in
+  # the same window.
+  #
+  # desired_charge_state/desired_dc_voltage (DC_SOURCE_STATUS_4, 1FEC9) do
+  # NOT appear to be a passthrough of any BMS-reported value -- desired
+  # CURRENT, unlike voltage/state, *is* a direct passthrough, see 0x8F
+  # bytes2-3 above. This is now a fairly high-confidence conclusion: every
+  # byte of every known register (0x88, 0x8A, 0x8F, 0x92, 0x95) has been
+  # individually probed, and 0x8F bytes2-3 is the only one that moves
+  # voltage/state at all. Confirmed two-state behavior for the rest: when nothing
+  # answers 0EF70 queries at all, the APS-500 shows a fixed "not
+  # communicating" fallback (Do Not Charge, 52.8V, 105A); once something
+  # answers (faithfully or not -- BMS capacity/SOC content doesn't matter
+  # here, ~99.9% and ~50% both tested), it settles once (~12-14s) into
+  # Constant Voltage/Current at a fixed 54.7V. The current within that
+  # state is 0x8F bytes2-3, above -- a simulated pack left at the default
+  # 0x0000 there will always show 0A regardless of SOC, which is exactly
+  # what was seen before this field was isolated.
+  #   CAUTION for future testing: the APS-500's own GENERAL_RESET/reboot
+  #   commands (used to clear the DM_RV fault latch between probes) visibly
+  #   perturb this same charge state machine -- repeatedly calling reset
+  #   produces what looks like an oscillation between the two states above,
+  #   but it is a reset-command artifact, not a real BMS-content-driven
+  #   cycle. Confirmed by re-running fully passively (no reset topic
+  #   touched at all): it settles once and stays settled indefinitely.
+  #
+  # REAL CHARGING PROFILE (observed 2026-09-05, van at high idle, real BMS
+  # live on can1, pack at ~97% SOC): with the BMS requesting its uncapped
+  # maximum, actual physical current (per can0's independent ammeter, cross-
+  # confirmed by 0x88 bytes0-1 above) does NOT hold steady -- it ramps from
+  # ~0A up to ~85-87A over about 18s, then drops abruptly back to ~0A and
+  # ramps up again, repeating continuously. Each drop lines up exactly with
+  # charging_voltage climbing to ~54.65V (right at the 54.7V CV setpoint),
+  # 0x8F briefly reporting -42.00A then the -105.00A fallback sentinel, and
+  # charge_detected blipping to "No Charge Detected" for about a second
+  # before the next ramp starts. Per the user (owner of this pack): at a
+  # high charge rate this battery quickly develops a surface charge that
+  # reads as a high terminal voltage well before the cells are actually
+  # full, so hitting 54.7V this fast is expected chemistry, not a fault --
+  # the BMS backs off to let the surface charge relax, then resumes. This
+  # is almost certainly the real-world "known behavior issue" that
+  # motivated the APS-500's internal 90A charge_current cap (see 0x8F
+  # bytes2-3 above) and is expected to be far less pronounced starting from
+  # a lower SOC, where reaching 54.7V takes genuine charge rather than
+  # surface polarization.
+  #
+  # All of the above was captured live and reverse engineered by physically
+  # disconnecting the real BMS from can1 and substituting a script that
+  # answers the APS-500's queries itself (recorded defaults replayed
+  # faithfully, then individual bytes mutated one at a time while diffing
+  # the APS-500's own RV-C broadcasts -- raw CAN, not just what
+  # entity/aps500.py happens to publish to MQTT, since several of the
+  # affected fields above aren't wired to any MQTT topic). See rvc2mqtt git
+  # history around 2026-09-04 for the session this was captured in.
+  name: WAKESPEED_BMS_QUERY
 
 0EF80:
-  comment: APS-500. likely J1939 message according to wakespeed
-  name: UNKNOWN-0EF80
+  # BMS reply to the 0EF70 query above. Not RV-C parameter-formatted --
+  # decoded statefully in entity/aps500.py based on the register byte of
+  # the most recent WAKESPEED_BMS_QUERY (this response does not self-
+  # identify which register it answers).
+  #
+  # Register 0x92 fault/alarm bits (byte index -> {exact byte VALUE: code}):
+  # confirmed by disconnecting the real BMS, substituting a simulator that
+  # replays recorded defaults, then setting exactly one bit of one byte at a
+  # time (with the APS-500's DM_RV fault latch explicitly cleared and
+  # resettled between every test to avoid cross-contamination) and watching
+  # for a resulting DM_RV fault/code/description/lamp change. Reproduced
+  # across two independent clean runs.
+  #   byte1: 0x02/04/08/10/20->"51" (generic disconnect), 0x40/80->"61" (low batt temp)
+  #   byte2: 0x01/04->"57" (low voltage), 0x02/08->"52" (high voltage),
+  #          0x10/20/40/80->"58" (high current)
+  #   byte3: 0x08->"51", 0x10/20->"61", 0x40/80->"59" (high batt temp)
+  #   byte4: identical map to byte2 -- likely a duplicated copy
+  #   byte5: 0x04->"58", 0x08->"51", 0x10/20->"61", 0x40->"59"
+  # Codes are apcfaults keys (see entity/aps500.py) -- descriptions matched
+  # word-for-word. Only an EXACT single-bit value triggers a fault: 0x00,
+  # any multi-bit value (0x03, 0xF0, 0xFF, ...), byte0, and byte6 were all
+  # tested and confirmed to have no effect. Codes 53/54/55/56/62 were not
+  # reachable via this register; 54 ("too many different BMS's aggregated")
+  # and 56 ("too many VEreg devices") describe conditions needing multiple
+  # physical devices, which a single simulated BMS can't trigger.
+  #   CAUTION: the above "only an exact single-bit value triggers" rule was
+  #   the synthetic-only conclusion. A real compound value (byte1=0x81,
+  #   i.e. bits 0x80 and 0x01 both set) was later observed on the live BMS
+  #   and DID correctly trigger fault 61 -- so treat the real decode as a
+  #   per-bit test (does bit X appear anywhere in the byte), not a full-byte
+  #   exact match, with 0xFF specifically the one value confirmed to have
+  #   zero effect (likely a dedicated "no alarm"/ignore sentinel).
+  #
+  # LIVE L1 LOW-TEMP ALARM DURING REAL CHARGING (2026-09-05, real BMS live,
+  # van at high idle, ~30-50A actual charge current flowing, plus a manual
+  # discharge load held on the battery): manually forcing the BMS's own L1
+  # under-temperature alarm while charging produced, in order: bms/alarms/
+  # under_temperature=1 (native can0) -> ~2.3s later can1 0x92 byte1 becomes
+  # 0x80 (confirms the byte1:0x80->"61" mapping above against real
+  # hardware) -> ~0.6s later the APS-500 latches DM_RV fault 61 and stops
+  # charging, exactly as expected (this is precisely the "any alarm halts
+  # charging" behavior the virtual-BMS project exists to work around).
+  #   Critically: bms/chargingcurrent (the BMS's OWN native-protocol
+  #   reported charge-current allowance, independent of anything on can1)
+  #   did NOT change at any point during the alarm -- it held at its
+  #   steady 105.0A the whole time, and can1's 0x8F desired_current_A was
+  #   likewise unchanged (still -105.0, its normal steady value) in the
+  #   instant right after the alarm bit appeared. The BMS's alarm flag and
+  #   its current-allowance field are independent in this firmware: being
+  #   alarmed does NOT make the BMS ask for less/no current. This means a
+  #   virtual BMS that purely relays real BMS telemetry into 0EF80 register
+  #   format and AND-clears only the specific alarm bit(s) for an
+  #   overridden category should work as designed, with no need to
+  #   separately synthesize or inject a desired-current value.
+  #   Also observed: the alarm self-cleared (~5.6s later, back to
+  #   under_temperature=0) at the same moment bms/chargemode/chargestatus
+  #   flipped from "Slow Charge Mode"/"Charging" to "Discharge Mode"/
+  #   "Charging stopped" -- consistent with the BMS only evaluating this
+  #   particular low-temp check while actively charging, not as a
+  #   standalone ambient-temperature alarm (user's hypothesis, matches the
+  #   data). The APS-500 then recovered on its own ~19s after the fault
+  #   latched -- its boot-time identify sequence (`RBT210LF`/`URBT2`, see
+  #   0EF70 above) replayed on can1 and fault/code returned to 00 -- without
+  #   an explicit GENERAL_RESET being sent during this test, so latched
+  #   faults may not always require a manual reset/reboot to clear; this
+  #   wasn't isolated further and could also have been a coincidental
+  #   manual action taken at the same time.
+  #
+  # VIRTUAL BMS (tools/virtual_bms.py, added 2026-09-05): a standalone relay built on all of
+  # the above, for the specific case of a low-temperature alarm blocking alternator charging
+  # even when the pack is above the truly dangerous threshold -- e.g. to run the battery's own
+  # heater relay before real charging resumes. It listens to the real BMS's native protocol on
+  # can0 and relays it into this 0EF70/0EF80 format on can1, suppressing one user-selected
+  # alarm category's bits (AND-clearing them) only while that category sits at level 1, with
+  # two independent fail-safes: dropping the suppression immediately if the alarm escalates to
+  # level 2+, and self-disabling once every temperature sensor (the coldest one, not just one)
+  # clears a configurable threshold (default 10C). Live-tested end to end (2026-09-05, real
+  # BMS on can0, van at high idle, manually forced L1 alarm): suppression correctly let the
+  # APS-500 charge through the real alarm, the L2 fail-safe correctly re-armed the real fault
+  # the instant it escalated, and -- most importantly -- the real BMS's own Heating relay was
+  # confirmed physically engaging (heard + logged via MQTT bms/relays) while current was held
+  # suppressed. Also found live: commanding LOW current setpoints (8A, 15A) produced sustained
+  # oscillation -- actual current collapsing toward 0 (briefly even negative) then overshooting
+  # by 50-100%+ on each ramp -- while 18-21A were borderline/noisy and 25A ran cleanly with no
+  # bad excursions across repeated windows. ROOT CAUSE STILL UNRESOLVED -- two theories tried
+  # and neither is fully satisfying: (a) the alternator/regulator's own control loop being
+  # unable to hold a low target, and (b) the heater's own ~8A draw not being seen by the BMS's
+  # current sensor, making its own "is >=8A available" turn-on check self-referential and
+  # prone to cycling. (b) was FALSIFIED by a separate real-world observation the same day: with
+  # the heating blanket on and charging instead from the inverter (set to 10-15A, several other
+  # loads also running), the BMS showed a net 3A charge -- well under the heater's own 8A draw
+  # -- and the blanket did NOT cycle. That means the BMS's sensor plausibly DOES see the
+  # heater's load already (net accounting looks right), and that the heater's turn-on check is
+  # likely edge-triggered/latched at activation rather than continuously re-evaluated against
+  # available current, contradicting (b) as stated. Since the inverter -- a fully independent
+  # charging path that never goes through the APS-500's proprietary 0EF70/0EF80 link or this
+  # relay at all -- held a clean low current with the heater on and no cycling, the oscillation
+  # we saw is likely specific to the ALTERNATOR path: either genuine APS-500 regulation
+  # instability at low commanded targets (theory a), or an artifact of this relay's synthesized
+  # traffic not perfectly matching what a real requesting BMS would send (e.g. 0x88 bytes2-3
+  # held constant here rather than tracking current, see 0EF70 above) that only manifests
+  # through the proprietary link. A follow-up isolation test (2026-09-05) removed the
+  # alarm-override logic from the picture entirely -- a minimal script requesting a FIXED
+  # 8.00A desired current (0x8F) with NO alarm active and NO suppression at all, but still
+  # relaying the REAL live actual current (0x88) from can0 -- and the pack owner directly
+  # observed it was still NOT stable. This rules out the override/suppression code path itself
+  # as a cause: the instability is inherent to (fixed low desired current) + (live-relayed
+  # real actual current) via this proprietary link, independent of anything alarm-related. That
+  # narrows theory (a)/(b) above to two remaining candidates: genuine APS-500 regulation
+  # instability at low commanded targets, or something about how the APS reacts to a live,
+  # naturally-noisy actual-current value fed back to it (as opposed to a static one -- the
+  # ORIGINAL simulator-only 8A test, before any of this alarm work, used a STATIC actual
+  # current equal to the desired value and instead saw NO charging at all, not oscillation --
+  # a third distinct behavior, suggesting the actual-current field's live/static nature and
+  # relationship to the desired value both matter and haven't been isolated from each other
+  # yet). 25A (HEATER_TRIGGER_CURRENT_A) is kept as the current production setpoint since it's
+  # empirically clean regardless of which theory is right, but the true minimum and the actual
+  # mechanism remain open.
+  #   Still open, to revisit once real cold weather makes proper testing possible (everything
+  #   above used a manually-forced alarm bit on a pack that stayed at ambient temperature, not
+  #   a genuinely cold pack): (1) determine the actual cause of the alternator-path low-current
+  #   oscillation -- isolate further by trying a fixed low desired current WITHOUT relaying
+  #   live actual current (e.g. hold 0x88 at a static value matching 0x8F, like the original
+  #   pre-alarm-work test did) to see whether that alone reproduces the earlier "no charging at
+  #   all" behavior instead of oscillation, which would implicate the LIVE actual-current
+  #   relay specifically rather than the low setpoint itself; also try making 0x88 bytes2-3
+  #   track current instead of holding it constant. Find the true minimum stable setpoint from
+  #   whatever understanding results, rather than more trial and error; (2) the temperature
+  #   auto-disable has only been exercised by temporarily raising
+  #   its threshold above ambient in test code, never by a pack actually warming through the
+  #   real 10C threshold; (3) L3 (contactor-disconnect) escalation has never been exercised
+  #   through this relay, only in the original passive real-BMS test; (4) no long-duration
+  #   soak test yet; (5) separately, charging did not start at all at normal (non-high) engine
+  #   idle -- suspected APS-500 minimum-RPM-to-charge configuration, unrelated to this relay
+  #   and not yet investigated.
+  name: RENOGY_BMS_RESPONSE
 
 0FED5:
-  comment: APS-500. likely J1939 message according to wakespeed
-  name: UNKNOWN-0FED5
+  comment: Broadcast by APS-500. J1939 Alternator Information 1
+  name: J1939_ALTERNATOR_INFORMATION_1
+  parameters:
+    - byte: 0-1
+      name: alternator speed
+      type: uint16
+      unit: j1939rpm
+    - byte: 2
+      name: alternator 1 status
+      type: uint8
 
 0FC08:
   comment: Broadcast by APS-500 v2.6.1
@@ -4899,12 +6337,115 @@ Z0005:
   comment: usually broadcast as part of 0ECFF and 0EBFF
 
 0EEFF:
-  comment: Broadcast by APS-500 in Ethos 20DL
-  name: UNKNOWN-0EEFF
+  comment: non-standard DGN for address claim
+  name: ADDRESS_CLAIM
+  alias: 0EEFF
+
+0FF70:
+  # Proprietary-B status broadcast by the PATCHED Renogy RBT210LFP51S-12 BMS (source
+  # 0x70, CAN ID 18FF7070), every ~2 s and right after any accepted 0EF70 heater/mask
+  # command. Not sent by stock BMS firmware. Layout from renogyBMS
+  # analysis/HEATER_STATUS_BROADCAST.md:
+  #   70 RR FF AA LL LL TT TT
+  #   byte 0   tag, always 0x70
+  #   byte 1   heater relay object: b0 request, b2 actual output (contactor), b3 ready
+  #   byte 2   flags: b0 manual heater session armed, b1 alarm mask active,
+  #            b2 over-temperature inhibit, b3 system running (state 3)
+  #   byte 3   charge low-temperature alarm object
+  #   byte 4-5 manual heater lease remaining, uint16 LE, 0.1 s
+  #   byte 6-7 minimum cell temperature, int16 LE, 0.1 degC (decoded raw here --
+  #            rvc.py has no signed type)
+  # The commands go the other way on 0EF70 (destination 0x70), 8 bytes big-endian:
+  #   AA 55 00 00 00 00 HH LL   manual heater lease, 100 ms units, 0 cancels
+  #   4D 53 00 00 00 00 HH LL   CAN1 alarm-report mask lease ("Ignore Alarms"), same
+  # entity/g12_configuration.py sends and decodes these (opt-in, `bms_source_id`).
+  name: RENOGY_BMS_HEATER_STATUS
+  parameters:
+    - byte: 0
+      name: tag
+      type: uint8
+    - byte: 1
+      bit: 0
+      name: heater request
+      type: uint1
+    - byte: 1
+      bit: 2
+      name: heater output
+      type: uint1
+    - byte: 1
+      bit: 3
+      name: heater ready
+      type: uint1
+    - byte: 2
+      bit: 0
+      name: manual session armed
+      type: uint1
+    - byte: 2
+      bit: 1
+      name: alarm mask active
+      type: uint1
+    - byte: 2
+      bit: 2
+      name: overtemperature inhibit
+      type: uint1
+    - byte: 2
+      bit: 3
+      name: system running
+      type: uint1
+    - byte: 3
+      name: charge low temperature alarm
+      type: uint8
+      unit: bitmap
+    - byte: 4-5
+      name: manual lease remaining
+      type: uint16
+    - byte: 6-7
+      name: minimum cell temperature raw
+      type: uint16
 
 0FF01:
-  comment: Broadcast in Ethos 20DL
+  comment: >
+    Broadcast in Ethos 20DL by the G12 (source 9C), as 4 frames following every
+    1FED8 (GENERIC_CONFIGURATION_STATUS) -- both the roughly-14 s periodic one and
+    any sent in reply to a REQUEST_FOR_DGN. Shares 0FF02's addressing: byte 0 is a
+    bank, byte 1 an instance (01, 02, or FF for all). Only 4 distinct payloads seen,
+    one per bank/instance pair. Not decoded. See 0FF02.
   name: UNKNOWN-0FF01
+
+0FF02:
+  comment: >
+    Sent in a burst by the G12 (source 9C) in response to a REQUEST_FOR_DGN for
+    1FED8 (GENERIC_CONFIGURATION_STATUS) that is addressed to the G12, i.e. a PDU1
+    frame with destination 9C (0EA9C) rather than the broadcast 0EAFF. Never seen
+    otherwise -- there is no periodic 0FF02.
+
+    Trigger confirmed on the coach 2026-08-17 by sending the request both ways and
+    counting the replies:
+      dest FF (broadcast)  ->  1FED8 + 4x 0FF01, no 0FF02
+      dest 9C (directed)   ->  1FED8 + 4x 0FF01 + 29x 0FF02
+    Priority (5 or 6) and the request's instance byte (00 or FF) make no difference;
+    only the destination does. The G12 also emits 1FED8 + 4x 0FF01 on its own about
+    every 14 s, which is why 0FF01 is common in logs and 0FF02 is rare.
+
+    To reproduce:  cansend can_rvc 18EA9C82#D8FE01FFFFFFFFFF
+
+    The bursts originally seen in the log came from node F9 issuing the directed
+    request; F9 was present on the bus for only 22 s during a Lyra firmware update
+    and claimed no address, so it was not identified. The touchscreen (9F) issues the
+    same request 67 times in the same logs but always broadcast, and never triggers a
+    dump.
+
+    Structure inferred from captures 2026-08-13 through 2026-08-17, NOT decoded and
+    not confirmed against the device:
+      byte 0    bank (00, 01)
+      byte 1    instance (01, 02, or FF for all)
+      byte 2-3  selector, little-endian (01, 02, 04, 07, 08, 09, 0A..0E, 40, 80..82)
+      byte 4-7  value, little-endian uint32 (FFFFFFFF = unavailable)
+    e.g. 00010A0064000000 -> bank 0, instance 1, selector 0x0A, value 100.
+
+    Named here only so the decoder stops warning per frame; add parameters if the
+    selectors are ever mapped.
+  name: UNKNOWN-0FF02
 
 1AAFD:
   name: DC_SOURCE_STATUS_G12
@@ -4974,43 +6515,65 @@ Z0005:
         2: short circuit
 
 1FBDA:
-  comment: G12 Inputs (J5?)
-  name: G12_INPUTS
+  name: G12_INPUT_STATUS
+  comment: >
+    Firefly G12 physical input status. Broadcast by source_id 9C.
+    Byte 0 is the INSTANCE, 0xA0|input_number for inputs 1..10. Byte 1 is THAT INSTANCE'S
+    OWN STATE: 0x01 active, 0x00 inactive. Bytes 2-7 are 0xFF.
+
+    Instance 0xFB is a SECOND instance for input pin 10 (the ignition sense), byte-identical
+    to its 0xAA frames apart from the instance number. The G12 fires both from one dispatch
+    entry, ~0.6 ms apart, 0xFB first. The Firefly panel reads 0xAA as "input 10" on its
+    diagnostics page and 0xFB as "Engine Running" on ELECTRICAL. One 12V sense line reported
+    twice -- if you publish both, publish them as one signal.
+
+    A held input REFRESHES every 1.000 s, GND and 12V inputs alike. It is a refresh from the
+    ON edge, not a free-running heartbeat: a press shorter than ~1 s sends one ON frame and
+    one OFF frame with no repeat. An idle input is silent, so silence carries no information
+    -- treat a pin never seen as UNKNOWN, not inactive.
+
+    Instance 0xBF is NOT an input: it is the AES engine command pulse, and its payload tail
+    is all ZEROS rather than 0xFF. Byte 1 = 0x02 start, 0x01 stop, then 0x00 0.15-1 s later
+    to release it. Inside the G12 it is the loop-back of 1FED9 rules that set its AES state
+    (cell 0x7D := 2 start, := 1 stop). The G12 (9C) sends it on every AES start and stop;
+    the panel (9F) sends BF 01 when its AES Stop is pressed, which the G12 echoes at once and
+    then repeats every 5 s until AES is enabled again. Observed on the coach 2026-10-22
+    (firefly-firmware captures/2026-10-22-coach-tests/coach-tests-can1-run2.log):
+      * low-volts auto-start: BF 02 with the start output (1FEDB instance 0x12 ON), 15.0 s
+        after AES Enable with the battery below Start At;
+      * automatic stop (battery above Stop Volts for Time At Stop Volts): BF 01 as the start
+        output goes off, the ignition (0xFB/0xAA) dropping ~0.5 s later -- which is why the
+        earlier captures saw it "bracketing an ignition-off transition";
+      * an abandoned start (no engine 60 s after the ignition dropped): BF 01, AES disabled;
+      * AES disabled from the panel: one G12 BF 01 pulse.
+
+    Confirmed on the coach 2026-08-24 -- see firefly-firmware docs/BUS-BASELINE.md PC.24 and
+    captures/pc24-input-pins-2026-08-24.log. That capture REPLACED an earlier reading of this
+    DGN which is preserved here because the correction is instructive:
+
+      Byte 1 was called "aux_12v_active", a GLOBAL flag meaning "any 12V input is active",
+      and 0xFB was called the IDLE code, with 12V inputs said to alternate between their own
+      code and 0xFB at ~1 Hz while held. Both are wrong. GND-sense pins 1, 2 and 4 all report
+      byte 1 = 0x01 while held with the ignition OFF, which no global-12V reading survives;
+      and 0xFB never appears while the water pump alone is held.
+
+      The ~1 Hz cadence was real, but mis-attributed. With the ignition on AND another input
+      held, the 0xFB/0xAA pair and the other input's frames interleave once a second, which
+      looks exactly like an active code alternating with an idle code -- unless you already
+      know 0xFB is pin 10. A capture cannot separate two signals that always travel together.
+
+    Ethos 20DL input names: 1=Kitchen Lights (GND), 2=Bath Lights (GND),
+    4=Living Room Lights (GND), 9=Water Pump (12V), 10=Ignition (12V).
+    6=Awning EXT (12V) and 7=Awning RET (12V) exist but have no physical switch.
+    Jayco B-Van V13 (MCF 13.6) names them: 1=Kitchen OHC Lts (GND), 3=Bath Fan (GND),
+    6=Awning EXT (12V), 7=Awning RET (12V), 9=Water Pump (12V), 10=Ignition (12V).
+    Pins 5 and 8 are wired to no rule and broadcast nothing on either build.
   parameters:
     - byte: 0
-      comment: pin number
-      bit: 0-3
-      name: input pin
-      type: uint4
-    - byte: 0
-      comment: seems to always be A
-      bit: 4-7
-      name: input high bits
-      type: uint4
+      name: instance
+      type: uint8
     - byte: 1
-      name: status
-      type: uint8
-      comment: momentary switch status
-      values:
-        00: open
-        01: closed
-    - byte: 2
-      name: unknown 2
-      type: uint8
-    - byte: 3
-      name: unknown 3
-      type: uint8
-    - byte: 4
-      name: unknown 4
-      type: uint8
-    - byte: 5
-      name: unknown 5
-      type: uint8
-    - byte: 6
-      name: unknown 6
-      type: uint8
-    - byte: 7
-      name: unknown 7
+      name: input state
       type: uint8
 
 16C:

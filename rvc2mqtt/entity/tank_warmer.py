@@ -131,6 +131,9 @@ class TankWarmer_DC_LOAD_STATUS(EntityPluginBaseClass):
         'command': 1, 'command_definition': 'on duration', 'delay_duration': 255}
 
         '''
+        if not payload:
+            return
+
         self.Logger.debug(
             f"MQTT Msg Received on topic {topic} with payload {payload}")
 

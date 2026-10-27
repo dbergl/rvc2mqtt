@@ -75,6 +75,34 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         "4095": "No Fault"
     }
 
+    """ Byte/bit -> apcfaults code map for the proprietary Renogy BMS alarm
+    word (WAKESPEED_BMS_QUERY register 0x92 / RENOGY_BMS_RESPONSE reply).
+
+    Reverse engineered 2026-09-04 by physically disconnecting the real BMS
+    from the RV-C bus and substituting a script that answers the APS-500's
+    0EF70 queries itself, then mutating one byte of the 0EF80 reply at a
+    time and diffing the APS-500's resulting DM_RV fault/lamp/description
+    against a clean (fault-cleared) baseline. Confirmed reproducible across
+    two independent runs.
+
+    Only an EXACT single-bit value in a byte is recognized -- 0x00 (no
+    alarm), any other single bit (0x01, 0x02, 0x04, ... 0x80) maps to the
+    code below, and any multi-bit value (0x03, 0xF0, 0xFF, ...) as well as
+    byte 0 and byte 6 at any value produced no fault at all (tested,
+    confirmed inert). Bytes 2 and 4 carry an identical map, so are likely a
+    duplicated/redundant copy of the same alarm word. Codes 53/54/55/56/62
+    were not reachable via this register -- 54 and 56 in particular describe
+    conditions involving multiple physical BMS/VE.reg devices, which a
+    single simulated BMS cannot trigger.
+    """
+    BMS_ALARM_BITS = {
+        1: {0x02: "51", 0x04: "51", 0x08: "51", 0x10: "51", 0x20: "51", 0x40: "61", 0x80: "61"},
+        2: {0x01: "57", 0x02: "52", 0x04: "57", 0x08: "52", 0x10: "58", 0x20: "58", 0x40: "58", 0x80: "58"},
+        3: {0x08: "51", 0x10: "61", 0x20: "61", 0x40: "59", 0x80: "59"},
+        4: {0x01: "57", 0x02: "52", 0x04: "57", 0x08: "52", 0x10: "58", 0x20: "58", 0x40: "58", 0x80: "58"},
+        5: {0x04: "58", 0x08: "51", 0x10: "61", 0x20: "61", 0x40: "59"},
+    }
+
     def __init__(self, data: dict, mqtt_support: MQTT_Support):
         self.id = "aps-500-i" + str(data["instance"])
         super().__init__(data, mqtt_support)
@@ -107,13 +135,16 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         self.rvc_match_terminal = {'name': 'TERMINAL', 'source_id': str(data['source_id'])}
 
+        self.rvc_match_initial_packet = {'name': 'INITIAL_PACKET', 'source_id': str(data['source_id'])}
+        self.rvc_match_data_packet = {'name': 'DATA_PACKET', 'source_id': str(data['source_id'])}
+
         # According to Wakespeed these may be J1939 messages. We will just do
         # nothing with them, so they don't show as decoder pending
         # The APS-500 will query the BMS and decode it's response. It will not wait very long so sometimes messages are missed
         # or can come in out of order.
-        self.rvc_match_0ef80 = {'name': 'UNKNOWN-0EF80'} # ignore id since it is the response from the BMS
-        self.rvc_match_0ef70 = {'name': 'UNKNOWN-0EF70', 'source_id': str(data['source_id'])}
-        self.rvc_match_0fed5 = {'name': 'UNKNOWN-0FED5', 'source_id': str(data['source_id'])}
+        self.rvc_match_0ef80 = {'name': 'RENOGY_BMS_RESPONSE'} # ignore id since it is the response from the BMS
+        self.rvc_match_0ef70 = {'name': 'WAKESPEED_BMS_QUERY', 'source_id': str(data['source_id'])}
+        self.rvc_match_0fed5 = {'name': 'J1939_ALTERNATOR_INFORMATION_1', 'source_id': str(data['source_id'])}
 
         self.Logger.debug(f"Must match: {str(self.rvc_match_source_status_1)}")
 
@@ -122,6 +153,15 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         # class specific values that change
         self._dc_voltage             = 5  # should never be this low
         self._dc_current             = 50  # should not be this high
+        #DC_SOURCE_STATUS_2
+        self._source_temperature     = "unknown"
+        self._state_of_charge        = "unknown"
+        self._time_remaining         = "unknown"
+
+        #DC_SOURCE_STATUS_3
+        self._state_of_health        = "unknown"
+        self._capacity_remaining     = "unknown"
+
         #DC_SOURCE_STATUS_4
         self._desired_charge_state   = "unknown"
         self._desired_dc_voltage     = "unknown" # expected is 54.7 volts
@@ -149,6 +189,14 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         self._charging_current       = "unknown"
         self._charger_temperature    = "unknown"
 
+        #CHARGER_EQUALIZATION_STATUS
+        self._equalization_time_remaining       = "unknown"
+        self._equalization_pre_charging_status  = "unknown"
+
+        #J1939_ALTERNATOR_INFORMATION_1
+        self._alternator_speed       = "unknown"
+        self._engine_running         = None
+
         #DM_RV
         self._fault_code             = "unknown"
         self._fault_description      = "unknown"
@@ -157,6 +205,20 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         #TERMINAL
         self._terminal_message_call  = {}
         self._terminalmessage        = ""
+
+        # INITIAL_PACKET / DATA_PACKET (multi-packet transport)
+        self._mp_expected_count = 0
+        self._mp_message_length = 0
+        self._mp_packets = {}  # keyed by packet_number for ordered assembly + duplicate detection
+        self._product_id = None
+
+        # WAKESPEED_BMS_QUERY / RENOGY_BMS_RESPONSE (proprietary 0EF70/0EF80).
+        # The response frame doesn't self-identify which register it answers,
+        # so we remember the register byte of the most recent query and use
+        # that to interpret the reply that follows it.
+        self._bms_query_register = None
+        self._bms_temps = [None, None, None, None]
+        self._bms_active_alarms = {}
 
         if 'command_topic' in data:
             topic_base                            = str(data['command_topic'])
@@ -178,8 +240,17 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             topic_base= str(data['status_topic'])
 
             # DC_SOURCE_STATUS_1
-            #dc_voltage
-            #dc_current - does not seem to actually be reported ??
+            self.dc_voltage_topic = str(f"{topic_base}/dc_voltage")
+            self.dc_current_topic = str(f"{topic_base}/dc_current")
+
+            # DC_SOURCE_STATUS_2
+            self.source_temperature_topic = str(f"{topic_base}/source_temperature")
+            self.state_of_charge_topic    = str(f"{topic_base}/state_of_charge")
+            self.time_remaining_topic     = str(f"{topic_base}/time_remaining")
+
+            # DC_SOURCE_STATUS_3
+            self.state_of_health_topic    = str(f"{topic_base}/state_of_health")
+            self.capacity_remaining_topic = str(f"{topic_base}/capacity_remaining")
 
             # DC_SOURCE_STATUS_4
             self.desired_charge_state_topic = str(f"{topic_base}/desired_charge_state")
@@ -208,6 +279,10 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             self.charging_mode_topic             = str(f"{topic_base}/charging_mode")
             self.battery_sensor_present_topic    = str(f"{topic_base}/battery_sensor_present")
 
+            # CHARGER_EQUALIZATION_STATUS
+            self.equalization_time_remaining_topic      = str(f"{topic_base}/equalization_time_remaining")
+            self.equalization_pre_charging_status_topic = str(f"{topic_base}/equalization_pre_charging_status")
+
             # BATTERY_STATUS_11
             self.charge_detected_topic           = str(f"{topic_base}/charge_detected")
             self.reserve_status_topic            = str(f"{topic_base}/reserve_status")
@@ -224,10 +299,39 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             self.request_last_fault_status_topic = str(f"{topic_base}/fault/rlf_message")
             self.log_status_topic                = str(f"{topic_base}/log")
             self.terminal_status_topic           = str(f"{topic_base}/danger/terminal_message")
+            self.product_id_topic                = str(f"{topic_base}/product_id")
+
+            # RENOGY_BMS_RESPONSE (register 0x95: 4 temperature sensors)
+            self.bms_temp_topic                  = str(f"{topic_base}/bms_temps")
+
+            # RENOGY_BMS_RESPONSE (register 0x92: alarm bits, see BMS_ALARM_BITS)
+            self.bms_alarm_topic                 = str(f"{topic_base}/bms_alarm")
+
+            # J1939_ALTERNATOR_INFORMATION_1
+            self.alternator_speed_topic          = str(f"{topic_base}/alternator_speed")
+            self.engine_running_topic            = str(f"{topic_base}/engine_running")
 
 
         else:
             self.status_dc_voltage_topic = mqtt_support.make_device_topic_string(self.id, "missing_status_topic", True)
+            self.equalization_time_remaining_topic      = mqtt_support.make_device_topic_string(self.id, "missing_status_topic", True)
+            self.equalization_pre_charging_status_topic = mqtt_support.make_device_topic_string(self.id, "missing_status_topic", True)
+
+    def _publish_numeric(self, topic: str, value, fmt: str = None):
+        """Publish a decoded RVC value only when it is actually a number.
+
+        rvc.py decodes an unavailable field (raw 0xFF / 0xFFFF / 0xFFFFFFFF for
+        the v, a and deg c units) to the string "n/a".  These topics are
+        announced to HA with a numeric device_class, so publishing that string
+        makes HA reject the state with a ValueError.  Skip the publish instead
+        and leave the last good retained reading in place.
+        """
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            self.Logger.debug(
+                f"Not publishing non-numeric value {value!r} to {topic}")
+            return
+        self.mqtt_support.client.publish(
+            topic, format(value, fmt) if fmt else value, retain=True)
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
@@ -240,14 +344,51 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         if self._is_entry_match(self.rvc_match_source_status_1, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+
+            if new_message["dc_voltage"] != self._dc_voltage:
+                self._dc_voltage = new_message["dc_voltage"]
+                self._publish_numeric(self.dc_voltage_topic, self._dc_voltage)
+            if new_message["dc_current"] != self._dc_current:
+                self._dc_current = new_message["dc_current"]
+                self._publish_numeric(self.dc_current_topic, self._dc_current)
+
             return True
 
         if self._is_entry_match(self.rvc_match_source_status_2, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+
+            if new_message["source_temperature"] != self._source_temperature:
+                self._source_temperature = new_message["source_temperature"]
+                self._publish_numeric(self.source_temperature_topic, self._source_temperature)
+            # rvc.py doesn't auto-convert the "pct"/"min" sentinels (0xFF/0xFFFF)
+            # to "n/a" the way it does for v/a/deg c -- guard those here instead.
+            if new_message["state_of_charge"] != self._state_of_charge:
+                self._state_of_charge = new_message["state_of_charge"]
+                if self._state_of_charge != 255:
+                    self.mqtt_support.client.publish(
+                        self.state_of_charge_topic, self._state_of_charge, retain=True)
+            if new_message["time_remaining"] != self._time_remaining:
+                self._time_remaining = new_message["time_remaining"]
+                if self._time_remaining != 65535:
+                    self.mqtt_support.client.publish(
+                        self.time_remaining_topic, self._time_remaining, retain=True)
+
             return True
 
         if self._is_entry_match(self.rvc_match_source_status_3, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+
+            if new_message["state_of_health"] != self._state_of_health:
+                self._state_of_health = new_message["state_of_health"]
+                if self._state_of_health != 255:
+                    self.mqtt_support.client.publish(
+                        self.state_of_health_topic, self._state_of_health, retain=True)
+            if new_message["capacity_remaining"] != self._capacity_remaining:
+                self._capacity_remaining = new_message["capacity_remaining"]
+                if self._capacity_remaining != 65535:
+                    self.mqtt_support.client.publish(
+                        self.capacity_remaining_topic, self._capacity_remaining, retain=True)
+
             return True
 
         if self._is_entry_match(self.rvc_match_source_status_4, new_message):
@@ -259,12 +400,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                     self.desired_charge_state_topic, new_message.get("desired_charge_state_definition", "unknown").title(), retain=True)
             if new_message["desired_dc_voltage"] != self._desired_dc_voltage:
                 self._desired_dc_voltage = new_message["desired_dc_voltage"]
-                self.mqtt_support.client.publish(
-                    self.desired_dc_voltage_topic, self._desired_dc_voltage, retain=True)
+                self._publish_numeric(
+                    self.desired_dc_voltage_topic, self._desired_dc_voltage)
             if new_message["desired_dc_current"] != self._desired_dc_current:
                 self._desired_dc_current = new_message["desired_dc_current"]
-                self.mqtt_support.client.publish(
-                    self.desired_dc_current_topic, self._desired_dc_current, retain=True)
+                self._publish_numeric(
+                    self.desired_dc_current_topic, self._desired_dc_current)
 
             return True
 
@@ -273,9 +414,8 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
             if self._hp_dc_voltage != new_message["hp_dc_voltage"]:
                 self._hp_dc_voltage = new_message["hp_dc_voltage"]
-                self.mqtt_support.client.publish(
-                    self.hp_dc_voltage_topic, f"{self._hp_dc_voltage:.3f}",
-                    retain=True)
+                self._publish_numeric(
+                    self.hp_dc_voltage_topic, self._hp_dc_voltage, ".3f")
             return True
 
         if self._is_entry_match(self.rvc_match_charger_status, new_message):
@@ -283,12 +423,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
             if self._charge_voltage != new_message["charge_voltage"]:
                 self._charge_voltage = new_message["charge_voltage"]
-                self.mqtt_support.client.publish(
-                    self.charge_voltage_topic, self._charge_voltage, retain=True)
+                self._publish_numeric(
+                    self.charge_voltage_topic, self._charge_voltage)
             if self._charge_current != new_message["charge_current"]:
                 self._charge_current = new_message["charge_current"]
-                self.mqtt_support.client.publish(
-                    self.charge_current_topic, self._charge_current, retain=True)
+                self._publish_numeric(
+                    self.charge_current_topic, self._charge_current)
             if self._charge_current_pct != new_message["charge_current_percent_of_maximum"]:
                 self._charge_current_pct = new_message["charge_current_percent_of_maximum"]
                 self.mqtt_support.client.publish(
@@ -317,16 +457,16 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
             if self._charging_voltage != new_message["charging_voltage"]:
                 self._charging_voltage = new_message["charging_voltage"]
-                self.mqtt_support.client.publish(
-                    self.charging_voltage_topic, self._charging_voltage, retain=True)
+                self._publish_numeric(
+                    self.charging_voltage_topic, self._charging_voltage)
             if self._charging_current != new_message["charging_current"]:
                 self._charging_current = new_message["charging_current"]
-                self.mqtt_support.client.publish(
-                    self.charging_current_topic, self._charging_current, retain=True)
+                self._publish_numeric(
+                    self.charging_current_topic, self._charging_current)
             if self._charger_temperature != new_message["charger_temperature"]:
                 self._charger_temperature = new_message["charger_temperature"]
-                self.mqtt_support.client.publish(
-                    self.charger_temperature_topic, self._charger_temperature, retain=True)
+                self._publish_numeric(
+                    self.charger_temperature_topic, self._charger_temperature)
 
             return True
 
@@ -348,6 +488,24 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                 self._battery_sensor_present = new_message["battery_sensor_present"]
                 self.mqtt_support.client.publish(
                     self.battery_sensor_present_topic, new_message.get("battery_sensor_present_definition", "unknown").title(), retain=True)
+
+            return True
+
+        if self._is_entry_match(self.rvc_match_charger_equalization_status, new_message):
+            self.Logger.debug(f"Msg Match Status: {str(new_message)}")
+
+            if self._equalization_time_remaining != new_message["time_remaining"]:
+                self._equalization_time_remaining = new_message["time_remaining"]
+                self.mqtt_support.client.publish(
+                    self.equalization_time_remaining_topic,
+                    self._equalization_time_remaining, retain=True)
+
+            if self._equalization_pre_charging_status != new_message["pre-charging_status"]:
+                self._equalization_pre_charging_status = new_message["pre-charging_status"]
+                self.mqtt_support.client.publish(
+                    self.equalization_pre_charging_status_topic,
+                    new_message.get("pre-charging_status_definition", "unknown").title(),
+                    retain=True)
 
             return True
 
@@ -416,7 +574,7 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
             self._terminalmessage =  self._terminalmessage + new_message["data"]
             messages = bytearray.fromhex(self._terminalmessage).decode()
-            self.Logger.debug(f"terminal_call: {self._terminal_message_call.get("timestamp")}, msg: {messages}")
+            self.Logger.debug(f"terminal_call: {self._terminal_message_call.get('timestamp')}, msg: {messages}")
             publish_msg = False
 
             if "AOK;" in messages:
@@ -451,14 +609,126 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
             return True
 
-        if self._is_entry_match(self.rvc_match_0ef80, new_message):
-            # likely J1939 message so do nothing
+        if self._is_entry_match(self.rvc_match_initial_packet, new_message):
+            count = new_message["packet_count"]
+            if count <= 0:
+                self.Logger.warning(f"INITIAL_PACKET: invalid packet_count {count}, ignoring")
+                return True
+            self._mp_expected_count = count
+            self._mp_message_length = new_message["message_length"]
+            self._mp_packets = {}
+            self.Logger.debug(
+                f"INITIAL_PACKET: expecting {self._mp_expected_count} packets, "
+                f"{self._mp_message_length} bytes"
+            )
             return True
+
+        if self._is_entry_match(self.rvc_match_data_packet, new_message):
+            if self._mp_expected_count == 0:
+                self.Logger.debug("DATA_PACKET received without INITIAL_PACKET, discarding")
+                return True
+            packet_num = new_message["packet_number"]
+            if packet_num in self._mp_packets:
+                self.Logger.warning(f"Duplicate DATA_PACKET #{packet_num}, ignoring")
+                return True
+            # Recover bytes 1-7 in correct order from the little-endian encoded integer
+            data_bytes = int(new_message["data"]).to_bytes(7, 'little')
+            self._mp_packets[packet_num] = data_bytes
+            self.Logger.debug(
+                f"DATA_PACKET #{packet_num}: "
+                f"{len(self._mp_packets)}/{self._mp_expected_count}"
+            )
+            if len(self._mp_packets) >= self._mp_expected_count:
+                try:
+                    all_bytes = b''.join(
+                        self._mp_packets[i] for i in range(1, self._mp_expected_count + 1)
+                    )
+                    trimmed = all_bytes[:self._mp_message_length]
+                    product_id = trimmed.decode('ascii').strip('\x00')
+                    if product_id != self._product_id:
+                        self._product_id = product_id
+                        self.Logger.info(f"PRODUCT_IDENTIFICATION: {product_id}")
+                        if hasattr(self, 'product_id_topic'):
+                            self.mqtt_support.client.publish(
+                                self.product_id_topic, product_id, retain=True)
+                except Exception as e:
+                    self.Logger.error(f"Failed to decode PRODUCT_IDENTIFICATION: {e}")
+                finally:
+                    self._mp_packets = {}
+                    self._mp_expected_count = 0
+            return True
+
         if self._is_entry_match(self.rvc_match_0ef70, new_message):
-            # likely J1939 message so do nothing
+            # WAKESPEED_BMS_QUERY: byte 0 is the opcode (0x13 = steady-state
+            # register read, cycled every ~460ms), byte 1 is the register
+            # being asked for. The RENOGY_BMS_RESPONSE that follows doesn't
+            # say which register it's answering, so remember it here.
+            try:
+                query_bytes = bytes.fromhex(new_message["data"])
+                if len(query_bytes) >= 2 and query_bytes[0] == 0x13:
+                    self._bms_query_register = query_bytes[1]
+                else:
+                    self._bms_query_register = None
+            except (ValueError, TypeError, KeyError):
+                self._bms_query_register = None
+            return True
+
+        if self._is_entry_match(self.rvc_match_0ef80, new_message):
+            # RENOGY_BMS_RESPONSE: decode using whichever register the
+            # preceding WAKESPEED_BMS_QUERY asked for.
+            register = self._bms_query_register
+            self._bms_query_register = None
+            try:
+                resp_bytes = bytes.fromhex(new_message["data"])
+            except (ValueError, TypeError, KeyError):
+                return True
+            if len(resp_bytes) != 8:
+                return True
+
+            if register == 0x95:
+                temps = []
+                for i in (0, 2, 4, 6):
+                    raw = (resp_bytes[i] << 8) | resp_bytes[i + 1]
+                    temps.append("n/a" if raw == 0xFFFF else raw / 10.0)
+                if temps != self._bms_temps:
+                    self._bms_temps = temps
+                    # Not retained: matches alternator_speed -- live BMS
+                    # telemetry, a retained stale reading is worse than none.
+                    self.mqtt_support.client.publish(
+                        self.bms_temp_topic, json.dumps(temps), retain=False)
+
+            elif register == 0x92:
+                active = {}
+                for byte_idx, bit_map in self.BMS_ALARM_BITS.items():
+                    value = resp_bytes[byte_idx]
+                    code = bit_map.get(value)
+                    if code is not None:
+                        active[str(byte_idx)] = {
+                            "code": code,
+                            "description": self.apcfaults.get(code, "Internal Error"),
+                        }
+                if active != self._bms_active_alarms:
+                    self._bms_active_alarms = active
+                    self.mqtt_support.client.publish(
+                        self.bms_alarm_topic, json.dumps(active), retain=True)
+
             return True
         if self._is_entry_match(self.rvc_match_0fed5, new_message):
-            # likely J1939 message so do nothing
+            self.Logger.debug(f"Msg Match J1939_ALTERNATOR_INFORMATION_1: {str(new_message)}")
+            alt_rpm = new_message["alternator_speed"]
+            if alt_rpm != self._alternator_speed:
+                self._alternator_speed = alt_rpm
+                if alt_rpm != "n/a":
+                    payload = json.dumps({"alt": round(alt_rpm), "engine": round(alt_rpm / 2.83)})
+                    # Not retained: RPM is live telemetry that stops being
+                    # broadcast once the engine is off, so a retained value
+                    # would leave HA showing a stale speed indefinitely.
+                    self.mqtt_support.client.publish(self.alternator_speed_topic, payload, retain=False)
+            engine_running = alt_rpm != "n/a" and alt_rpm > 500
+            if engine_running != self._engine_running:
+                self._engine_running = engine_running
+                self.mqtt_support.client.publish(
+                    self.engine_running_topic, "true" if engine_running else "false", retain=True)
             return True
 
         return False
@@ -653,8 +923,10 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
     def publish_ha_discovery_config(self):
         origin = {'name': self.mqtt_support.get_bridge_ha_name()}
         components = {
+            # CHARGER_STATUS
             'charge_voltage': {
                 'p': 'sensor', 'device_class': 'voltage',
+                'name': 'Charge Voltage',
                 'unit_of_measurement': 'V', 'suggested_display_precision': '2',
                 'value_template': '{{value}}',
                 'state_topic': self.charge_voltage_topic,
@@ -662,35 +934,235 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
             },
             'charge_current': {
                 'p': 'sensor', 'device_class': 'current',
+                'name': 'Charge Current',
                 'unit_of_measurement': 'A', 'suggested_display_precision': '2',
                 'value_template': '{{value}}',
                 'state_topic': self.charge_current_topic,
                 'unique_id': self.unique_device_id + '_charge_a'
             },
+            'charge_current_pct': {
+                'p': 'sensor',
+                'name': 'Charge Current %',
+                'unit_of_measurement': '%',
+                'value_template': '{{value}}',
+                'state_topic': self.charge_current_pct_topic,
+                'unique_id': self.unique_device_id + '_charge_a_pct'
+            },
             'operating_state': {
                 'p': 'sensor',
+                'name': 'Operating State',
                 'value_template': '{{value}}',
                 'state_topic': self.operating_state_topic,
                 'unique_id': self.unique_device_id + '_op_state'
             },
+            'power_up_default_state': {
+                'p': 'sensor',
+                'name': 'Power-Up Default State',
+                'value_template': '{{value}}',
+                'state_topic': self.power_up_default_state_topic,
+                'unique_id': self.unique_device_id + '_pu_state'
+            },
+            'auto_recharge_enable': {
+                'p': 'sensor',
+                'name': 'Auto Recharge Enable',
+                'value_template': '{{value}}',
+                'state_topic': self.auto_recharge_enable_topic,
+                'unique_id': self.unique_device_id + '_auto_rchg'
+            },
+            'force_charge': {
+                'p': 'sensor',
+                'name': 'Force Charge',
+                'value_template': '{{value}}',
+                'state_topic': self.force_charge_topic,
+                'unique_id': self.unique_device_id + '_force_chg'
+            },
+            # CHARGER_STATUS_2
+            'charging_voltage': {
+                'p': 'sensor', 'device_class': 'voltage',
+                'name': 'Charging Voltage',
+                'unit_of_measurement': 'V', 'suggested_display_precision': '2',
+                'value_template': '{{value}}',
+                'state_topic': self.charging_voltage_topic,
+                'unique_id': self.unique_device_id + '_chging_v'
+            },
+            'charging_current': {
+                'p': 'sensor', 'device_class': 'current',
+                'name': 'Charging Current',
+                'unit_of_measurement': 'A', 'suggested_display_precision': '2',
+                'value_template': '{{value}}',
+                'state_topic': self.charging_current_topic,
+                'unique_id': self.unique_device_id + '_chging_a'
+            },
             'charger_temperature': {
                 'p': 'sensor', 'device_class': 'temperature',
+                'name': 'Charger Temperature',
                 'unit_of_measurement': '°C', 'suggested_display_precision': '1',
                 'value_template': '{{value}}',
                 'state_topic': self.charger_temperature_topic,
                 'unique_id': self.unique_device_id + '_chg_temp'
             },
+            # DC_SOURCE_STATUS_4
+            'desired_charge_state': {
+                'p': 'sensor',
+                'name': 'Desired Charge State',
+                'value_template': '{{value}}',
+                'state_topic': self.desired_charge_state_topic,
+                'unique_id': self.unique_device_id + '_des_chg_st'
+            },
+            'desired_dc_voltage': {
+                'p': 'sensor', 'device_class': 'voltage',
+                'name': 'Desired DC Voltage',
+                'unit_of_measurement': 'V', 'suggested_display_precision': '2',
+                'value_template': '{{value}}',
+                'state_topic': self.desired_dc_voltage_topic,
+                'unique_id': self.unique_device_id + '_des_dc_v'
+            },
+            'desired_dc_current': {
+                'p': 'sensor', 'device_class': 'current',
+                'name': 'Desired DC Current',
+                'unit_of_measurement': 'A', 'suggested_display_precision': '2',
+                'value_template': '{{value}}',
+                'state_topic': self.desired_dc_current_topic,
+                'unique_id': self.unique_device_id + '_des_dc_a'
+            },
+            # DC_SOURCE_STATUS_5
+            'hp_dc_voltage': {
+                'p': 'sensor', 'device_class': 'voltage',
+                'name': 'HP DC Voltage',
+                'unit_of_measurement': 'V', 'suggested_display_precision': '3',
+                'value_template': '{{value}}',
+                'state_topic': self.hp_dc_voltage_topic,
+                'unique_id': self.unique_device_id + '_hp_dc_v'
+            },
+            # CHARGER_CONFIGURATION_STATUS
+            'charging_algorithm': {
+                'p': 'sensor',
+                'name': 'Charging Algorithm',
+                'value_template': '{{value}}',
+                'state_topic': self.charging_algorithm_topic,
+                'unique_id': self.unique_device_id + '_chg_algo'
+            },
+            'charging_mode': {
+                'p': 'sensor',
+                'name': 'Charging Mode',
+                'value_template': '{{value}}',
+                'state_topic': self.charging_mode_topic,
+                'unique_id': self.unique_device_id + '_chg_mode'
+            },
+            'battery_sensor_present': {
+                'p': 'sensor',
+                'name': 'Battery Sensor Present',
+                'value_template': '{{value}}',
+                'state_topic': self.battery_sensor_present_topic,
+                'unique_id': self.unique_device_id + '_bat_sens'
+            },
+            # CHARGER_EQUALIZATION_STATUS
+            'equalization_time_remaining': {
+                'p': 'sensor',
+                'name': 'Equalization Time Remaining',
+                'unit_of_measurement': 's',
+                'value_template': '{{value}}',
+                'state_topic': self.equalization_time_remaining_topic,
+                'unique_id': self.unique_device_id + '_eq_time'
+            },
+            'equalization_pre_charging_status': {
+                'p': 'sensor',
+                'name': 'Equalization Pre-Charging Status',
+                'value_template': '{{value}}',
+                'state_topic': self.equalization_pre_charging_status_topic,
+                'unique_id': self.unique_device_id + '_eq_prchg'
+            },
+            # BATTERY_STATUS_11
+            'charge_detected': {
+                'p': 'sensor',
+                'name': 'Charge Detected',
+                'value_template': '{{value}}',
+                'state_topic': self.charge_detected_topic,
+                'unique_id': self.unique_device_id + '_chg_det'
+            },
+            'reserve_status': {
+                'p': 'sensor',
+                'name': 'Reserve Status',
+                'value_template': '{{value}}',
+                'state_topic': self.reserve_status_topic,
+                'unique_id': self.unique_device_id + '_reserve'
+            },
+            # DM_RV
             'fault_code': {
                 'p': 'sensor',
+                'name': 'Fault Code',
                 'value_template': '{{value}}',
                 'state_topic': self.dm_rv_fault_code_topic,
                 'unique_id': self.unique_device_id + '_fault_code'
             },
             'fault_description': {
                 'p': 'sensor',
+                'name': 'Fault Description',
                 'value_template': '{{value}}',
                 'state_topic': self.dm_rv_fault_description_topic,
                 'unique_id': self.unique_device_id + '_fault_desc'
+            },
+            'fault_lamp': {
+                'p': 'sensor',
+                'name': 'Fault Lamp',
+                'value_template': '{{value}}',
+                'state_topic': self.dm_rv_lamp_topic,
+                'unique_id': self.unique_device_id + '_fault_lamp'
+            },
+            # PRODUCT_ID
+            'product_id': {
+                'p': 'sensor',
+                'name': 'Product ID',
+                'value_template': '{{value}}',
+                'state_topic': self.product_id_topic,
+                'unique_id': self.unique_device_id + '_product_id'
+            },
+            # Commands
+            'reset': {
+                'p': 'button',
+                'name': 'Reset',
+                'command_topic': self.reset_command_topic,
+                'payload_press': '1',
+                'unique_id': self.unique_device_id + '_reset'
+            },
+            'request_last_fault': {
+                'p': 'button',
+                'name': 'Request Last Fault',
+                'command_topic': self.request_last_fault_command_topic,
+                'payload_press': '1',
+                'unique_id': self.unique_device_id + '_rlf_btn'
+            },
+            'last_fault_response': {
+                'p': 'sensor',
+                'name': 'Last Fault Response',
+                'value_template': '{{value}}',
+                'state_topic': self.request_last_fault_status_topic,
+                'unique_id': self.unique_device_id + '_rlf_resp'
+            },
+            'alternator_rpm': {
+                'p': 'sensor',
+                'name': 'Alternator RPM',
+                'unit_of_measurement': 'RPM',
+                'value_template': '{{value_json.alt}}',
+                'state_topic': self.alternator_speed_topic,
+                'unique_id': self.unique_device_id + '_alt_rpm'
+            },
+            'engine_rpm': {
+                'p': 'sensor',
+                'name': 'Engine RPM',
+                'unit_of_measurement': 'RPM',
+                'value_template': '{{value_json.engine}}',
+                'state_topic': self.alternator_speed_topic,
+                'unique_id': self.unique_device_id + '_eng_rpm'
+            },
+            'engine_running': {
+                'p': 'binary_sensor',
+                'name': 'Engine Running',
+                'device_class': 'running',
+                'payload_on': 'true',
+                'payload_off': 'false',
+                'state_topic': self.engine_running_topic,
+                'unique_id': self.unique_device_id + '_eng_run'
             },
         }
         config = {'dev': self.device, 'o': origin, 'cmps': components, 'qos': 1}

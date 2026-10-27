@@ -24,6 +24,7 @@ import logging
 import struct
 import json
 from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from rvc2mqtt.mqtt import MQTT_Support
 from rvc2mqtt.entity import EntityPluginBaseClass
 
@@ -53,7 +54,11 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         if 'status_topic' in data:
             self.status_topic = str(data['status_topic'])
 
+        self.timezone_topic = f"{self.status_topic}/tz"
+        self.timezone_set_topic = f"{self.command_topic}/tz"
+
         self.mqtt_support.register(self.command_topic, self.process_mqtt_msg)
+        self.mqtt_support.register(self.timezone_set_topic, self.process_mqtt_msg)
 
         # RVC message must match the following to be this device
         self.rvc_match_status = { "name": "DATE_TIME_STATUS" }
@@ -64,6 +69,27 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
         # save these for later to send rvc msg
         self.name = data['instance_name']
         self.state = "unknown"
+
+        # Optional IANA timezone (e.g. 'America/New_York') the RV-C clock
+        # represents. When set, the published state is naive ISO and HA is
+        # told to interpret it in this zone via the discovery `timezone`
+        # field. When omitted, fall back to the container's local zone.
+        self.tz_name = data.get('timezone')
+        self.tz: ZoneInfo = None
+        if self.tz_name:
+            try:
+                self.tz = ZoneInfo(self.tz_name)
+            except ZoneInfoNotFoundError:
+                self.Logger.error(
+                    f"Unknown timezone {self.tz_name!r}; falling back to system local")
+                self.tz_name = None
+
+        self.device = {"manufacturer": "RV-C",
+                       "via_device": self.mqtt_support.get_bridge_ha_name(),
+                       "identifiers": self.unique_device_id,
+                       "name": self.name,
+                       "model": "RV-C System Clock from DATE_TIME_STATUS"
+                       }
 
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming message and determine if it
@@ -97,16 +123,23 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
             '''
 
             year = int(new_message["year"])+2000
-            month = new_message["month"]
-            day = new_message["date"]
-            hour = new_message["hour"]
-            minute = new_message["minute"]
-            second = new_message["second"]
+            month = int(new_message["month"])
+            day = int(new_message["date"])
+            hour = int(new_message["hour"])
+            minute = int(new_message["minute"])
+            second = int(new_message["second"])
 
-            date = f"{year}-{month:0>2}-{day:0>2}"
-            time = f"{hour:0>2}:{minute:0>2}"
-
-            state = f"{date}T{time}"
+            try:
+                dt = datetime(year, month, day, hour, minute, second)
+                if self.tz is None:
+                    # No configured zone — attach the container's local offset
+                    # so HA receives a fully qualified ISO string.
+                    dt = dt.astimezone()
+                state = dt.isoformat(timespec='seconds')
+            except ValueError:
+                self.Logger.warning(
+                    f"Invalid DATE_TIME_STATUS: {year}-{month}-{day} {hour}:{minute}:{second}")
+                return True
 
             #only publish if the time or date has changed. This should be once a minute
             if self.state != state:
@@ -167,14 +200,79 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
 
         if topic == self.command_topic:
             try:
-                dt = datetime.fromisoformat(payload)
+                # HA's mqtt.datetime publishes ISO format in UTC by default.
+                # fromisoformat in Python <3.11 doesn't accept the 'Z' suffix.
+                dt = datetime.fromisoformat(payload.replace('Z', '+00:00'))
+                if dt.tzinfo is not None:
+                    target = self.tz if self.tz is not None else None
+                    dt = dt.astimezone(target).replace(tzinfo=None)
                 pl = self._make_rvc_payload(dt)
                 self.send_queue.put({"dgn": "1FFFE", "data": pl})
             except Exception as e:
                 self.Logger.error(f"Exception trying to respond to topic {topic} + {str(e)}")
+        elif topic == self.timezone_set_topic:
+            self._handle_timezone_set(payload)
         else:
             self.Logger.warning(
             f"Invalid payload {payload} for topic {topic}")
+
+    def _handle_timezone_set(self, payload: str):
+        """ Update the configured IANA timezone, persist to the floorplan
+        override, and republish discovery so HA picks up the new value. """
+        new_name = payload.strip()
+        if not new_name:
+            self.tz = None
+            self.tz_name = None
+        else:
+            try:
+                self.tz = ZoneInfo(new_name)
+                self.tz_name = new_name
+            except ZoneInfoNotFoundError:
+                self.Logger.error(f"Unknown timezone {new_name!r}; ignoring")
+                return
+
+        self.mqtt_support.client.publish(
+            self.timezone_topic, self.tz_name or "", retain=True)
+        self._persist_override({'timezone': self.tz_name})
+        # Force the next DATE_TIME_STATUS to publish with the new zone.
+        self.state = "unknown"
+        self.publish_ha_discovery_config()
+
+    def publish_ha_discovery_config(self):
+        """ Publish HA MQTT auto-discovery as a `datetime` platform entity.
+
+        When a `timezone` is configured, the state is published as a naive
+        ISO datetime and HA is told (via the discovery `timezone` field) to
+        interpret it in that zone. Otherwise the state carries the
+        container's local UTC offset. """
+        config = {"name": self.name,
+                  "state_topic": self.status_topic,
+                  "command_topic": self.command_topic,
+                  "qos": 1, "retain": False,
+                  "unique_id": self.unique_device_id + "_datetime",
+                  "device": self.device}
+        if self.tz_name:
+            config["timezone"] = self.tz_name
+        config.update(self.get_availability_discovery_info_for_ha())
+
+        self.mqtt_support.client.publish(
+            self.mqtt_support.make_ha_auto_discovery_config_topic(
+                self.unique_device_id, "datetime"),
+            json.dumps(config), retain=False)
+
+        # Companion `text` entity for editing the IANA timezone from HA.
+        tz_config = {"name": self.name + " Timezone",
+                     "state_topic": self.timezone_topic,
+                     "command_topic": self.timezone_set_topic,
+                     "qos": 1, "retain": False,
+                     "unique_id": self.unique_device_id + "_tz",
+                     "device": self.device}
+        tz_config.update(self.get_availability_discovery_info_for_ha())
+
+        self.mqtt_support.client.publish(
+            self.mqtt_support.make_ha_auto_discovery_config_topic(
+                self.unique_device_id, "text", "tz"),
+            json.dumps(tz_config), retain=False)
 
     def initialize(self):
         """ Optional function
@@ -186,7 +284,19 @@ class Datetime_DATE_TIME_STATUS(EntityPluginBaseClass):
 
         """
 
+        self.publish_ha_discovery_config()
+
         # publish info to mqtt
+        #
+        # HA's datetime platform parses the state topic as a date/time
+        # expression, so the "unknown" sentinel must never be published there --
+        # it is rejected with "Invalid received date/time expression". Publish an
+        # empty retained payload instead: that deletes any stale retained value
+        # on the broker and HA ignores it with only a debug log. The first
+        # DATE_TIME_STATUS (broadcast about once a minute) fills in the state.
         self.mqtt_support.client.publish(
-            self.status_topic, self.state, retain=True)
+            self.status_topic, "" if self.state == "unknown" else self.state,
+            retain=True)
+        self.mqtt_support.client.publish(
+            self.timezone_topic, self.tz_name or "", retain=True)
 

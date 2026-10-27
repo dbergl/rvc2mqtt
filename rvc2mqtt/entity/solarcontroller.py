@@ -103,8 +103,8 @@ class SolarController_SOLAR_CONTROLLER_STATUS(EntityPluginBaseClass):
             self.operating_days_topic   = mqtt_support.make_device_topic_string(self.id, "operating-days", True)
             self.temperature_topic      = mqtt_support.make_device_topic_string(self.id, "temperature", True)
             self.array_voltage_topic    = mqtt_support.make_device_topic_string(self.id, "solar-array-voltage", True)
-            self.array_current_topic    = mqtt_support.make_device_topic_string(self.id, "solar-array-voltage", True)
-            self.array_power_topic      = mqtt_support.make_device_topic_string(self.id, "solar-array-voltage", True)
+            self.array_current_topic    = mqtt_support.make_device_topic_string(self.id, "solar-array-current", True)
+            self.array_power_topic      = mqtt_support.make_device_topic_string(self.id, "solar-array-power", True)
             self.battery_voltage_topic  = mqtt_support.make_device_topic_string(self.id, "battery-voltage", True)
             self.battery_current_topic  = mqtt_support.make_device_topic_string(self.id, "battery-current", True)
 
@@ -200,7 +200,7 @@ class SolarController_SOLAR_CONTROLLER_STATUS(EntityPluginBaseClass):
                 self.power_generation = new_message["cumulative_power_generation"]
                 # The value needs to be divided by 2, I think, because there are 2 battery banks. This should match firefly screen
                 self.mqtt_support.client.publish(
-                    self.power_generation_topic, f"{round(float(new_message["cumulative_power_generation"]) / 2 )}", retain=True)
+                    self.power_generation_topic, f"{round(float(self.power_generation) / 2 )}", retain=True)
 
             return True
 

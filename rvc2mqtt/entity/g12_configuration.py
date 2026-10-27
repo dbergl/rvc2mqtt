@@ -1,0 +1,1691 @@
+"""
+Firefly G12 Configuration entity
+
+Copyright 2025 Dan Berglund
+SPDX-License-Identifier: Apache-2.0
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+"""
+
+import json
+import logging
+import struct
+from rvc2mqtt.mqtt import MQTT_Support
+from rvc2mqtt.entity import EntityPluginBaseClass
+
+
+# Per-floorplan option defaults for the "Jayco B-Van V13" build (Firefly MCF 13.6).
+#
+# Observed 2026-08-13 from two independent sources agreeing on all 90 values: the coach
+# owner read the defaults off the touchscreen for nine floorplans, and a CAN capture of
+# 2026-08-12 already contained them -- selecting a floorplan writes that floorplan's
+# defaults as a 12-selector transaction. WD comes from the capture only, because the
+# owner's coach was sitting on it.
+#
+# PER-BUILD DATA. The F5 enum itself differs between builds (see rvc-spec.yml), so these
+# defaults are meaningless on a coach running a different configuration.
+#
+# Used only to warn the operator what a floorplan change will overwrite. Nothing here is
+# transmitted -- see the note in the selected_floorplan handler for why.
+FLOORPLAN_OPTION_DEFAULTS = {
+    #    EB  E5  E9  E3  E4  EC     EF  E6  D7  D8
+    1:  {0xEB: 0, 0xE5: 1, 0xE9: 0, 0xE3: 1, 0xE4: 0, 0xEC: 1, 0xEF: 1, 0xE6: 1, 0xD7: 1, 0xD8: 0},  # RT
+    2:  {0xEB: 0, 0xE5: 1, 0xE9: 0, 0xE3: 1, 0xE4: 0, 0xEC: 1, 0xEF: 1, 0xE6: 1, 0xD7: 1, 0xD8: 0},  # RA
+    3:  {0xEB: 0, 0xE5: 1, 0xE9: 0, 0xE3: 1, 0xE4: 0, 0xEC: 1, 0xEF: 1, 0xE6: 1, 0xD7: 1, 0xD8: 0},  # RD
+    4:  {0xEB: 0, 0xE5: 1, 0xE9: 0, 0xE3: 1, 0xE4: 0, 0xEC: 0, 0xEF: 0, 0xE6: 0, 0xD7: 0, 0xD8: 0},  # SY
+    5:  {0xEB: 0, 0xE5: 0, 0xE9: 0, 0xE3: 0, 0xE4: 0, 0xEC: 1, 0xEF: 3, 0xE6: 0, 0xD7: 0, 0xD8: 0},  # TB
+    6:  {0xEB: 0, 0xE5: 0, 0xE9: 0, 0xE3: 0, 0xE4: 0, 0xEC: 1, 0xEF: 1, 0xE6: 1, 0xD7: 1, 0xD8: 0},  # CB
+    7:  {0xEB: 0, 0xE5: 1, 0xE9: 0, 0xE3: 1, 0xE4: 0, 0xEC: 1, 0xEF: 3, 0xE6: 0, 0xD7: 0, 0xD8: 0},  # WA
+    8:  {0xEB: 0, 0xE5: 1, 0xE9: 0, 0xE3: 1, 0xE4: 0, 0xEC: 1, 0xEF: 3, 0xE6: 0, 0xD7: 0, 0xD8: 0},  # WD
+    9:  {0xEB: 0, 0xE5: 1, 0xE9: 0, 0xE3: 1, 0xE4: 0, 0xEC: 1, 0xEF: 3, 0xE6: 0, 0xD7: 0, 0xD8: 0},  # WT
+    10: {0xEB: 0, 0xE5: 1, 0xE9: 0, 0xE3: 0, 0xE4: 0, 0xEC: 1, 0xEF: 1, 0xE6: 1, 0xD7: 1, 0xD8: 0},  # RY
+}
+
+_SELECTOR_NAMES = {
+    0xEB: "heat pump", 0xE5: "bunk accent", 0xE9: "bath fan",
+    0xE3: "cargo/bath light (ch.25)", 0xE4: "bath light", 0xEC: "black tank",
+    0xEF: "gen/AES mode", 0xE6: "progressive inverter",
+    0xD7: "go power! controllers", 0xD8: "battery count",
+    0x92: "max charge rate",
+}
+
+# Dimmer channel the G12 drives as its engine relay when AES is wired for 1-wire
+# operation, which is always 18. 2-wire wiring uses a different channel and is
+# untested - such a coach must declare engine_relay_instance in the floorplan.
+# Used only as the fallback for the AES-disable command sequence below; the status
+# match never falls back, because a wrong instance there would steal a light's
+# status messages.
+AES_1WIRE_ENGINE_RELAY_INSTANCE = 18
+
+# Selector 0xEE, as the custom panel build (myfirmware mcf-dan-v54, ops `pumplink` and
+# `pumpauto`) uses it: one G12-stored u16 holding the Pump Link flag in the HIGH byte and
+# the Water Pump Auto Off minutes in the LOW byte (0 disables Auto Off, else 5..60 in steps
+# of 5). The layout is forced by the G12 storing it as a raw u16 with no clamp -- a delta
+# borrows across the byte boundary (fireflymcf BUS-BASELINE.md PC.47, pumpauto.py).
+PUMP_SELECTOR = 0xEE
+PUMP_UNSET = 0xFFFF            # what the G12 sweeps before anything has ever been stored
+PUMP_AUTO_OFF_MAX = 60
+PUMP_AUTO_OFF_STEP = 5
+
+# The patched Renogy BMS's 0EF70 commands (renogyBMS ..._rvc_status_patch.README.md), with
+# the leases the v54 panel buttons send (fireflymcf aescompact.py, ops `battheat` and
+# `alarms`). 8 bytes, BIG-endian: 2-byte magic, 4 reserved zero bytes, lease in 100 ms
+# ticks. A lease of 0 cancels.
+BMS_HEATER_MAGIC = 0xAA55
+BMS_ALARM_MASK_MAGIC = 0x4D53
+BMS_HEATER_LEASE = 36000       # 60 min -- the panel's "Battery Heater" hold
+BMS_ALARM_MASK_LEASE = 6000    # 10 min -- the panel's "Ignore Alarms" hold
+
+# Sanity envelopes for the two fields that have been observed carrying garbage
+# (65531, 0, and a raw value implying 7200 s while the entity was still in the
+# AES range) during an AGS/AES mode switch on 2026-09-01. These are the union of
+# the AES and AGS bounds used in publish_ha_discovery_config(), plus a 0 floor as
+# a margin for whichever HA range is live at the moment a message lands. Not a
+# root-cause fix -- the 7200 s case above was actually valid AGS data rejected by
+# a stale HA range (see publish_ha_discovery_config) -- just a filter against
+# transmission noise that can never be a real setting, so it does not get
+# published, retained by HA, and logged as an error every time it's sent again.
+MAX_ENGINE_RUN_TIME_SANE_RANGE = (0, 1440)     # min; union of AES 60-115 and AGS 0-1440
+TIME_AT_STOP_VOLTS_SANE_RANGE = (0, 7200)      # sec; union of AES 600-3600 and AGS 600-7200
+
+
+class G12_Configuration(EntityPluginBaseClass):
+    FACTORY_MATCH_ATTRIBUTES = {"name": "G12", "type": "g12_configuration"}
+
+    """
+    Entity for the Firefly G12 controller configuration messages.
+
+    Listens to G12_CONFIGURATION (DGN 15FCE) which uses usefirstbyte: true.
+    Messages are filtered by source_id (G12 broadcasts on 0x9C).
+
+    Message types handled:
+      0x01, 0x03, 0x05, 0x9B - involves AES enabled (no parameters decoded)
+      0x0A - measured pack voltage (volts, read-only)
+      0x0C - time at stop volts (duration, sec)
+      0x0D - stop at voltage (volts, v)
+      0x0E - time at stop volts (duration, sec)
+      0x16 - max engine run time (minutes, min)
+      0x2B - quiet time start (hours, minutes)
+      0x2C - quiet time stop (hours, minutes)
+      0x31 - start at voltage (volts, v)
+      0xCC - 0%-33% tank threshold (value)
+      0xCD - 33%-67% tank threshold (value)
+      0xCE - 67%-100% tank threshold (value)
+      0xE4 - bath light (mutually exclusive with 0xE3)
+      0xEB - heat pump (on/off)
+      0xEE - Pump Link flag (high byte) + Water Pump Auto Off minutes (low byte);
+             custom panel firmware only, see PUMP_SELECTOR
+
+    Note on 0xE3/0xE4: these are one bath-light choice, not two switches. Exactly one is
+    active, and the touchscreen writes both together in opposite directions. The
+    cargo_bath_light command therefore emits a paired write; 0xE4 is exposed read-only.
+
+    Note on mode-dependent parameters: 0x0A, 0x0D, 0x0E, 0x0F, 0x16 and 0x31 carry a
+    different profile depending on 0xEF. Under AES they describe the 48V engine/lithium
+    system; under AGS a 12V generator system. The Home Assistant ranges follow the mode
+    and are re-announced when it changes.
+
+    Also handles INITIAL_PACKET / DATA_PACKET multi-packet transport to
+    assemble and publish PRODUCT_IDENTIFICATION, filtered by source_id.
+
+    Optionally exposes the engine relay (start/stop buttons + running sensor).
+    The relay is a dimmer channel the G12 drives, and the channel number is
+    coach-specific, so it is opt-in via `engine_relay_instance`. When it is
+    omitted this entity ignores DC_DIMMER_STATUS_3 entirely - claiming those
+    messages would starve the dimmer entities, since app.py stops at the first
+    entity that claims a message.
+
+    Floorplan entry example:
+      - name: G12
+        type: g12_configuration
+        source_id: '9C'
+        instance_name: "Generator Controller"
+        status_topic: "rvc/g12/config"
+        engine_relay_instance: 18   # optional; 18 on Ethos/Launch/Terrain
+        bms_source_id: '70'         # optional; patched Renogy BMS heater/alarm mask
+
+    Optionally exposes the custom panel's two BMS buttons, Battery Heater and Ignore
+    Alarms, which are not G12 messages at all: they are 0EF70 commands to the patched
+    Renogy BMS, which answers on 0FF70 (RENOGY_BMS_HEATER_STATUS). Opt-in via
+    `bms_source_id`, because a stock BMS neither sends that status nor honours the
+    commands.
+    """
+
+    def __init__(self, data: dict, mqtt_support: MQTT_Support):
+        self.id = "g12-configuration-15FCE-" + str(data['source_id'])
+        super().__init__(data, mqtt_support)
+        self.Logger = logging.getLogger(__class__.__name__)
+
+        self.name = data.get('instance_name', 'Generator Controller')
+        self.device = {
+            'mf': 'Firefly Integrations',
+            'ids': self.unique_device_id,
+            'mdl': 'Firefly G12 Control Module',
+            'name': self.name
+        }
+
+        self.source_id = str(data['source_id'])
+
+        # The engine relay is a DC_DIMMER_STATUS_3 / DC_DIMMER_COMMAND_2 channel that the
+        # G12 drives, so the channel number is coach-specific and must be declared in the
+        # floorplan (`engine_relay_instance: 18` on the Ethos/Launch/Terrain). Without it
+        # this entity does not touch the dimmer DGNs at all and publishes no engine
+        # entities - see _engine_relay_configured().
+        self.engine_relay_instance = data.get('engine_relay_instance')
+
+        # The patched Renogy BMS's address (0x70 on the coach). Opt-in: without it this
+        # entity neither claims 0FF70 nor advertises the heater / alarm mask controls.
+        self.bms_source_id = data.get('bms_source_id')
+        if self.bms_source_id is not None:
+            self.bms_source_id = str(self.bms_source_id).upper()
+
+        # RVC message must match the following to be this device
+        self.rvc_match_g12_config     = {"name": "G12_CONFIGURATION", "source_id": self.source_id}
+        self.rvc_match_initial_packet = {"name": "INITIAL_PACKET", "source_id": self.source_id}
+        self.rvc_match_data_packet    = {"name": "DATA_PACKET", "source_id": self.source_id}
+        self.rvc_match_dm_rv          = {"name": "DM_RV", "source_id": self.source_id}
+        self.rvc_match_input_status   = {"name": "G12_INPUT_STATUS", "source_id": self.source_id}
+        # 1FED9 comes from touchscreen (0x9F), not G12 (0x9C) — no source_id filter
+        self.rvc_match_g12_indicator  = {"name": "GENERIC_INDICATOR_COMMAND"}
+        # DC_DIMMER_STATUS_3 (1FEDA) from G12 — the configured engine relay channel.
+        # The instance is part of the match on purpose: the G12 broadcasts this DGN for
+        # every dimmer channel it drives, and app.py hands a message to the first entity
+        # that claims it. Matching on source_id alone would swallow every light's status.
+        self.rvc_match_engine_status = None
+        if self._engine_relay_configured():
+            self.rvc_match_engine_status = {
+                "name": "DC_DIMMER_STATUS_3", "source_id": self.source_id,
+                "instance": self.engine_relay_instance}
+        self.rvc_match_bms_status = None
+        if self._bms_configured():
+            self.rvc_match_bms_status = {
+                "name": "RENOGY_BMS_HEATER_STATUS", "source_id": self.bms_source_id}
+
+        # DM_RV
+        self._fault_code = "unknown"
+        self._fault_description = "unknown"
+        self._lamp = "unknown"
+
+        # INITIAL_PACKET / DATA_PACKET (multi-packet transport for PRODUCT_IDENTIFICATION)
+        self._mp_expected_count = 0
+        self._mp_message_length = 0
+        self._mp_packets = {}
+        self._product_id = None
+
+        # G12_INPUT_STATUS (1FBDA) -- last published state per input number.  Each frame
+        # carries one instance and that instance's own state, so no cross-input bookkeeping
+        # is needed: a pin's state changes only when its own instance says so.  Absent =
+        # never heard from, which is UNKNOWN rather than inactive.
+        self._input_state = {}
+
+        # 1FBDA instance 0xBF -- the AES engine command pulse (02 start, 01 stop, 00 release).
+        self._aes_engine_command = None
+
+        # Internal state - initialized to "unknown" so first received value always publishes
+        self._max_engine_run_time = "unknown"
+        self._time_at_start_volts = "unknown"
+        self._stop_at_voltage = "unknown"
+        self._time_at_stop_volts = "unknown"
+        self._quiet_time_start = "unknown"
+        self._quiet_time_stop = "unknown"
+        self._start_at_voltage = "unknown"
+        self._threshold_cc = "unknown"
+        self._threshold_cd = "unknown"
+        self._threshold_ce = "unknown"
+
+        # Newly discovered settings (from log analysis)
+        self._ags_low_volts_trigger  = "unknown"  # 0x2F
+        self._ags_gen_start_retries  = "unknown"  # 0x15 byte 2
+        self._ags_config_mode        = "unknown"  # 0x15 byte 3
+        self._go_power_controllers   = "unknown"  # 0xD7
+        self._num_batteries          = "unknown"  # 0xD8
+        self._cargo_bath_light       = "unknown"  # 0xE3
+        self._bath_light             = "unknown"  # 0xE4 (mutually exclusive with 0xE3)
+        self._heat_pump              = "unknown"  # 0xEB
+        self._battery_voltage        = "unknown"  # 0x0A (measured, read-only)
+        self._bunk_accent            = "unknown"  # 0xE5
+        self._progressive_inverter   = "unknown"  # 0xE6
+        self._bath_fan               = "unknown"  # 0xE9
+        self._black_tank_setting     = "unknown"  # 0xEC
+        self._gen_aes_mode           = "unknown"  # 0xEF
+        self._selected_floorplan     = "unknown"  # 0xF5
+        self._ags_retry_interval     = "unknown"  # 0xF7
+        self._aes_enabled            = "unknown"  # 0x9B (on/off)
+        self._engine_running         = "unknown"  # engine on/off (from DC_DIMMER_STATUS_3 instance 18)
+        self._max_charge_rate        = "unknown"  # 0x92 (percent; raw is 0.5%/bit)
+        self._pump_word              = None       # 0xEE last valid u16, for read-modify-write
+        self._pump_link              = "unknown"  # 0xEE high byte
+        self._pump_auto_off          = "unknown"  # 0xEE low byte (minutes, 0 = disabled)
+        self._battery_heater         = "unknown"  # 0FF70 byte 2 bit 0 (manual session armed)
+        self._battery_heater_output  = "unknown"  # 0FF70 byte 1 bit 2 (heater contactor)
+        self._ignore_alarms          = "unknown"  # 0FF70 byte 2 bit 1 (alarm mask active)
+
+        if 'status_topic' in data:
+            topic_base = str(data['status_topic'])
+            self.max_engine_run_time_topic   = str(f"{topic_base}/aes/max_engine_run_time")
+            self.time_at_start_volts_topic = str(f"{topic_base}/aes/time_at_start_volts")
+            self.time_at_stop_volts_topic = str(f"{topic_base}/aes/time_at_stop_volts")
+            self.stop_at_voltage_topic       = str(f"{topic_base}/aes/stop_at_voltage")
+            self.quiet_time_start_topic      = str(f"{topic_base}/aes/quiet_time_start")
+            self.quiet_time_stop_topic       = str(f"{topic_base}/aes/quiet_time_stop")
+            self.start_at_voltage_topic      = str(f"{topic_base}/aes/start_at_voltage")
+            self.threshold_cc_topic          = str(f"{topic_base}/tanks/threshold_33_pct")
+            self.threshold_cd_topic          = str(f"{topic_base}/tanks/threshold_66_pct")
+            self.threshold_ce_topic          = str(f"{topic_base}/tanks/threshold_100_pct")
+            self.product_id_topic            = str(f"{topic_base}/product_id")
+            self.dm_rv_fault_code_topic      = str(f"{topic_base}/fault/code")
+            self.dm_rv_fault_description_topic = str(f"{topic_base}/fault/description")
+            self.dm_rv_lamp_topic            = str(f"{topic_base}/fault/lamp")
+            self._input_topic_base           = topic_base
+            # Newly discovered settings
+            self.ags_low_volts_trigger_topic = str(f"{topic_base}/ags/low_volts_trigger")
+            self.ags_gen_start_retries_topic = str(f"{topic_base}/ags/gen_start_retries")
+            self.ags_config_mode_topic       = str(f"{topic_base}/ags/config_mode")
+            self.go_power_controllers_topic  = str(f"{topic_base}/go_power/controller_count")
+            self.num_batteries_topic         = str(f"{topic_base}/batteries/count")
+            self.cargo_bath_light_topic      = str(f"{topic_base}/lights/cargo_bath_ch25")
+            self.bath_light_topic            = str(f"{topic_base}/lights/bath_light")
+            self.heat_pump_topic             = str(f"{topic_base}/hvac/heat_pump")
+            self.battery_voltage_topic       = str(f"{topic_base}/batteries/voltage")
+            self.bunk_accent_topic           = str(f"{topic_base}/lights/bunk_accent")
+            self.progressive_inverter_topic  = str(f"{topic_base}/inverter/progressive")
+            self.bath_fan_topic              = str(f"{topic_base}/fans/bath")
+            self.black_tank_setting_topic    = str(f"{topic_base}/tanks/black_setting")
+            self.gen_aes_mode_topic          = str(f"{topic_base}/gen/mode")
+            self.selected_floorplan_topic    = str(f"{topic_base}/floorplan")
+            self.ags_retry_interval_topic    = str(f"{topic_base}/ags/retry_interval")
+            self.max_charge_rate_topic       = str(f"{topic_base}/charger/max_charge_rate")
+            self.aes_enabled_topic           = str(f"{topic_base}/aes/enabled")
+            self.aes_engine_command_topic    = str(f"{topic_base}/aes/engine_command")
+            self.pump_link_topic             = str(f"{topic_base}/pump/link")
+            self.pump_auto_off_topic         = str(f"{topic_base}/pump/auto_off_minutes")
+            if self._bms_configured():
+                self.battery_heater_topic    = str(f"{topic_base}/bms/battery_heater")
+                self.battery_heater_output_topic = str(f"{topic_base}/bms/battery_heater_contactor")
+                self.ignore_alarms_topic     = str(f"{topic_base}/bms/ignore_alarms")
+            if self._engine_relay_configured():
+                self.engine_running_topic    = str(f"{topic_base}/engine/running")
+
+        if 'command_topic' in data:
+            topic_base = str(data['command_topic'])
+            self.max_engine_run_time_set_topic   = str(f"{topic_base}/aes/max_engine_run_time")
+            self.time_at_start_volts_set_topic   = str(f"{topic_base}/aes/time_at_start_volts")
+            self.time_at_stop_volts_set_topic    = str(f"{topic_base}/aes/time_at_stop_volts")
+            self.stop_at_voltage_set_topic       = str(f"{topic_base}/aes/stop_at_voltage")
+            self.quiet_time_start_set_topic      = str(f"{topic_base}/aes/quiet_time_start")
+            self.quiet_time_stop_set_topic       = str(f"{topic_base}/aes/quiet_time_stop")
+            self.start_at_voltage_set_topic      = str(f"{topic_base}/aes/start_at_voltage")
+            self.threshold_cc_set_topic          = str(f"{topic_base}/tanks/threshold_33_pct")
+            self.threshold_cd_set_topic          = str(f"{topic_base}/tanks/threshold_66_pct")
+            self.threshold_ce_set_topic          = str(f"{topic_base}/tanks/threshold_100_pct")
+            # Newly discovered settings
+            self.ags_low_volts_trigger_set_topic = str(f"{topic_base}/ags/low_volts_trigger")
+            self.cargo_bath_light_set_topic      = str(f"{topic_base}/lights/cargo_bath_ch25")
+            self.heat_pump_set_topic             = str(f"{topic_base}/hvac/heat_pump")
+            self.bunk_accent_set_topic           = str(f"{topic_base}/lights/bunk_accent")
+            self.progressive_inverter_set_topic  = str(f"{topic_base}/inverter/progressive")
+            self.bath_fan_set_topic              = str(f"{topic_base}/fans/bath")
+            self.black_tank_setting_set_topic    = str(f"{topic_base}/tanks/black_setting")
+            self.gen_aes_mode_set_topic          = str(f"{topic_base}/gen/mode")
+            self.selected_floorplan_set_topic    = str(f"{topic_base}/floorplan")
+            self.num_batteries_set_topic         = str(f"{topic_base}/batteries/count")
+            self.go_power_controllers_set_topic  = str(f"{topic_base}/go_power/controller_count")
+            self.ags_retry_interval_set_topic    = str(f"{topic_base}/ags/retry_interval")
+            self.aes_enabled_set_topic           = str(f"{topic_base}/aes/enabled")
+            self.pump_link_set_topic             = str(f"{topic_base}/pump/link")
+            self.pump_auto_off_set_topic         = str(f"{topic_base}/pump/auto_off_minutes")
+            if self._engine_relay_configured():
+                self.engine_start_set_topic      = str(f"{topic_base}/engine/start")
+            if self._bms_configured():
+                self.battery_heater_set_topic    = str(f"{topic_base}/bms/battery_heater")
+                self.ignore_alarms_set_topic     = str(f"{topic_base}/bms/ignore_alarms")
+
+            self.mqtt_support.register(self.max_engine_run_time_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.time_at_start_volts_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.time_at_stop_volts_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.stop_at_voltage_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.quiet_time_start_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.quiet_time_stop_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.start_at_voltage_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.threshold_cc_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.threshold_cd_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.threshold_ce_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.ags_low_volts_trigger_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.cargo_bath_light_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.heat_pump_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.bunk_accent_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.progressive_inverter_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.bath_fan_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.black_tank_setting_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.gen_aes_mode_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.selected_floorplan_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.num_batteries_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.go_power_controllers_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.ags_retry_interval_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.aes_enabled_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.pump_link_set_topic, self.process_mqtt_msg)
+            self.mqtt_support.register(self.pump_auto_off_set_topic, self.process_mqtt_msg)
+            if self._engine_relay_configured():
+                self.mqtt_support.register(self.engine_start_set_topic, self.process_mqtt_msg)
+            if self._bms_configured():
+                self.mqtt_support.register(self.battery_heater_set_topic, self.process_mqtt_msg)
+                self.mqtt_support.register(self.ignore_alarms_set_topic, self.process_mqtt_msg)
+
+    def _engine_relay_configured(self) -> bool:
+        """True when the floorplan declared which dimmer channel is the engine relay.
+
+        Everything engine-related is opt-in: the channel number varies by coach, so
+        without it this entity must not claim DC_DIMMER_STATUS_3 messages (they belong
+        to the dimmer entities) or advertise engine controls it cannot drive.
+        """
+        return self.engine_relay_instance is not None
+
+    def _bms_configured(self) -> bool:
+        """True when the floorplan declared the patched Renogy BMS's source address."""
+        return self.bms_source_id is not None
+
+    def _bms_command(self, magic: int, lease: int) -> dict:
+        """A 0EF70-family send_queue item: proprietary-A, destination = the BMS.
+
+        The BMS accepts the command from any source address (18EF70xx), so the bridge's
+        own address is fine. Priority 6 is what the panel sends at.
+        """
+        return {"dgn": f"0EF{int(self.bms_source_id, 16):02X}", "priority": "6",
+                "data": bytearray(struct.pack(">HIH", magic, 0, lease))}
+
+    def _publish_change(self, attr: str, topic_attr: str, val):
+        """Store val in self.<attr> and publish it to self.<topic_attr> if it changed."""
+        if getattr(self, attr) == val:
+            return
+        setattr(self, attr, val)
+        if hasattr(self, topic_attr):
+            self.mqtt_support.client.publish(getattr(self, topic_attr), val, retain=True)
+
+    def _engine_relay_frame(self, on: bool, instance: int = None) -> bytes:
+        """Build the DC_DIMMER_COMMAND_2 (1FEDB) frame that drives the engine relay.
+
+        on  -> level 100%, command 1 (on_duration)
+        off -> level 0%,   command 3 (off)
+
+        instance defaults to the floorplan's engine_relay_instance; callers pass it
+        explicitly only for the AES-disable sequence, which has a 1-wire fallback.
+        """
+        if instance is None:
+            instance = self.engine_relay_instance
+        instance = int(instance)
+        if on:
+            return struct.pack("<BBBBBBBB", instance, 0xFF, 0xC8, 0x01, 0xFF, 0x00, 0xFF, 0xFF)
+        return struct.pack("<BBBBBBBB", instance, 0xFF, 0x00, 0x03, 0xFF, 0x00, 0xFF, 0xFF)
+
+    def process_rvc_msg(self, new_message: dict) -> bool:
+        """ Process an incoming RVC message and determine if it is of interest.
+
+        Returns True if the message was handled (even if no state changed).
+        """
+        if self._is_entry_match(self.rvc_match_initial_packet, new_message):
+            count = new_message["packet_count"]
+            if count <= 0:
+                self.Logger.warning(f"INITIAL_PACKET: invalid packet_count {count}, ignoring")
+                return True
+            self._mp_expected_count = count
+            self._mp_message_length = new_message["message_length"]
+            self._mp_packets = {}
+            self.Logger.debug(
+                f"INITIAL_PACKET: expecting {self._mp_expected_count} packets, "
+                f"{self._mp_message_length} bytes"
+            )
+            return True
+
+        if self._is_entry_match(self.rvc_match_data_packet, new_message):
+            if self._mp_expected_count == 0:
+                self.Logger.debug("DATA_PACKET received without INITIAL_PACKET, discarding")
+                return True
+            packet_num = new_message["packet_number"]
+            if packet_num in self._mp_packets:
+                self.Logger.warning(f"Duplicate DATA_PACKET #{packet_num}, ignoring")
+                return True
+            # Guard against unbounded growth from malformed/stray packets
+            if len(self._mp_packets) >= self._mp_expected_count:
+                self.Logger.warning(
+                    f"DATA_PACKET overflow: received more packets than expected "
+                    f"({self._mp_expected_count}), resetting assembly buffer"
+                )
+                self._mp_packets = {}
+                self._mp_expected_count = 0
+                return True
+            data_bytes = int(new_message["data"]).to_bytes(7, 'little')
+            self._mp_packets[packet_num] = data_bytes
+            self.Logger.debug(
+                f"DATA_PACKET #{packet_num}: "
+                f"{len(self._mp_packets)}/{self._mp_expected_count}"
+            )
+            if len(self._mp_packets) >= self._mp_expected_count:
+                try:
+                    all_bytes = b''.join(
+                        self._mp_packets[i] for i in range(1, self._mp_expected_count + 1)
+                    )
+                    trimmed = all_bytes[:self._mp_message_length]
+                    product_id = trimmed.decode('ascii').strip('\x00')
+                    if product_id != self._product_id:
+                        self._product_id = product_id
+                        self.Logger.info(f"PRODUCT_IDENTIFICATION: {product_id}")
+                        if hasattr(self, 'product_id_topic'):
+                            self.mqtt_support.client.publish(
+                                self.product_id_topic, product_id, retain=True)
+                except Exception as e:
+                    self.Logger.error(f"Failed to decode PRODUCT_IDENTIFICATION: {e}")
+                finally:
+                    self._mp_packets = {}
+                    self._mp_expected_count = 0
+            return True
+
+        if self._is_entry_match(self.rvc_match_dm_rv, new_message):
+            self.Logger.debug(f"Msg Match DM_RV: {str(new_message)}")
+            message_fault_code = str(
+                int(f"{new_message['spn-msb']:08b}"
+                    f"{new_message['spn-isb']:08b}"
+                    f"{new_message['spn-lsb']:03b}"
+                ,2))
+            fault_description = new_message.get("fmi_definition", "unknown")
+            lamp_status = "on" if int(new_message["red_lamp_status"]) > 0 else "off"
+
+            if self._fault_code != message_fault_code:
+                self._fault_code = message_fault_code
+                self._fault_description = fault_description
+                if hasattr(self, 'dm_rv_fault_code_topic'):
+                    self.mqtt_support.client.publish(
+                        self.dm_rv_fault_code_topic,
+                        str(self._fault_code),
+                        retain=True)
+                    self.mqtt_support.client.publish(
+                        self.dm_rv_fault_description_topic,
+                        self._fault_description, retain=True)
+            if self._lamp != lamp_status:
+                self._lamp = lamp_status
+                if hasattr(self, 'dm_rv_lamp_topic'):
+                    self.mqtt_support.client.publish(
+                        self.dm_rv_lamp_topic, self._lamp, retain=True)
+            return True
+
+        if self._is_entry_match(self.rvc_match_input_status, new_message):
+            self.Logger.debug(f"Msg Match G12_INPUT_STATUS: {str(new_message)}")
+            # Byte 0 is the instance, byte 1 is THAT instance's own state.  Confirmed on the
+            # coach 2026-08-24 (firefly-firmware BUS-BASELINE.md PC.24); see rvc-spec.yml for
+            # the earlier reading this replaced and why it looked right.
+            #
+            # A held input refreshes every 1.000 s, so most frames repeat a state we already
+            # published.  The change check below is what makes that a no-op -- there is no
+            # heartbeat to suppress, because a refresh is indistinguishable from, and means
+            # exactly the same as, the original edge.
+            instance = int(new_message["instance"])
+            state = int(new_message.get("input_state", 0))
+
+            # 0xFB is a second instance for pin 10 (ignition), byte-identical to its 0xAA
+            # frames apart from the instance.  One sense line reported twice: fold it onto
+            # pin 10 so the two can never disagree, and so the 1 Hz pair does not publish
+            # twice per second.
+            if instance == 0xBF:
+                # Not an input: the AES engine command pulse (coach 2026-10-22, see
+                # rvc-spec.yml).  02 start, 01 stop, then 00 releases the pulse -- the release
+                # carries nothing, so the topic keeps the last command.  After a panel Stop
+                # the G12 repeats BF 01 every 5 s, which the change check absorbs.
+                command = {1: "stop", 2: "start"}.get(state)
+                if command is not None and command != self._aes_engine_command:
+                    self._aes_engine_command = command
+                    if hasattr(self, 'aes_engine_command_topic'):
+                        self.mqtt_support.client.publish(
+                            self.aes_engine_command_topic, command, retain=True)
+                return True
+            if instance == 0xFB:
+                n = 10
+            elif 0xA1 <= instance <= 0xAA:
+                n = instance & 0x0F
+            else:
+                self.Logger.debug(
+                    f"G12_INPUT_STATUS instance {hex(instance)} is not an input, ignoring")
+                return True
+
+            active = "true" if state else "false"
+            if self._input_state.get(n) != active:
+                self._input_state[n] = active
+                if hasattr(self, '_input_topic_base'):
+                    self.mqtt_support.client.publish(
+                        f"{self._input_topic_base}/inputs/{n}/active", active, retain=True)
+            return True
+
+        if (self.rvc_match_engine_status is not None
+                and self._is_entry_match(self.rvc_match_engine_status, new_message)):
+            # DC_DIMMER_STATUS_3 on the configured engine relay channel
+            val = "on" if new_message.get("operating_status_brightness", 0) > 0 else "off"
+            if val != self._engine_running:
+                self._engine_running = val
+                if hasattr(self, 'engine_running_topic'):
+                    self.mqtt_support.client.publish(
+                        self.engine_running_topic, val, retain=True)
+            return True
+
+        if (self.rvc_match_bms_status is not None
+                and self._is_entry_match(self.rvc_match_bms_status, new_message)):
+            raw = bytes.fromhex(new_message.get("data", ""))
+            if len(raw) < 3 or raw[0] != 0x70:
+                self.Logger.warning(
+                    f"RENOGY_BMS_HEATER_STATUS: unexpected payload {new_message.get('data')}")
+                return True
+            # What the v54 panel shows: the Battery Heater button lights on byte 2 bit 0
+            # (manual session armed), its contactor mark on byte 1 bit 2 (relay output),
+            # and Ignore Alarms on byte 2 bit 1 (alarm mask active).
+            self._publish_change('_battery_heater', 'battery_heater_topic',
+                                 "on" if raw[2] & 0x01 else "off")
+            self._publish_change('_battery_heater_output', 'battery_heater_output_topic',
+                                 "on" if raw[1] & 0x04 else "off")
+            self._publish_change('_ignore_alarms', 'ignore_alarms_topic',
+                                 "on" if raw[2] & 0x02 else "off")
+            return True
+
+        if self._is_entry_match(self.rvc_match_g12_indicator, new_message):
+            group_str = new_message.get("group", "0")
+            try:
+                group_val = int(group_str, 2)
+            except (ValueError, TypeError):
+                return False
+            if group_val != 0x96:
+                return False
+
+            raw = bytes.fromhex(new_message["data"])
+            if len(raw) < 7:
+                return False
+
+            selector = raw[2]
+            value_le = int.from_bytes(raw[4:6], 'little')
+            function = raw[6]
+
+            self.Logger.debug(
+                f"GENERIC_INDICATOR_COMMAND (G12): selector={hex(selector)}, "
+                f"value={value_le}, function={hex(function)}"
+            )
+
+            if function in (0xD1, 0xD2):
+                if selector == 0x2B:
+                    val = f"{raw[5]:02d}:{raw[4]:02d}:00"
+                    if val != self._quiet_time_start:
+                        self._quiet_time_start = val
+                        if hasattr(self, 'quiet_time_start_topic'):
+                            self.mqtt_support.client.publish(
+                                self.quiet_time_start_topic, val, retain=True)
+                elif selector == 0x2C:
+                    val = f"{raw[5]:02d}:{raw[4]:02d}:00"
+                    if val != self._quiet_time_stop:
+                        self._quiet_time_stop = val
+                        if hasattr(self, 'quiet_time_stop_topic'):
+                            self.mqtt_support.client.publish(
+                                self.quiet_time_stop_topic, val, retain=True)
+                elif selector == 0x16:
+                    val = value_le
+                    lo, hi = MAX_ENGINE_RUN_TIME_SANE_RANGE
+                    if not (lo <= val <= hi):
+                        self.Logger.warning(
+                            f"Discarding implausible max_engine_run_time {val} "
+                            f"(outside {lo}-{hi})")
+                    elif val != self._max_engine_run_time:
+                        self._max_engine_run_time = val
+                        if hasattr(self, 'max_engine_run_time_topic'):
+                            self.mqtt_support.client.publish(
+                                self.max_engine_run_time_topic, val, retain=True)
+                elif selector == 0x0C:
+                    val = value_le
+                    if val != self._time_at_start_volts:
+                        self._time_at_start_volts = val
+                        if hasattr(self, 'time_at_start_volts_topic'):
+                            self.mqtt_support.client.publish(
+                                self.time_at_start_volts_topic, val, retain=True)
+                elif selector == 0x0D:
+                    val = round(value_le * 0.05, 2)
+                    if val != self._stop_at_voltage:
+                        self._stop_at_voltage = val
+                        if hasattr(self, 'stop_at_voltage_topic'):
+                            self.mqtt_support.client.publish(
+                                self.stop_at_voltage_topic, val, retain=True)
+                elif selector == 0x0E:
+                    val = value_le
+                    lo, hi = TIME_AT_STOP_VOLTS_SANE_RANGE
+                    if not (lo <= val <= hi):
+                        self.Logger.warning(
+                            f"Discarding implausible time_at_stop_volts {val} "
+                            f"(outside {lo}-{hi})")
+                    elif val != self._time_at_stop_volts:
+                        self._time_at_stop_volts = val
+                        if hasattr(self, 'time_at_stop_volts_topic'):
+                            self.mqtt_support.client.publish(
+                                self.time_at_stop_volts_topic, val, retain=True)
+                elif selector == 0x31:
+                    val = round(value_le * 0.05, 2)
+                    if val != self._start_at_voltage:
+                        self._start_at_voltage = val
+                        if hasattr(self, 'start_at_voltage_topic'):
+                            self.mqtt_support.client.publish(
+                                self.start_at_voltage_topic, val, retain=True)
+                elif selector == 0xCC:
+                    val = value_le
+                    if val != self._threshold_cc:
+                        self._threshold_cc = val
+                        if hasattr(self, 'threshold_cc_topic'):
+                            self.mqtt_support.client.publish(
+                                self.threshold_cc_topic, val, retain=True)
+                elif selector == 0xCD:
+                    val = value_le
+                    if val != self._threshold_cd:
+                        self._threshold_cd = val
+                        if hasattr(self, 'threshold_cd_topic'):
+                            self.mqtt_support.client.publish(
+                                self.threshold_cd_topic, val, retain=True)
+                elif selector == 0xCE:
+                    val = value_le
+                    if val != self._threshold_ce:
+                        self._threshold_ce = val
+                        if hasattr(self, 'threshold_ce_topic'):
+                            self.mqtt_support.client.publish(
+                                self.threshold_ce_topic, val, retain=True)
+                elif selector == 0x9B:
+                    # AES enable/disable command — byte 4 is 0x01=enabled, 0x00=disabled
+                    self._publish_aes_enabled("on" if raw[4] == 0x01 else "off")
+            return True
+
+        if not self._is_entry_match(self.rvc_match_g12_config, new_message):
+            return False
+
+        self.Logger.debug(f"G12_CONFIGURATION match: {str(new_message)}")
+        msg_type = new_message.get("message_type", "")
+
+        if msg_type in ("1", "3", "5", "9B"):
+            # AES-related messages. Unlike the 1FED9 command form, every 15FCE payload
+            # carries its value at byte 2 (byte 0 is the message type, byte 1 is unused).
+            self.Logger.debug(f"G12 AES message type {msg_type}: {str(new_message)}")
+            if msg_type == "9B":
+                raw_data = bytes.fromhex(new_message.get("data", ""))
+                if len(raw_data) < 3:
+                    self.Logger.warning(
+                        f"G12_CONFIGURATION 9B payload too short: {new_message.get('data')}")
+                else:
+                    self._publish_aes_enabled("on" if raw_data[2] == 0x01 else "off")
+
+        elif msg_type == "16":  # 0x16 - max engine run time
+            val = new_message.get("minutes")
+            lo, hi = MAX_ENGINE_RUN_TIME_SANE_RANGE
+            if val is not None and not (lo <= val <= hi):
+                self.Logger.warning(
+                    f"Discarding implausible max_engine_run_time {val} (outside {lo}-{hi})")
+            elif val is not None and val != self._max_engine_run_time:
+                self._max_engine_run_time = val
+                if hasattr(self, 'max_engine_run_time_topic'):
+                    self.mqtt_support.client.publish(
+                        self.max_engine_run_time_topic, val, retain=True)
+
+        elif msg_type == "C":  # 0x0C - time at start volts (duration)
+            # rvc.py applies *2 for sec/uint16; G12 stores raw seconds, so undo it
+            raw = new_message.get("duration")
+            val = raw // 2 if raw is not None else None
+            if val is not None and val != self._time_at_start_volts:
+                self._time_at_start_volts = val
+                if hasattr(self, 'time_at_start_volts_topic'):
+                    self.mqtt_support.client.publish(
+                        self.time_at_start_volts_topic, val, retain=True)
+
+        elif msg_type == "D":  # 0x0D - stop at voltage
+            val = new_message.get("volts")
+            if val is not None and val != self._stop_at_voltage:
+                self._stop_at_voltage = val
+                if hasattr(self, 'stop_at_voltage_topic'):
+                    self.mqtt_support.client.publish(
+                        self.stop_at_voltage_topic, val, retain=True)
+
+        elif msg_type == "E":  # 0x0E - time at stop volts (duration)
+            # rvc.py applies *2 for sec/uint16; G12 stores raw seconds, so undo it
+            raw = new_message.get("duration")
+            val = raw // 2 if raw is not None else None
+            lo, hi = TIME_AT_STOP_VOLTS_SANE_RANGE
+            if val is not None and not (lo <= val <= hi):
+                self.Logger.warning(
+                    f"Discarding implausible time_at_stop_volts {val} (outside {lo}-{hi})")
+            elif val is not None and val != self._time_at_stop_volts:
+                self._time_at_stop_volts = val
+                if hasattr(self, 'time_at_stop_volts_topic'):
+                    self.mqtt_support.client.publish(
+                        self.time_at_stop_volts_topic, val, retain=True)
+
+        elif msg_type == "2B":  # 0x2B - quiet time start
+            hours = new_message.get("hours")
+            minutes = new_message.get("minutes")
+            if hours is not None and minutes is not None:
+                val = f"{int(hours):02d}:{int(minutes):02d}:00"
+                if val != self._quiet_time_start:
+                    self._quiet_time_start = val
+                    if hasattr(self, 'quiet_time_start_topic'):
+                        self.mqtt_support.client.publish(
+                            self.quiet_time_start_topic, val, retain=True)
+
+        elif msg_type == "2C":  # 0x2C - quiet time stop
+            hours = new_message.get("hours")
+            minutes = new_message.get("minutes")
+            if hours is not None and minutes is not None:
+                val = f"{int(hours):02d}:{int(minutes):02d}:00"
+                if val != self._quiet_time_stop:
+                    self._quiet_time_stop = val
+                    if hasattr(self, 'quiet_time_stop_topic'):
+                        self.mqtt_support.client.publish(
+                            self.quiet_time_stop_topic, val, retain=True)
+
+        elif msg_type == "31":  # 0x31 - start at voltage
+            val = new_message.get("volts")
+            if val is not None and val != self._start_at_voltage:
+                self._start_at_voltage = val
+                if hasattr(self, 'start_at_voltage_topic'):
+                    self.mqtt_support.client.publish(
+                        self.start_at_voltage_topic, val, retain=True)
+
+        elif msg_type == "CC":  # 0xCC - 0%-33% tank threshold
+            val = new_message.get("value")
+            if val is not None and val != self._threshold_cc:
+                self._threshold_cc = val
+                if hasattr(self, 'threshold_cc_topic'):
+                    self.mqtt_support.client.publish(
+                        self.threshold_cc_topic, val, retain=True)
+
+        elif msg_type == "CD":  # 0xCD - 33%-67% tank threshold
+            val = new_message.get("value")
+            if val is not None and val != self._threshold_cd:
+                self._threshold_cd = val
+                if hasattr(self, 'threshold_cd_topic'):
+                    self.mqtt_support.client.publish(
+                        self.threshold_cd_topic, val, retain=True)
+
+        elif msg_type == "CE":  # 0xCE - 67%-100% tank threshold
+            val = new_message.get("value")
+            if val is not None and val != self._threshold_ce:
+                self._threshold_ce = val
+                if hasattr(self, 'threshold_ce_topic'):
+                    self.mqtt_support.client.publish(
+                        self.threshold_ce_topic, val, retain=True)
+
+        elif msg_type == "15":  # 0x15 - AGS config (gen start retries / mode)
+            retries = new_message.get("gen_start_retries")
+            mode    = new_message.get("mode_indicator_definition", new_message.get("mode_indicator"))
+            if retries is not None and retries != self._ags_gen_start_retries:
+                self._ags_gen_start_retries = retries
+                if hasattr(self, 'ags_gen_start_retries_topic'):
+                    self.mqtt_support.client.publish(
+                        self.ags_gen_start_retries_topic, retries, retain=True)
+            if mode is not None and mode != self._ags_config_mode:
+                self._ags_config_mode = mode
+                if hasattr(self, 'ags_config_mode_topic'):
+                    self.mqtt_support.client.publish(
+                        self.ags_config_mode_topic, mode, retain=True)
+
+        elif msg_type == "2F":  # 0x2F - AGS low volts trigger
+            val = new_message.get("enabled_definition", new_message.get("enabled"))
+            if val is not None and val != self._ags_low_volts_trigger:
+                self._ags_low_volts_trigger = val
+                if hasattr(self, 'ags_low_volts_trigger_topic'):
+                    self.mqtt_support.client.publish(
+                        self.ags_low_volts_trigger_topic, val, retain=True)
+
+        elif msg_type == "92":  # 0x92 - max charge rate
+            # Identified 2026-08-24 (firefly-firmware docs/RVC-GAPS.md section 1): the
+            # touchscreen control is labelled "Max Chrge Rate" with unit %, and the G12
+            # relays this value to 1FF95 payload[1], instance 1. Raw is RV-C 0.5 %/bit,
+            # so the panel divides by 2 to display it -- raw 200 = 100 %.
+            #
+            # Read-only on purpose. 0x92 is a confirmed SIGNED-DELTA selector (PC.23), so a
+            # write would have to compute target-current the way the CC/CD/CE path does,
+            # and that round trip has never been driven from this code.
+            raw = new_message.get("max_charge_rate_raw")
+            if raw is not None:
+                val = raw / 2
+                if val != self._max_charge_rate:
+                    self._max_charge_rate = val
+                    if hasattr(self, 'max_charge_rate_topic'):
+                        self.mqtt_support.client.publish(
+                            self.max_charge_rate_topic, val, retain=True)
+
+        elif msg_type == "D7":  # 0xD7 - number of Go Power! controllers
+            val = new_message.get("controller_count")
+            if val is not None and val != self._go_power_controllers:
+                self._go_power_controllers = val
+                if hasattr(self, 'go_power_controllers_topic'):
+                    self.mqtt_support.client.publish(
+                        self.go_power_controllers_topic, val, retain=True)
+
+        elif msg_type == "D8":  # 0xD8 - number of batteries
+            val = new_message.get("battery_count_definition", new_message.get("battery_count"))
+            if val is not None and val != self._num_batteries:
+                self._num_batteries = val
+                if hasattr(self, 'num_batteries_topic'):
+                    self.mqtt_support.client.publish(
+                        self.num_batteries_topic, val, retain=True)
+
+        elif msg_type == "E3":  # 0xE3 - cargo/bath light ch.25
+            val = new_message.get("enabled_definition", new_message.get("enabled"))
+            if val is not None and val != self._cargo_bath_light:
+                self._cargo_bath_light = val
+                if hasattr(self, 'cargo_bath_light_topic'):
+                    self.mqtt_support.client.publish(
+                        self.cargo_bath_light_topic, val, retain=True)
+
+        elif msg_type == "E4":  # 0xE4 - bath light (mutually exclusive with 0xE3)
+            val = new_message.get("enabled_definition", new_message.get("enabled"))
+            if val is not None and val != self._bath_light:
+                self._bath_light = val
+                if hasattr(self, 'bath_light_topic'):
+                    self.mqtt_support.client.publish(
+                        self.bath_light_topic, val, retain=True)
+
+        elif msg_type == "EB":  # 0xEB - heat pump
+            val = new_message.get("enabled_definition", new_message.get("enabled"))
+            if val is not None and val != self._heat_pump:
+                self._heat_pump = val
+                if hasattr(self, 'heat_pump_topic'):
+                    self.mqtt_support.client.publish(
+                        self.heat_pump_topic, val, retain=True)
+
+        elif msg_type == "A":  # 0x0A - measured pack voltage (read-only)
+            val = new_message.get("volts")
+            if val is not None and val != self._battery_voltage:
+                self._battery_voltage = val
+                if hasattr(self, 'battery_voltage_topic'):
+                    self.mqtt_support.client.publish(
+                        self.battery_voltage_topic, val, retain=True)
+
+        elif msg_type == "E5":  # 0xE5 - bunk accent
+            val = new_message.get("enabled_definition", new_message.get("enabled"))
+            if val is not None and val != self._bunk_accent:
+                self._bunk_accent = val
+                if hasattr(self, 'bunk_accent_topic'):
+                    self.mqtt_support.client.publish(
+                        self.bunk_accent_topic, val, retain=True)
+
+        elif msg_type == "E6":  # 0xE6 - progressive inverter
+            val = new_message.get("enabled_definition", new_message.get("enabled"))
+            if val is not None and val != self._progressive_inverter:
+                self._progressive_inverter = val
+                if hasattr(self, 'progressive_inverter_topic'):
+                    self.mqtt_support.client.publish(
+                        self.progressive_inverter_topic, val, retain=True)
+
+        elif msg_type == "E9":  # 0xE9 - bath fan
+            val = new_message.get("enabled_definition", new_message.get("enabled"))
+            if val is not None and val != self._bath_fan:
+                self._bath_fan = val
+                if hasattr(self, 'bath_fan_topic'):
+                    self.mqtt_support.client.publish(
+                        self.bath_fan_topic, val, retain=True)
+
+        elif msg_type == "EC":  # 0xEC - black tank
+            val = new_message.get("enabled_definition", new_message.get("enabled"))
+            if val is not None and val != self._black_tank_setting:
+                self._black_tank_setting = val
+                if hasattr(self, 'black_tank_setting_topic'):
+                    self.mqtt_support.client.publish(
+                        self.black_tank_setting_topic, val, retain=True)
+
+        elif msg_type == "EE":  # 0xEE - Pump Link flag + Auto Off minutes
+            # Decoded from the raw bytes rather than the spec's two fields so the u16 can
+            # be kept whole for the read-modify-write in process_mqtt_msg. The panel's
+            # writes (D2 deltas, D1 clamp repairs) are not snooped from 1FED9: a delta is
+            # not a value, and the G12's sweep / D3 reply reports the result either way.
+            raw_data = bytes.fromhex(new_message.get("data", ""))
+            if len(raw_data) < 4:
+                self.Logger.warning(
+                    f"G12_CONFIGURATION EE payload too short: {new_message.get('data')}")
+                return True
+            word = raw_data[2] | (raw_data[3] << 8)
+            minutes, flag = word & 0xFF, word >> 8
+            if word == PUMP_UNSET:
+                # Never written (stock firmware, or a cleared cell). Nothing to report.
+                return True
+            if (flag not in (0, 1) or minutes > PUMP_AUTO_OFF_MAX
+                    or minutes % PUMP_AUTO_OFF_STEP):
+                # A borrow the panel's per-tick clamp repairs within ~16 ms; the next
+                # sweep or read-back will carry the corrected word.
+                self.Logger.debug(f"G12 0xEE off-grid word {word:#06x}, ignoring")
+                return True
+            self._pump_word = word
+            self._publish_change('_pump_link', 'pump_link_topic', "on" if flag else "off")
+            self._publish_change('_pump_auto_off', 'pump_auto_off_topic', minutes)
+
+        elif msg_type == "EF":  # 0xEF - generator/AES mode
+            val = new_message.get("mode_definition", new_message.get("mode"))
+            if val is not None and val != self._gen_aes_mode:
+                self._gen_aes_mode = val
+                if hasattr(self, 'gen_aes_mode_topic'):
+                    self.mqtt_support.client.publish(
+                        self.gen_aes_mode_topic, val, retain=True)
+                # The voltage and run-time parameters carry a different profile per mode
+                # (48V engine under AES, 12V generator under AGS), so the HA ranges are
+                # mode-dependent and must be re-announced when the mode changes.
+                self.publish_ha_discovery_config()
+
+        elif msg_type == "F5":  # 0xF5 - selected floorplan
+            val = new_message.get("floorplan_definition", new_message.get("floorplan"))
+            if val is not None and val != self._selected_floorplan:
+                self._selected_floorplan = val
+                if hasattr(self, 'selected_floorplan_topic'):
+                    self.mqtt_support.client.publish(
+                        self.selected_floorplan_topic, val, retain=True)
+
+        elif msg_type == "F7":  # 0xF7 - AGS time between retries
+            val = new_message.get("retry_interval")
+            if val is not None and val != self._ags_retry_interval:
+                self._ags_retry_interval = val
+                if hasattr(self, 'ags_retry_interval_topic'):
+                    self.mqtt_support.client.publish(
+                        self.ags_retry_interval_topic, val, retain=True)
+
+        else:
+            self.Logger.debug(f"G12_CONFIGURATION unhandled message type {msg_type}: {str(new_message)}")
+
+        return True
+
+    def _publish_aes_enabled(self, val):
+        """ Publish AES enabled state, change-gated.
+
+        Reached from three directions: the G12's own 15FCE type 9B broadcast (~every 5s),
+        a snooped 1FED9 SET from the touchscreen, and our own outbound set (which the bus
+        thread never echoes back to us, so it has to publish locally).
+        """
+        if val == self._aes_enabled:
+            return
+        self._aes_enabled = val
+        if hasattr(self, 'aes_enabled_topic'):
+            self.mqtt_support.client.publish(self.aes_enabled_topic, val, retain=True)
+
+    def process_mqtt_msg(self, topic, payload, properties=None):
+        """ Handle an inbound MQTT set message by sending a 1FED9 G12 config command. """
+        if not payload:
+            return
+
+        self.Logger.info(f"MQTT set received: topic={topic} payload={payload}")
+
+        if not hasattr(self, 'send_queue'):
+            self.Logger.warning("send_queue not available, cannot send 1FED9 command")
+            return
+
+        try:
+            if topic == self.quiet_time_start_set_topic:
+                parts = payload.split(':')
+                hours, minutes = int(parts[0]), int(parts[1])
+                minutes = round(minutes / 5) * 5
+                if minutes == 60:
+                    minutes = 0
+                    hours = (hours + 1) % 24
+                frame = struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x2B, 0x0F, minutes, hours, 0xD1, 0xEA)
+
+            elif topic == self.quiet_time_stop_set_topic:
+                parts = payload.split(':')
+                hours, minutes = int(parts[0]), int(parts[1])
+                minutes = round(minutes / 5) * 5
+                if minutes == 60:
+                    minutes = 0
+                    hours = (hours + 1) % 24
+                frame = struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x2C, 0x0F, minutes, hours, 0xD1, 0xEA)
+
+            elif topic == self.max_engine_run_time_set_topic:
+                raw_value = round(float(payload))
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0x16, 0x0F, raw_value, 0xD1, 0xEA)
+
+            elif topic == self.time_at_start_volts_set_topic:
+                raw_value = round(float(payload))
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0x0C, 0x0F, raw_value, 0xD1, 0xEA)
+
+            elif topic == self.time_at_stop_volts_set_topic:
+                raw_value = round(float(payload))
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0x0E, 0x0F, raw_value, 0xD1, 0xEA)
+
+            elif topic == self.stop_at_voltage_set_topic:
+                raw_value = round(float(payload) / 0.05)
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0x0D, 0x0F, raw_value, 0xD1, 0xEA)
+
+            elif topic == self.start_at_voltage_set_topic:
+                raw_value = round(float(payload) / 0.05)
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0x31, 0x0F, raw_value, 0xD1, 0xEA)
+
+            elif topic in (self.threshold_cc_set_topic,
+                           self.threshold_cd_set_topic,
+                           self.threshold_ce_set_topic):
+                # DELTA vs ABSOLUTE is per selector and cannot be guessed -- see the 1FED9
+                # notes in rvc-spec.yml for the full list. Confirmed delta: CC/CD/CE and
+                # 82/86/88/92/99. Confirmed absolute: 16. Everything else this method
+                # writes -- 0C, 0D, 0E, 31 and the option toggles -- is UNTESTED; it is
+                # written as an absolute here and the coach has not contradicted that, but
+                # no probe has confirmed it. Test before adding a write for a new selector.
+                #
+                # CC/CD/CE take a SIGNED DELTA, not an absolute value. Confirmed by
+                # capture 2026-08-12: the touchscreen arrows sent 64536 (= -1000 as
+                # int16) and 1000, and the stored value moved by exactly -1000 then
+                # +1000. Writing an absolute here would ADD that number to the current
+                # threshold and overflow uint16, corrupting tank calibration.
+                sel, current = {
+                    self.threshold_cc_set_topic: (0xCC, self._threshold_cc),
+                    self.threshold_cd_set_topic: (0xCD, self._threshold_cd),
+                    self.threshold_ce_set_topic: (0xCE, self._threshold_ce),
+                }[topic]
+
+                if not isinstance(current, int):
+                    self.Logger.warning(
+                        f"Cannot set threshold {hex(sel)}: current value unknown "
+                        f"({current!r}). A delta cannot be computed until the G12 has "
+                        f"broadcast the present value.")
+                    return
+
+                # The touchscreen arrows only ever step by 1000, and +/-1000 is the only
+                # delta the coach has been seen to accept for these selectors. Round the
+                # delta (not the target) to that grid so an off-grid stored value keeps
+                # its offset instead of being dragged by an unverified odd-sized delta.
+                target = round(float(payload))
+                delta = round((target - current) / 1000) * 1000
+                if delta == 0:
+                    return
+                frame = struct.pack("<BBBBhBB", 0xFF, 0x96, sel, 0x0F, delta, 0xD1, 0xEA)
+
+            elif topic == self.ags_low_volts_trigger_set_topic:
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0x2F, 0x0F,
+                                    1 if payload.lower() == 'on' else 0, 0xD1, 0xEA)
+
+            elif topic == self.cargo_bath_light_set_topic:
+                # E3 and E4 are one mutually-exclusive bath-light choice, not two
+                # independent switches. The touchscreen always writes both, in opposite
+                # directions; writing E3 alone would produce a both-on or both-off state
+                # the coach never generates. Confirmed by capture 2026-08-12.
+                #
+                # TODO: also switch off the channel being abandoned. When the touchscreen
+                # changes this option it additionally sends DC_DIMMER_COMMAND_2 (1FEDB)
+                # with command 3 (Off) to the outgoing channel -- 25 when moving to E4,
+                # 26 when moving back to E3 -- so a load is never left energised with no
+                # control bound to it. This handler does not, so a light left on before
+                # the switch stays on and becomes unreachable from the UI.
+                #
+                # Not done here because it means transmitting frames that switch off a
+                # real load, and the ordering relative to the E3/E4 writes should be
+                # confirmed against the coach first. Observed order was: both option
+                # sets, then the Off to the abandoned channel, then both read-backs.
+                #
+                # Note the channel numbers are floorplan-specific (25/26 on WD), so this
+                # cannot be hardcoded for every coach without a per-floorplan mapping.
+                on = payload.lower() == 'on'
+                frames = [
+                    ("1FED9", struct.pack("<BBBBHBB", 0xFF, 0x96, 0xE3, 0x0F, 1 if on else 0, 0xD1, 0xEA)),
+                    ("1FED9", struct.pack("<BBBBHBB", 0xFF, 0x96, 0xE4, 0x0F, 0 if on else 1, 0xD1, 0xEA)),
+                    ("1FED9", struct.pack("<BBBBHBB", 0xFF, 0x96, 0xE3, 0x0F, 0xFFFF, 0xD3, 0xFF)),
+                    ("1FED9", struct.pack("<BBBBHBB", 0xFF, 0x96, 0xE4, 0x0F, 0xFFFF, 0xD3, 0xFF)),
+                ]
+                for dgn, f in frames:
+                    self.send_queue.put({"dgn": dgn, "data": bytearray(f)})
+                return
+
+            elif topic == self.heat_pump_set_topic:
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xEB, 0x0F,
+                                    1 if payload.lower() == 'on' else 0, 0xD1, 0xEA)
+
+            elif topic == self.bunk_accent_set_topic:
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xE5, 0x0F,
+                                    1 if payload.lower() == 'on' else 0, 0xD1, 0xEA)
+
+            elif topic == self.progressive_inverter_set_topic:
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xE6, 0x0F,
+                                    1 if payload.lower() == 'on' else 0, 0xD1, 0xEA)
+
+            elif topic == self.bath_fan_set_topic:
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xE9, 0x0F,
+                                    1 if payload.lower() == 'on' else 0, 0xD1, 0xEA)
+
+            elif topic == self.black_tank_setting_set_topic:
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xEC, 0x0F,
+                                    1 if payload.lower() == 'on' else 0, 0xD1, 0xEA)
+
+            elif topic == self.gen_aes_mode_set_topic:
+                mode_map = {'ags': 1, 'aes': 2, 'aes single output': 3}
+                val = mode_map.get(payload.lower())
+                if val is None:
+                    self.Logger.warning(f"Unknown gen/aes mode: {payload}")
+                    return
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xEF, 0x0F, val, 0xD1, 0xEA)
+
+            elif topic == self.selected_floorplan_set_topic:
+                # PER-BUILD enum, correct for "Jayco B-Van V13" (MCF 13.6) and verified
+                # against that coach. Other builds differ -- 14.7 has nine codes
+                # including RE and no RD/WD; 11.23 uses 3RT/4RT/3WD/4WD. See rvc-spec.yml.
+                fp_map = {'rt': 1, 'ra': 2, 'rd': 3, 'sy': 4, 'tb': 5,
+                          'cb': 6, 'wa': 7, 'wd': 8, 'wt': 9, 'ry': 10}
+                val = fp_map.get(payload.lower())
+                if val is None:
+                    self.Logger.warning(f"Unknown floorplan: {payload}")
+                    return
+
+                # Changing the floorplan is not a neutral write. The touchscreen sends a
+                # 12-selector transaction whose other eleven values are the NEW
+                # floorplan's defaults -- confirmed 2026-08-13, selecting TB wrote E5=0
+                # and E3=0 on a coach that had both set to 1.
+                #
+                # We deliberately send F5 ALONE and do not replay the defaults. Whether
+                # the G12 applies them itself on an F5 write, or only the touchscreen
+                # does, was never established -- the capture only shows the panel. Both
+                # possibilities are bad to guess at: replaying eleven inferred values
+                # would write settings we cannot verify, and staying silent would let the
+                # operator lose their configuration without notice. So we warn instead.
+                self._warn_floorplan_change_overwrites(val, payload)
+
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xF5, 0x0F, val, 0xD1, 0xEA)
+
+            elif topic == self.num_batteries_set_topic:
+                battery_map = {'1 battery': 0, '2 batteries': 1}
+                val = battery_map.get(payload.lower())
+                if val is None:
+                    try:
+                        val = int(payload)
+                    except ValueError:
+                        self.Logger.warning(f"Unknown battery count: {payload}")
+                        return
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xD8, 0x0F, val, 0xD1, 0xEA)
+
+            elif topic == self.go_power_controllers_set_topic:
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xD7, 0x0F,
+                                    round(float(payload)), 0xD1, 0xEA)
+
+            elif topic == self.ags_retry_interval_set_topic:
+                frame = struct.pack("<BBBBHBB", 0xFF, 0x96, 0xF7, 0x0F,
+                                    round(float(payload)), 0xD1, 0xEA)
+
+            elif topic == self.aes_enabled_set_topic:
+                enable = payload.lower() == 'on'
+                if enable:
+                    frames = [
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x00, 0x0F, 0x01, 0x00, 0xD1, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x2F, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x2E, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x33, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x2B, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x2C, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x31, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x0C, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x0D, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x0E, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x0F, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x16, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x15, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x01, 0x0F, 0x01, 0x00, 0xD1, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x01, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x9B, 0x0F, 0x01, 0x00, 0xD1, 0xFF),
+                        # Read AES enabled back so a G12 refusal surfaces immediately
+                        # rather than waiting for the next 15FCE broadcast.
+                        struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x9B, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF),
+                    ]
+                    frames = [("1FED9", f) for f in frames]
+                else:
+                    # Verified against the touchscreen (0x9F) disabling AES, captured
+                    # 2026-08-04 18:51:56 — frame order and the interleaved engine-relay
+                    # off match exactly.
+                    frames = [
+                        ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x01, 0x0F, 0x00, 0x00, 0xD1, 0xEA)),
+                        ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x06, 0x0F, 0x00, 0x00, 0xD1, 0xEA)),
+                        ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x58, 0x0F, 0x00, 0x00, 0xD1, 0xEA)),
+                        ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x58, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF)),
+                        ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x4F, 0x0F, 0x00, 0x00, 0xD1, 0xEA)),
+                        ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0xB8, 0x0F, 0x00, 0x00, 0xD1, 0xEA)),
+                        ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x01, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF)),
+                        ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x9B, 0x0F, 0x00, 0x00, 0xD1, 0xFF)),
+                        ("1FED9", struct.pack("<BBBBBBBB", 0xFF, 0x96, 0x9B, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF)),
+                    ]
+                    # The captured touchscreen sequence interleaves an engine-relay off
+                    # (DC_DIMMER_COMMAND_2) after the 0xB8 frame. Always send it: it is
+                    # part of a byte-verified capture, and unlike the status match a
+                    # command frame cannot starve another entity. Falls back to the
+                    # 1-wire channel when the floorplan didn't name one.
+                    relay_instance = (self.engine_relay_instance
+                                      if self._engine_relay_configured()
+                                      else AES_1WIRE_ENGINE_RELAY_INSTANCE)
+                    frames.insert(6, ("1FEDB", self._engine_relay_frame(
+                        on=False, instance=relay_instance)))
+                for dgn, f in frames:
+                    self.send_queue.put({"dgn": dgn, "data": bytearray(f)})
+                # The CAN thread does not echo our own frames back to us, so nothing
+                # would update HA until the G12's next 15FCE type 9B broadcast. Publish
+                # the requested state now; the read-back above corrects it if refused.
+                self._publish_aes_enabled("on" if enable else "off")
+                return
+
+            elif topic in (self.pump_link_set_topic, self.pump_auto_off_set_topic):
+                # Both fields share one u16, written absolute (D1) and read back (D3), the
+                # same pair the panel's own routine sends. The other field is carried over
+                # from the last valid word, so it must be known first.
+                if self._pump_word is None:
+                    self.Logger.warning(
+                        f"Cannot set {topic}: selector 0xEE not yet reported by the G12 "
+                        f"(or never set -- set it once on the touchscreen).")
+                    return
+                minutes, link = self._pump_word & 0xFF, self._pump_word >> 8
+                if topic == self.pump_link_set_topic:
+                    link = 1 if payload.lower() == 'on' else 0
+                else:
+                    stepped = round(float(payload) / PUMP_AUTO_OFF_STEP) * PUMP_AUTO_OFF_STEP
+                    minutes = max(0, min(PUMP_AUTO_OFF_MAX, stepped))
+                word = (link << 8) | minutes
+                frames = [
+                    struct.pack("<BBBBHBB", 0xFF, 0x96, PUMP_SELECTOR, 0x0F, word, 0xD1, 0xEA),
+                    struct.pack("<BBBBHBB", 0xFF, 0x96, PUMP_SELECTOR, 0x0F, 0xFFFF, 0xD3, 0xFF),
+                ]
+                for f in frames:
+                    self.send_queue.put({"dgn": "1FED9", "data": bytearray(f)})
+                return
+
+            elif self._bms_configured() and topic in (self.battery_heater_set_topic,
+                                                      self.ignore_alarms_set_topic):
+                # On sends the panel's lease, off cancels it. Nothing is published here:
+                # the BMS answers an accepted command with a 0FF70 status within ms.
+                on = payload.lower() == 'on'
+                if topic == self.battery_heater_set_topic:
+                    item = self._bms_command(BMS_HEATER_MAGIC, BMS_HEATER_LEASE if on else 0)
+                else:
+                    item = self._bms_command(BMS_ALARM_MASK_MAGIC,
+                                             BMS_ALARM_MASK_LEASE if on else 0)
+                self.send_queue.put(item)
+                return
+
+            elif (self._engine_relay_configured()
+                    and topic == self.engine_start_set_topic):
+                frame = self._engine_relay_frame(on=payload.lower() == 'on')
+                self.send_queue.put({"dgn": "1FEDB", "data": bytearray(frame)})
+                return
+
+            else:
+                self.Logger.warning(f"Unhandled set topic: {topic}")
+                return
+
+            self.send_queue.put({"dgn": "1FED9", "data": bytearray(frame)})
+
+        except Exception as e:
+            self.Logger.error(f"Failed to process MQTT set message on {topic}: {e}")
+
+    def _warn_floorplan_change_overwrites(self, floorplan_value, payload):
+        """Log which option settings a floorplan change is expected to overwrite.
+
+        The touchscreen writes the new floorplan's defaults alongside F5. This compares
+        those defaults against the state we have observed and names the differences, so
+        an operator changing floorplan from Home Assistant is not surprised by a silently
+        reset configuration.
+
+        Purely informational -- it transmits nothing and never blocks the write.
+        """
+        defaults = FLOORPLAN_OPTION_DEFAULTS.get(floorplan_value)
+        if defaults is None:
+            return
+
+        observed = {
+            0xEB: self._heat_pump, 0xE5: self._bunk_accent, 0xE9: self._bath_fan,
+            0xE3: self._cargo_bath_light, 0xE4: self._bath_light,
+            0xEC: self._black_tank_setting, 0xE6: self._progressive_inverter,
+        }
+        changes = []
+        for selector, default in defaults.items():
+            current = observed.get(selector)
+            if current is None or not isinstance(current, str):
+                continue
+            want = "on" if default else "off"
+            if current != want:
+                changes.append(f"{_SELECTOR_NAMES[selector]} {current}->{want}")
+
+        if changes:
+            self.Logger.warning(
+                f"Setting floorplan to {payload.upper()} is expected to reset: "
+                f"{', '.join(sorted(changes))}. The touchscreen writes the new "
+                f"floorplan's defaults alongside F5; this bridge sends F5 alone, so the "
+                f"result depends on whether the G12 applies defaults itself.")
+        else:
+            self.Logger.info(
+                f"Setting floorplan to {payload.upper()}; its defaults match the "
+                f"currently observed option settings, so nothing should change.")
+
+    def publish_ha_discovery_config(self):
+        """Publish Home Assistant MQTT auto-discovery config for all G12 entities."""
+        if not hasattr(self, 'max_engine_run_time_topic'):
+            return
+
+        has_cmd = hasattr(self, 'max_engine_run_time_set_topic')
+        origin = {'name': self.mqtt_support.get_bridge_ha_name()}
+        cmps = {}
+
+        # The voltage and run-time parameters are mode-dependent: under AES they describe
+        # the 48V engine/lithium system, under AGS a 12V generator system. Publishing a
+        # single fixed range makes HA misrepresent and reject valid values in the other
+        # mode. Observed 2026-08-12: AGS reported 13.50V stop / 12.20V start / 720 min,
+        # all far outside the AES bounds that used to be hardcoded here.
+        #
+        # The AES bounds below are the previously established ones. The AGS bounds are
+        # PROVISIONAL — chosen to contain the observed values, not derived from the G12,
+        # which has not been asked for its limits.
+        #
+        # TODO: establish the real AGS limits. The 10.0-16.0 V / 0-1440 min / 600-7200 sec
+        # bounds below are guesses, wide enough to hold what was observed and nothing more.
+        # Finding the true limits means either driving each setting to its stops on the
+        # touchscreen while in AGS mode and watching where it clamps, or reading them out
+        # of the Firefly firmware. Until then Home Assistant will accept AGS values the
+        # G12 may refuse.
+        #
+        # time_at_stop_volts used to carry a single fixed 600-3600 range regardless of
+        # mode, even though this docstring already documented it (0x0E) as mode-dependent.
+        # Confirmed 2026-09-02 by a live candump capture across an AES->AGS switch on the
+        # coach: the G12's own AGS profile broadcasts 7200 (2 h), which HA then rejected
+        # as out of range -- the entity's declared range, not the value, was wrong.
+        is_ags = str(self._gen_aes_mode).upper() == 'AGS'
+        if is_ags:
+            v_stop = {'min': 10.0, 'max': 16.0, 'step': 0.1}
+            v_start = {'min': 10.0, 'max': 16.0, 'step': 0.1}
+            run_time = {'min': 0, 'max': 1440, 'step': 5}
+            stop_duration = {'min': 600, 'max': 7200, 'step': 300}
+        else:
+            v_stop = {'min': 50.0, 'max': 58.8, 'step': 0.1}
+            v_start = {'min': 51.0, 'max': 54.8, 'step': 0.1}
+            run_time = {'min': 60, 'max': 115, 'step': 1}
+            stop_duration = {'min': 600, 'max': 3600, 'step': 300}
+
+        # --- number entities ---
+        number_specs = [
+            ('max_engine_run_time',  self.max_engine_run_time_topic,
+             self.max_engine_run_time_set_topic if has_cmd else None,
+             'Max Engine Run Time', {'unit_of_measurement': 'min', 'mode': 'auto', **run_time}),
+            ('time_at_start_volts',  self.time_at_start_volts_topic,
+             self.time_at_start_volts_set_topic if has_cmd else None,
+             'Time at Start Volts',  {'unit_of_measurement': 's',   'min': 10, 'max': 300, 'step': 10, 'mode': 'auto'}),
+            ('time_at_stop_volts',   self.time_at_stop_volts_topic,
+             self.time_at_stop_volts_set_topic if has_cmd else None,
+             'Time at Stop Volts',   {'unit_of_measurement': 's', 'mode': 'auto', **stop_duration}),
+            ('stop_at_voltage',      self.stop_at_voltage_topic,
+             self.stop_at_voltage_set_topic if has_cmd else None,
+             'Stop at Voltage',
+             {'unit_of_measurement': 'V', 'device_class': 'voltage', 'mode': 'auto', **v_stop}),
+            ('start_at_voltage',     self.start_at_voltage_topic,
+             self.start_at_voltage_set_topic if has_cmd else None,
+             'Start at Voltage',
+             {'unit_of_measurement': 'V', 'device_class': 'voltage', 'mode': 'auto', **v_start}),
+            ('threshold_33_pct',     self.threshold_cc_topic,
+             self.threshold_cc_set_topic if has_cmd else None,
+             'Tank Threshold 33%',   {'unit_of_measurement': '',    'min': 0, 'max': 65535, 'step': 1000, 'mode': 'auto'}),
+            ('threshold_66_pct',     self.threshold_cd_topic,
+             self.threshold_cd_set_topic if has_cmd else None,
+             'Tank Threshold 66%',   {'unit_of_measurement': '',    'min': 0, 'max': 65535, 'step': 1000, 'mode': 'auto'}),
+            ('threshold_100_pct',    self.threshold_ce_topic,
+             self.threshold_ce_set_topic if has_cmd else None,
+             'Tank Threshold 100%',  {'unit_of_measurement': '',    'min': 0, 'max': 65535, 'step': 1000, 'mode': 'auto'}),
+        ]
+        for sub_id, state_topic, cmd_topic, label, extra in number_specs:
+            cmp = {'p': 'number', 'name': label,
+                   'state_topic': state_topic,
+                   'unique_id': self.unique_device_id + '_' + sub_id}
+            cmp.update(extra)
+            if cmd_topic:
+                cmp['command_topic'] = cmd_topic
+            cmps[sub_id] = cmp
+
+        # --- time entities (quiet time, HH:MM:SS) ---
+        time_specs = [
+            ('quiet_time_start', self.quiet_time_start_topic,
+             self.quiet_time_start_set_topic if has_cmd else None,
+             'Quiet Time Start'),
+            ('quiet_time_stop',  self.quiet_time_stop_topic,
+             self.quiet_time_stop_set_topic if has_cmd else None,
+             'Quiet Time Stop'),
+        ]
+        for sub_id, state_topic, cmd_topic, label in time_specs:
+            cmp = {'p': 'time', 'name': label,
+                   'state_topic': state_topic,
+                   'unique_id': self.unique_device_id + '_' + sub_id}
+            if cmd_topic:
+                cmp['command_topic'] = cmd_topic
+            cmps[sub_id] = cmp
+
+        # --- read-only sensors ---
+        cmps['product_id'] = {
+            'p': 'sensor', 'name': 'Product ID',
+            'state_topic': self.product_id_topic,
+            'enabled_by_default': False,
+            'unique_id': self.unique_device_id + '_product_id'}
+
+        cmps['fault_code'] = {
+            'p': 'sensor', 'name': 'Fault Code',
+            'state_topic': self.dm_rv_fault_code_topic,
+            'unique_id': self.unique_device_id + '_fault_code'}
+
+        cmps['fault_description'] = {
+            'p': 'sensor', 'name': 'Fault Description',
+            'state_topic': self.dm_rv_fault_description_topic,
+            'enabled_by_default': False,
+            'unique_id': self.unique_device_id + '_fault_description'}
+
+        cmps['fault_lamp'] = {
+            'p': 'binary_sensor', 'name': 'Fault Lamp',
+            'state_topic': self.dm_rv_lamp_topic,
+            'device_class': 'problem',
+            'payload_on': 'on', 'payload_off': 'off',
+            'unique_id': self.unique_device_id + '_fault_lamp'}
+
+        # --- input binary sensors (1–15, all disabled by default) ---
+        for n in range(1, 16):
+            cmps[f'input_{n}'] = {
+                'p': 'binary_sensor', 'name': f' Input {n}',
+                'state_topic': f'{self._input_topic_base}/inputs/{n}/active',
+                'payload_on': 'true', 'payload_off': 'false',
+                'enabled_by_default': False,
+                'unique_id': self.unique_device_id + f'_input_{n}'}
+
+        has_new_cmd = hasattr(self, 'ags_low_volts_trigger_set_topic')
+
+        # --- engine start/stop buttons + status sensor ---
+        if hasattr(self, 'engine_running_topic'):
+            cmps['engine_status'] = {
+                'p': 'binary_sensor',
+                'name': 'Engine Starting Status',
+                'state_topic': self.engine_running_topic,
+                'payload_on': 'on', 'payload_off': 'off',
+                'unique_id': self.unique_device_id + '_engine_status',
+            }
+        if hasattr(self, 'engine_start_set_topic'):
+            cmps['engine_start'] = {
+                'p': 'button',
+                'name': 'Start Engine',
+                'command_topic': self.engine_start_set_topic,
+                'payload_press': 'on',
+                'unique_id': self.unique_device_id + '_engine_start',
+            }
+            cmps['engine_stop'] = {
+                'p': 'button',
+                'name': 'Stop Engine',
+                'command_topic': self.engine_start_set_topic,
+                'payload_press': 'off',
+                'unique_id': self.unique_device_id + '_engine_stop',
+            }
+
+        # --- AES enabled switch ---
+        if hasattr(self, 'aes_enabled_topic'):
+            aes_cmp = {
+                'name': 'AES Enabled',
+                'state_topic': self.aes_enabled_topic,
+                'payload_on': 'on', 'payload_off': 'off',
+                'unique_id': self.unique_device_id + '_aes_enabled',
+            }
+            if hasattr(self, 'aes_enabled_set_topic'):
+                aes_cmp['p'] = 'switch'
+                aes_cmp['command_topic'] = self.aes_enabled_set_topic
+            else:
+                aes_cmp['p'] = 'binary_sensor'
+            cmps['aes_enabled'] = aes_cmp
+
+        if hasattr(self, 'aes_engine_command_topic'):
+            cmps['aes_engine_command'] = {
+                'p': 'sensor', 'name': 'AES Last Engine Command',
+                'state_topic': self.aes_engine_command_topic,
+                'unique_id': self.unique_device_id + '_aes_engine_command'}
+
+        # --- Water Pump: Pump Link + Auto Off (selector 0xEE, custom panel firmware) ---
+        cmps['pump_link'] = {
+            'p': 'switch' if has_new_cmd else 'binary_sensor',
+            'name': 'Pump Link',
+            'state_topic': self.pump_link_topic,
+            'payload_on': 'on', 'payload_off': 'off',
+            'unique_id': self.unique_device_id + '_pump_link'}
+        if has_new_cmd:
+            cmps['pump_link']['command_topic'] = self.pump_link_set_topic
+
+        cmps['pump_auto_off'] = {
+            'p': 'number' if has_new_cmd else 'sensor',
+            'name': 'Pump Auto Off',
+            'state_topic': self.pump_auto_off_topic,
+            'unit_of_measurement': 'min',
+            'min': 0, 'max': PUMP_AUTO_OFF_MAX, 'step': PUMP_AUTO_OFF_STEP, 'mode': 'auto',
+            'unique_id': self.unique_device_id + '_pump_auto_off'}
+        if has_new_cmd:
+            cmps['pump_auto_off']['command_topic'] = self.pump_auto_off_set_topic
+
+        # --- BMS Battery Heater / Ignore Alarms (requires bms_source_id) ---
+        if hasattr(self, 'battery_heater_topic'):
+            bms_cmd = hasattr(self, 'battery_heater_set_topic')
+            for sub_id, state_topic, cmd_topic, label in (
+                    ('battery_heater', self.battery_heater_topic,
+                     getattr(self, 'battery_heater_set_topic', None), 'Battery Heater'),
+                    ('ignore_alarms', self.ignore_alarms_topic,
+                     getattr(self, 'ignore_alarms_set_topic', None), 'Ignore Alarms')):
+                cmp = {'name': label, 'state_topic': state_topic,
+                       'payload_on': 'on', 'payload_off': 'off',
+                       'unique_id': self.unique_device_id + '_' + sub_id}
+                if bms_cmd:
+                    cmp['p'] = 'switch'
+                    cmp['command_topic'] = cmd_topic
+                else:
+                    cmp['p'] = 'binary_sensor'
+                cmps[sub_id] = cmp
+            cmps['battery_heater_contactor'] = {
+                'p': 'binary_sensor', 'name': 'Battery Heater Contactor',
+                'state_topic': self.battery_heater_output_topic,
+                'device_class': 'heat',
+                'payload_on': 'on', 'payload_off': 'off',
+                'unique_id': self.unique_device_id + '_battery_heater_contactor'}
+
+        # --- newly discovered on/off settings (switch when writable) ---
+        onoff_specs = [
+            ('ags_low_volts_trigger', self.ags_low_volts_trigger_topic,
+             self.ags_low_volts_trigger_set_topic if has_new_cmd else None, 'AGS Low Volts Trigger'),
+            ('cargo_bath_light',      self.cargo_bath_light_topic,
+             self.cargo_bath_light_set_topic if has_new_cmd else None,      'Cargo/Bath Light (CH.25)'),
+            # E4 is the other half of the cargo/bath-light choice and is always the
+            # inverse of E3. Read-only: writing it is the same action as writing E3,
+            # which the cargo_bath_light switch already performs as a paired write.
+            ('bath_light',            self.bath_light_topic, None,          'Bath Light'),
+            ('heat_pump',             self.heat_pump_topic,
+             self.heat_pump_set_topic if has_new_cmd else None,             'Heat Pump'),
+            ('bunk_accent',           self.bunk_accent_topic,
+             self.bunk_accent_set_topic if has_new_cmd else None,           'Bunk Accent'),
+            ('progressive_inverter',  self.progressive_inverter_topic,
+             self.progressive_inverter_set_topic if has_new_cmd else None,  'Progressive Inverter'),
+            ('bath_fan',              self.bath_fan_topic,
+             self.bath_fan_set_topic if has_new_cmd else None,              'Bath Fan'),
+            ('black_tank_setting',    self.black_tank_setting_topic,
+             self.black_tank_setting_set_topic if has_new_cmd else None,    'Black Tank'),
+        ]
+        for sub_id, state_topic, cmd_topic, label in onoff_specs:
+            cmp = {'name': label, 'state_topic': state_topic,
+                   'payload_on': 'on', 'payload_off': 'off',
+                   'unique_id': self.unique_device_id + '_' + sub_id}
+            if cmd_topic:
+                cmp['p'] = 'switch'
+                cmp['command_topic'] = cmd_topic
+            else:
+                cmp['p'] = 'binary_sensor'
+            cmps[sub_id] = cmp
+
+        # --- newly discovered numeric settings ---
+        cmps['battery_voltage'] = {
+            'p': 'sensor', 'name': 'Battery Voltage',
+            'state_topic': self.battery_voltage_topic,
+            'unit_of_measurement': 'V', 'device_class': 'voltage',
+            'state_class': 'measurement',
+            'unique_id': self.unique_device_id + '_battery_voltage'}
+
+        cmps['ags_gen_start_retries'] = {
+            'p': 'sensor', 'name': 'AGS Gen Start Retries',
+            'state_topic': self.ags_gen_start_retries_topic,
+            'unique_id': self.unique_device_id + '_ags_gen_start_retries'}
+
+        cmps['go_power_controllers'] = {
+            'p': 'number' if has_new_cmd else 'sensor',
+            'name': 'Go Power! Controllers',
+            'state_topic': self.go_power_controllers_topic,
+            'min': 0, 'max': 5, 'step': 1, 'mode': 'auto',
+            'unique_id': self.unique_device_id + '_go_power_controllers'}
+        if has_new_cmd:
+            cmps['go_power_controllers']['command_topic'] = self.go_power_controllers_set_topic
+
+        cmps['ags_retry_interval'] = {
+            'p': 'number' if has_new_cmd else 'sensor',
+            'name': 'AGS Retry Interval',
+            'state_topic': self.ags_retry_interval_topic,
+            'unit_of_measurement': 's',
+            'min': 25, 'max': 65, 'step': 5, 'mode': 'auto',
+            'unique_id': self.unique_device_id + '_ags_retry_interval'}
+        if has_new_cmd:
+            cmps['ags_retry_interval']['command_topic'] = self.ags_retry_interval_set_topic
+
+        # --- newly discovered text/enum settings ---
+        cmps['num_batteries'] = {
+            'p': 'select' if has_new_cmd else 'sensor',
+            'name': 'Number of Batteries',
+            'state_topic': self.num_batteries_topic,
+            'options': ['1 battery', '2 batteries'],
+            'unique_id': self.unique_device_id + '_num_batteries'}
+        if has_new_cmd:
+            cmps['num_batteries']['command_topic'] = self.num_batteries_set_topic
+
+        cmps['max_charge_rate'] = {
+            'p': 'sensor', 'name': 'Max Charge Rate',
+            'state_topic': self.max_charge_rate_topic,
+            'unit_of_measurement': '%',
+            'unique_id': self.unique_device_id + '_max_charge_rate'}
+
+        cmps['ags_config_mode'] = {
+            'p': 'sensor', 'name': 'AGS Config Mode',
+            'state_topic': self.ags_config_mode_topic,
+            'unique_id': self.unique_device_id + '_ags_config_mode'}
+
+        cmps['gen_aes_mode'] = {
+            'p': 'select' if has_new_cmd else 'sensor',
+            'name': 'Generator/AES Mode',
+            'state_topic': self.gen_aes_mode_topic,
+            'options': ['AGS', 'AES', 'AES Single Output'],
+            'unique_id': self.unique_device_id + '_gen_aes_mode'}
+        if has_new_cmd:
+            cmps['gen_aes_mode']['command_topic'] = self.gen_aes_mode_set_topic
+
+        cmps['selected_floorplan'] = {
+            'p': 'select' if has_new_cmd else 'sensor',
+            'name': 'Selected Floorplan',
+            'state_topic': self.selected_floorplan_topic,
+            'options': ['RT', 'RA', 'RD', 'SY', 'TB', 'CB', 'WA', 'WD', 'WT', 'RY'],
+            'unique_id': self.unique_device_id + '_selected_floorplan'}
+        if has_new_cmd:
+            cmps['selected_floorplan']['command_topic'] = self.selected_floorplan_set_topic
+
+        config = {'dev': self.device, 'o': origin, 'cmps': cmps, 'qos': 1}
+        config.update(self.get_availability_discovery_info_for_ha())
+        self.mqtt_support.client.publish(
+            self.mqtt_support.make_ha_auto_discovery_config_topic(self.unique_device_id, 'device'),
+            json.dumps(config),
+            retain=False)
+
+    def initialize(self):
+        self.publish_ha_discovery_config()

@@ -28,6 +28,7 @@ import logging
 import logging.config
 import queue
 import signal
+import threading
 import time
 import os
 import sys
@@ -53,6 +54,11 @@ def signal_handler(signal, frame):
     exit(0)
 
 
+def sighup_handler(sig, frame):
+    global MyApp
+    MyApp._reload_requested.set()
+
+
 class app(object):
     def main(self, argsns: argparse.Namespace):
         """main function.  Sets up the app services, creates
@@ -63,6 +69,9 @@ class app(object):
 
         self.Logger = logging.getLogger("app")
         self.mqtt_client: MQTT_Support = None
+        self._reload_requested = threading.Event()
+        self._floorplan_path1 = argsns.floorplan
+        self._floorplan_path2 = argsns.floorplan2
 
         # make an receive queue of receive can bus messages
         self.rxQueue = queue.Queue()
@@ -102,14 +111,20 @@ class app(object):
         entity_factory_list = []
         self.PluginSupport.register_with_factory_the_entity_plugins(
             entity_factory_list)
+        self._entity_factory_list = entity_factory_list
 
         # setup entity list using
         self.entity_list = []
 
         # initialize objects from the floorplan
-        for item in argsns.fp:
-            obj = entity_factory(
-                item, self.mqtt_client, entity_factory_list)
+        override_path = _get_override_path(argsns.floorplan)
+        for item, source_file in argsns.fp:
+            try:
+                obj = entity_factory(
+                    item, self.mqtt_client, entity_factory_list, source_file)
+            except Exception as e:
+                self.Logger.error(f"Unsupported entry in {source_file}: {str(e)}")
+                continue
             if obj is not None:
                 # add entity links if defined.  This allows one entity to reference another entity
                 for link in obj.entity_links:
@@ -117,16 +132,156 @@ class app(object):
                     if requested_entity is not None:
                         obj.add_entity_link(requested_entity)
 
+                if source_file == argsns.floorplan:
+                    obj.set_override_file(override_path)
                 obj.set_rvc_send_queue(self.tx_RVC_Buffer)
                 obj.initialize()
                 self.entity_list.append(obj)
 
+        self._warn_instance_collisions()
+
+        # Request product identification from all devices on the network
+        self.tx_RVC_Buffer.put({
+            "dgn": "0EAFF",
+            "data": bytes([0xEB, 0xFE, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]),
+        })
+
         # Our RVC message loop here
         while True:
-            # process any received messages
-            self.message_rx_loop()
-            self.message_tx_loop()
+            self._loop_once(time.monotonic())
             time.sleep(0.001)
+
+    def _loop_once(self, now: float):
+        """One iteration of the main loop: reload if requested, drain rx,
+        give every entity a periodic tick, then drain tx."""
+        if self._reload_requested.is_set():
+            self._do_reload()
+        # process any received messages
+        self.message_rx_loop()
+        for entity in self.entity_list:
+            try:
+                entity.tick(now)
+            except Exception:
+                # Isolate one entity's failure from the rest of the loop, and
+                # log it only once per entity id to avoid flooding the log at
+                # the ~1ms poll rate. Lazily init so AppClass.__new__-built
+                # test apps (which skip main()/__init__) keep working.
+                failed_ids = getattr(self, "_tick_failed_ids", None)
+                if failed_ids is None:
+                    failed_ids = set()
+                    self._tick_failed_ids = failed_ids
+                if entity.id not in failed_ids:
+                    failed_ids.add(entity.id)
+                    self.Logger.exception(f"entity {entity.id} tick() failed; disabling further logging for it")
+        self.message_tx_loop()
+
+    def _warn_instance_collisions(self):
+        """A VirtualInverter and a real INVERTER_STATUS entity on the same
+        instance would both own rvc/state/inverter/*; the override floorplan
+        should _remove the real one.  Both are kept loaded; just make it loud.
+
+        Entities are loaded by PluginSupport via importlib.util.spec_from_file_location
+        under bare module names, so classes it produces are distinct objects from
+        the same classes imported normally here — isinstance() against a directly
+        imported class is always False for a production-loaded entity. Match on
+        the FACTORY_MATCH_ATTRIBUTES contract instead."""
+        def _entity_type(e):
+            return getattr(e, "FACTORY_MATCH_ATTRIBUTES", {}).get("type")
+        virtual = {int(e.rvc_instance) for e in self.entity_list if _entity_type(e) == "virtual_inverter"}
+        real = {int(e.rvc_instance) for e in self.entity_list if _entity_type(e) == "inverter"}
+        for instance in sorted(virtual & real):
+            self.Logger.error(
+                f"Floorplan has both a VIRTUAL_INVERTER and an INVERTER_STATUS entity on "
+                f"instance {instance}; they will fight over the same MQTT topics. "
+                f"Remove one (override: `_remove: true`).")
+
+    def _do_reload(self):
+        self._reload_requested.clear()
+        self.Logger.info("Reloading floorplan...")
+
+        # 1. Unsubscribe all registered topics, then immediately re-register the HA
+        #    birth handler so no birth messages are missed during reload.
+        if self.mqtt_client:
+            self.mqtt_client.unregister_all()
+            self.mqtt_client.register(
+                f"{MQTT_Support.HA_AUTO_BASE}/status", self.on_ha_birth_message)
+
+        # 2. Snapshot discovery topics so we can remove only stale ones after reload.
+        old_discovery_topics = self.mqtt_client.get_discovery_topics() if self.mqtt_client else set()
+
+        # 3. Signal offline so HA marks entities unavailable during the reload window.
+        #    We intentionally do NOT clear retained state topics here: publishing empty
+        #    strings races with the offline signal and causes HA to record empty values
+        #    then fail pattern validation (text/climate entities) when we go back online.
+        #    Retained state topics keep their last good values; entities overwrite them
+        #    naturally when the CAN bus re-broadcasts after reload.
+        if self.mqtt_client:
+            self.mqtt_client.publish_bridge_offline()
+
+        # 4. Teardown old entities
+        for entity in self.entity_list:
+            entity.teardown()
+        self.entity_list = []
+        # Entities are rebuilt below; reset tick-failure suppression so a fresh
+        # instance with the same id gets its failures logged again.
+        self._tick_failed_ids = set()
+        self._rx_failed_ids = set()
+
+        # 5. Reload floorplan files
+        new_fp = []
+        try:
+            if self._floorplan_path1 and os.path.isfile(self._floorplan_path1):
+                c = load_the_config(self._floorplan_path1)
+                if c and "floorplan" in c:
+                    entries = _apply_overrides(c["floorplan"], _get_override_path(self._floorplan_path1), self.Logger)
+                    new_fp.extend((item, self._floorplan_path1) for item in entries)
+            if self._floorplan_path2 and os.path.isfile(self._floorplan_path2):
+                d = load_the_config(self._floorplan_path2)
+                if d and "floorplan" in d:
+                    new_fp.extend((item, self._floorplan_path2) for item in d["floorplan"])
+        except Exception as e:
+            self.Logger.error(f"Floorplan reload failure: {str(e)}")
+
+        if not new_fp:
+            self.Logger.error("Floorplan reload produced no entities — check floorplan files")
+
+        # 6. Recreate entities
+        override_path = _get_override_path(self._floorplan_path1)
+        for item, source_file in new_fp:
+            try:
+                obj = entity_factory(item, self.mqtt_client, self._entity_factory_list, source_file)
+            except Exception as e:
+                self.Logger.error(f"Unsupported entry in {source_file}: {str(e)}")
+                continue
+            if obj is not None:
+                for link in obj.entity_links:
+                    requested_entity = next(
+                        filter(lambda entry: entry.link_id == link, self.entity_list), None)
+                    if requested_entity is not None:
+                        obj.add_entity_link(requested_entity)
+                if source_file == self._floorplan_path1:
+                    obj.set_override_file(override_path)
+                obj.set_rvc_send_queue(self.tx_RVC_Buffer)
+                obj.initialize()
+                self.entity_list.append(obj)
+
+        self._warn_instance_collisions()
+
+        # 7. Remove discovery topics for entities that were not re-published (removed from floorplan)
+        if self.mqtt_client:
+            self.mqtt_client.clear_stale_discovery_topics(old_discovery_topics)
+
+        # 8. Signal online — re-publishes bridge availability so HA marks entities available again
+        if self.mqtt_client:
+            self.mqtt_client.publish_bridge_online()
+
+        # 9. Request product identification from all devices on the network
+        self.tx_RVC_Buffer.put({
+            "dgn": "0EAFF",
+            "data": bytes([0xEB, 0xFE, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]),
+        })
+
+        self.Logger.info(f"Floorplan reload complete: {len(self.entity_list)} entities loaded")
 
     def on_ha_birth_message(self, topic, payload, properties=None):
         """Re-publish HA discovery configs when Home Assistant comes online."""
@@ -139,6 +294,14 @@ class app(object):
         """Shutdown the app and any threads"""
         if self.receiver:
             self.receiver.kill_received = True
+            self.receiver.join(timeout=2.0)
+        # Drain queues so any retained objects are released
+        for q in (self.rxQueue, self.tx_RVC_Buffer, self.txQueue):
+            while not q.empty():
+                try:
+                    q.get_nowait()
+                except queue.Empty:
+                    break
         if self.mqtt_client is not None:
             self.mqtt_client.shutdown()
             self.mqtt_client.client.loop_stop()
@@ -155,7 +318,7 @@ class app(object):
             rvc_dict)
 
         self.Logger.debug(f"Sending Msg: {str(rvc_dict)}")
-        logging.getLogger("rvc_bus_trace").debug(str(rvc_dict))
+        logging.getLogger("rvc_bus_trace").debug("%s", rvc_dict)
 
         # put into canbus watcher
         self.txQueue.put(rvc_dict)
@@ -176,20 +339,42 @@ class app(object):
             self.Logger.warning(f"Failed to decode msg. {message}: {e}")
             return
 
-        # Log all rvc bus messages to custom logger so it can be routed or ignored
-        logging.getLogger("rvc_bus_trace").debug(str(MsgDict))
+        # Log all rvc bus messages to custom logger so it can be routed or ignored.
+        # Pass MsgDict as a log arg (not pre-formatted) so RVCSourceFilter can
+        # extract source_id for per-source handlers / formatters.
+        logging.getLogger("rvc_bus_trace").debug("%s", MsgDict)
 
         # Find if this is a device entity in our list
         # Pass to object
 
         for item in self.entity_list:
-            if item.process_rvc_msg(MsgDict):
+            try:
+                handled = item.process_rvc_msg(MsgDict)
+            except Exception:
+                # Same isolation as tick(): one entity's exception must not end the
+                # rx loop (an HvacMode ValueError did, on the coach 2026-10-22, and
+                # the bridge kept "running" with no bus traffic handled).  The
+                # message counts as consumed by the entity that raised; the traceback
+                # is logged once per entity, later failures at debug.
+                failed_ids = getattr(self, "_rx_failed_ids", None)
+                if failed_ids is None:
+                    failed_ids = set()
+                    self._rx_failed_ids = failed_ids
+                if item.id not in failed_ids:
+                    failed_ids.add(item.id)
+                    self.Logger.exception(
+                        f"entity {item.id} process_rvc_msg() failed on {MsgDict}; "
+                        "further failures from it logged at debug")
+                else:
+                    self.Logger.debug(f"entity {item.id} process_rvc_msg() failed on {MsgDict}")
+                return
+            if handled:
                 # Should we allow processing by more than one obj.
                 ##
                 return
 
         # Use a custom logger so it can be routed easily or ignored
-        logging.getLogger("unhandled_rvc").debug(f"Msg {str(MsgDict)}")
+        logging.getLogger("unhandled_rvc").debug("Msg %s", MsgDict)
 
 
 def configure_logging(verbosity: int, config_file: Optional[os.PathLike]):
@@ -206,8 +391,9 @@ def configure_logging(verbosity: int, config_file: Optional[os.PathLike]):
                     "Review https://docs.python.org/3/library/logging.config.html#logging-config-dictschema for details")
 
     log_format = "%(levelname)s %(asctime)s - %(message)s"
-    logging.basicConfig(stream=sys.stdout,
-                        format=log_format, level=logging.ERROR)
+    levels = [logging.ERROR, logging.WARNING, logging.INFO, logging.DEBUG]
+    level = levels[min(verbosity, len(levels) - 1)]
+    logging.basicConfig(stream=sys.stdout, format=log_format, level=level)
 
 
 def load_the_config(config_file_path: Optional[os.PathLike]):
@@ -216,6 +402,69 @@ def load_the_config(config_file_path: Optional[os.PathLike]):
         with open(config_file_path, "r") as content:
             yaml = YAML.YAML(typ='safe')
             return yaml.load(content.read())
+
+
+def _get_override_path(floorplan_path: Optional[os.PathLike]) -> Optional[str]:
+    if floorplan_path is None:
+        return None
+    stem, ext = os.path.splitext(floorplan_path)
+    return stem + ".override" + ext
+
+
+def _apply_overrides(base_entries: list, override_path: Optional[str], logger: logging.Logger) -> list:
+    if override_path is None or not os.path.isfile(override_path):
+        return base_entries
+    try:
+        raw = load_the_config(override_path)
+    except Exception as e:
+        logger.warning(f"Override file {override_path!r} could not be loaded: {e} — ignoring overrides")
+        return base_entries
+    if not raw or "overrides" not in raw:
+        return base_entries
+    override_list = raw["overrides"]
+    if not isinstance(override_list, list):
+        logger.warning(f"Override file {override_path!r}: 'overrides' key is not a list — ignoring overrides")
+        return base_entries
+
+    result = [dict(e) for e in base_entries]
+    for ovr in override_list:
+        name = ovr.get("name")
+        type_ = ovr.get("type")
+        instance = ovr.get("instance", None)
+        match_idx = next(
+            (i for i, e in enumerate(result)
+             if e.get("name") == name and e.get("type") == type_ and e.get("instance", None) == instance),
+            -1,
+        )
+        if ovr.get("_remove", False):
+            if match_idx < 0:
+                logger.warning(
+                    f"Override file {override_path!r}: _remove entry "
+                    f"{{name: {name!r}, type: {type_!r}, instance: {instance!r}}} "
+                    f"matched no floorplan entry — nothing removed")
+            else:
+                del result[match_idx]
+        else:
+            update = {k: v for k, v in ovr.items() if k != "_remove"}
+            if match_idx >= 0:
+                result[match_idx].update(update)
+            else:
+                # Appending is legitimate — it is how new entities are added. But
+                # entries are matched on the (name, type, instance) triple, so an
+                # override meaning to amend an existing entry becomes a new one the
+                # moment any of the three differs. Without a type the factory cannot
+                # build it at all, which is a mistake worth naming here: the later
+                # "Unsupported entry" error reports the base floorplan as the source,
+                # not this file.
+                if not type_:
+                    logger.warning(
+                        f"Override file {override_path!r}: entry "
+                        f"{{name: {name!r}, instance: {instance!r}}} has no 'type' and "
+                        f"matched no floorplan entry, so it was added as a new entry "
+                        f"that cannot be built. Add the 'type' of the entry you meant "
+                        f"to amend.")
+                result.append(dict(update))
+    return result
 
 
 def main():
@@ -267,19 +516,19 @@ def main():
                                      "%A, %B %d, %Y %I:%M%p")
     )
 
+    args.fp = []
     try:
-        fp = []
         if args.floorplan is not None:
             if os.path.isfile(args.floorplan):
                 c = load_the_config(args.floorplan)
-                if "floorplan" in c:
-                    fp.extend(c["floorplan"])
+                if c and "floorplan" in c:
+                    entries = _apply_overrides(c["floorplan"], _get_override_path(args.floorplan), logging.getLogger("app"))
+                    args.fp.extend((item, args.floorplan) for item in entries)
 
         if args.floorplan2 is not None:
             d = load_the_config(args.floorplan2)
-            if "floorplan" in d:
-                fp.extend(d["floorplan"])
-        args.fp = fp
+            if d and "floorplan" in d:
+                args.fp.extend((item, args.floorplan2) for item in d["floorplan"])
     except Exception as e:
         logging.critical(f"Floorplan failure: {str(e)}")
 
@@ -287,6 +536,7 @@ def main():
     MyApp = app()
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGHUP, sighup_handler)
     MyApp.main(args)
 
 

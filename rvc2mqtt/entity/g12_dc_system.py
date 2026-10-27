@@ -53,12 +53,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                        'name': self.name
                        }
 
-        self._voltage_changed = True  # property change tracking
-        self._current_changed = True  # property change tracking
+        self._voltage_changed = False
+        self._current_changed = False
 
-        # class specific values that change
-        self._dc_voltage = 5  # should never be this low
-        self._dc_current = 50  # should not be this high
+        # class specific values that change; None until first valid reading received
+        self._dc_voltage = None
+        self._dc_current = None
 
         if 'status_topic' in data:
             topic_base= str(data['status_topic'])
@@ -108,8 +108,11 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         if self._is_entry_match(self.rvc_match_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            self.dc_voltage = new_message["dc_voltage"]
-            self.dc_current = new_message["dc_current"]
+            if new_message["dc_voltage"] != "n/a":
+                self.dc_voltage = new_message["dc_voltage"]
+            # Also treat all-zero raw bytes (decoded as -2000000.0 for uint32) as n/a
+            if new_message["dc_current"] not in ("n/a", -2000000.0):
+                self.dc_current = new_message["dc_current"]
             self._update_mqtt_topics_with_changed_values()
             return True
         return False
@@ -117,12 +120,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
     def _update_mqtt_topics_with_changed_values(self):
         ''' entry data has potentially changed.  Update mqtt'''
 
-        if self._voltage_changed:
+        if self._voltage_changed and self._dc_voltage is not None:
             self.mqtt_support.client.publish(
                 self.status_dc_voltage_topic, f"{self.dc_voltage:.2f}", retain=True)
             self._voltage_changed = False
 
-        if self._current_changed:
+        if self._current_changed and self._dc_current is not None:
             self.mqtt_support.client.publish(
                 self.status_dc_current_topic, self.dc_current, retain=True)
             self._current_changed = False

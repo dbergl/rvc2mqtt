@@ -129,6 +129,9 @@ class Generator_GENERATOR(EntityPluginBaseClass):
         return False
 
     def process_mqtt_msg(self, topic, payload, properties = None):
+        if not payload:
+            return
+
         self.Logger.info(
             f"MQTT Msg Received on topic {topic} with payload {payload}")
 

@@ -98,10 +98,13 @@ class HvacMode(Enum):
     COOL = 'cool'
     FAN_ONLY = 'fan_only'
     HEAT = 'heat'
+    AUTO = 'auto'
 
     @property
     def rvc_mode_for_rvc_msg(self) -> str:
-        if self == HvacMode.HEAT:
+        if self == HvacMode.AUTO:
+            return 3
+        elif self == HvacMode.HEAT:
             return 5
         elif self == HvacMode.FAN_ONLY:
             return 4
@@ -112,12 +115,15 @@ class HvacMode(Enum):
 
     @staticmethod
     def get_hvac_mode_from_rvc(rvc_mode:str):
+        '''None for a mode with no HA equivalent (e.g. window defrost/dehumidify)'''
         if rvc_mode == 'aux heat':
             return HvacMode.HEAT
         elif rvc_mode == "fan only":
             return HvacMode.FAN_ONLY
-        else:
+        try:
             return HvacMode(rvc_mode)
+        except ValueError:
+            return None
 
 
 class HvacClass(EntityPluginBaseClass):
@@ -163,8 +169,10 @@ class HvacClass(EntityPluginBaseClass):
 
     FACTORY_MATCH_ATTRIBUTES = {"name": "THERMOSTAT_STATUS_1", "type": "hvac"}
 
-    # HA MQTT HVAC supported modes - must be a subset of default
-    MQTT_SUPPORTED_MODES = [e.value for e in HvacMode]
+    # HA MQTT HVAC supported modes - must be a subset of default.  Auto is only offered when
+    # a floorplan lists it in hvac_modes: a Firefly panel shows it only with the Heat Pump
+    # option set.
+    MQTT_SUPPORTED_MODES = [e.value for e in HvacMode if e is not HvacMode.AUTO]
 
     MIN_TEMP = 12
     MAX_TEMP = 30
@@ -198,6 +206,25 @@ class HvacClass(EntityPluginBaseClass):
 
         self._mode     = HvacMode.OFF
         self._fan_mode = FanMode.OFF
+
+        valid_hvac_modes = {e.value for e in HvacMode}
+        valid_fan_modes  = {e.value for e in FanMode}
+
+        if 'hvac_modes' in data:
+            invalid = [m for m in data['hvac_modes'] if m not in valid_hvac_modes]
+            if invalid:
+                self.Logger.warning(f"Unknown hvac_modes ignored: {invalid}. Valid: {sorted(valid_hvac_modes)}")
+            self._hvac_modes = [m for m in data['hvac_modes'] if m in valid_hvac_modes]
+        else:
+            self._hvac_modes = HvacClass.MQTT_SUPPORTED_MODES
+
+        if 'fan_modes' in data:
+            invalid = [m for m in data['fan_modes'] if m not in valid_fan_modes]
+            if invalid:
+                self.Logger.warning(f"Unknown fan_modes ignored: {invalid}. Valid: {sorted(valid_fan_modes)}")
+            self._fan_modes = [m for m in data['fan_modes'] if m in valid_fan_modes]
+        else:
+            self._fan_modes = HvacClass.MQTT_SUPPORTED_FAN_MODE
 
 
         self._set_point_temperature = 16.09
@@ -335,7 +362,14 @@ class HvacClass(EntityPluginBaseClass):
             self.set_point_temperaturef = round(((new_message["setpoint_temp_cool"])*1.8) + 32)
             if new_message["setpoint_temp_cool"] != new_message["setpoint_temp_heat"]:
                 self.Logger.error(f"Expected cool and heat set temperatures to always be the same.  They are not")
-            self.mode = HvacMode.get_hvac_mode_from_rvc(new_message["operating_mode_definition"])
+            # Auto (3) arrives once the Firefly panel's Heat Pump option is on (coach,
+            # 2026-10-22); before it was an HvacMode the ValueError killed the rx loop.
+            mode = HvacMode.get_hvac_mode_from_rvc(new_message["operating_mode_definition"])
+            if mode is None:
+                self.Logger.warning(
+                    f"Unsupported operating mode {new_message['operating_mode_definition']!r}, keeping {self.mode.value}")
+            else:
+                self.mode = mode
             self._update_mqtt_topics_with_changed_values()
             return True
         elif self._is_entry_match(self.rvc_match_command, new_message):
@@ -404,6 +438,9 @@ class HvacClass(EntityPluginBaseClass):
             queue it
 
         """
+        if not payload:
+            return
+
         self.Logger.debug(f"MQTT Msg Received on topic {topic} with payload {payload}")
 
         if topic == self.command_mode_topic:
@@ -443,7 +480,7 @@ class HvacClass(EntityPluginBaseClass):
 
     def publish_ha_discovery_config(self):
         config = {"name": self.name,
-                  "modes": HvacClass.MQTT_SUPPORTED_MODES,
+                  "modes": self._hvac_modes,
                   "mode_state_topic": self.status_mode_topic,
                   "mode_state_template": '{{value}}',
                   "mode_command_topic": self.command_mode_topic,
@@ -453,7 +490,7 @@ class HvacClass(EntityPluginBaseClass):
                   "min_temp": HvacClass.MIN_TEMP,
                   "max_temp": HvacClass.MAX_TEMP,
 
-                  "fan_modes": HvacClass.MQTT_SUPPORTED_FAN_MODE,
+                  "fan_modes": self._fan_modes,
                   "fan_mode_state_topic": self.status_fan_mode_topic,
                   "fan_mode_state_template": '{{value}}',
                   "fan_mode_command_topic": self.command_fan_mode_topic,

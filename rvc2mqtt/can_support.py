@@ -53,4 +53,5 @@ class CAN_Watcher(threading.Thread):
                 except Exception as e:
                     self.Logger.error(f"Exception trying to send {e}")
                     self.Logger.debug(f"Failed Msg: {str(tx_message)}")
+        self.bus.shutdown()
                 

@@ -50,11 +50,11 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
                        'name': self.name
                        }
 
-        self._changed = True  # property change tracking
+        self._changed = False
 
-        # class specific values that change
-        self._dc_voltage = 5  # should never be this low
-        self._dc_current = 50  # should not be this high
+        # class specific values that change; None until first valid reading received
+        self._dc_voltage = None
+        self._dc_current = None
 
         if 'status_topic' in data:
             topic_base = str(data['status_topic'])
@@ -104,8 +104,10 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
 
         if self._is_entry_match(self.rvc_match_status, new_message):
             self.Logger.debug(f"Msg Match Status: {str(new_message)}")
-            self.dc_voltage = new_message["dc_voltage"]
-            self.dc_current = new_message["dc_current"]
+            if new_message["dc_voltage"] != "n/a":
+                self.dc_voltage = new_message["dc_voltage"]
+            if new_message["dc_current"] != "n/a":
+                self.dc_current = new_message["dc_current"]
             self._update_mqtt_topics_with_changed_values()
             return True
         return False
@@ -114,12 +116,12 @@ class DcSystemSensor_DC_SOURCE_STATUS_1(EntityPluginBaseClass):
         ''' entry data has potentially changed.  Update mqtt'''
 
         if self._changed:
-            self.mqtt_support.client.publish(
-                self.status_dc_voltage_topic, self.dc_voltage, retain=True)
-
-            self.mqtt_support.client.publish(
-                self.status_dc_current_topic, self.dc_current, retain=True)
-
+            if self._dc_voltage is not None:
+                self.mqtt_support.client.publish(
+                    self.status_dc_voltage_topic, self.dc_voltage, retain=True)
+            if self._dc_current is not None:
+                self.mqtt_support.client.publish(
+                    self.status_dc_current_topic, self.dc_current, retain=True)
             self._changed = False
         return False
 
