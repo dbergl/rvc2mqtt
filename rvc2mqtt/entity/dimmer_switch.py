@@ -133,6 +133,16 @@ class DimmerSwitch_DC_DIMMER_STATUS_3(EntityPluginBaseClass):
                     self.status_topic, self.messagestate, retain=True)
                 self.state = self.messagestate
 
+            # The controller only sends DC_COMPONENT_DRIVER_STATUS_1 while a
+            # channel is on, and on some channels (the tank heaters) it stops
+            # without a final 0 A frame - the last on-current would stick.  An
+            # off output draws nothing, so zero it here.  None counts too: it
+            # clears a stale retained value from before a restart.
+            if self.messagestate == self.LIGHT_OFF and self.current != 0.0:
+                self.mqtt_support.client.publish(
+                    self.current_status_topic, 0.0, retain=True)
+                self.current = 0.0
+
             if self.dimmable:
                 raw_brightness = new_message["operating_status_brightness"]
                 if raw_brightness == "n/a":
