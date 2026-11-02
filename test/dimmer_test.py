@@ -231,6 +231,44 @@ class Test_Dimmer_ComponentDriverStatus(unittest.TestCase):
                     if c[0][0] == 'rvc/state/dimmer/current']
         self.assertEqual(currents, [12.5, 13.0])
 
+    def _make_status_msg(self, brightness):
+        return {'name': 'DC_DIMMER_STATUS_3', 'instance': 1,
+                'operating_status_brightness': brightness}
+
+    def _currents(self, d):
+        return [c[0][1] for c in d.mqtt_support.client.publish.call_args_list
+                if c[0][0] == 'rvc/state/dimmer/current']
+
+    def test_off_status_zeroes_current(self):
+        """The controller stops sending DRIVER_STATUS_1 when a channel turns off,
+        often without a final 0 A frame (seen on the tank heaters), so an off
+        status must zero the published current itself."""
+        d = self._make_dimmer()
+        d.process_rvc_msg(self._make_status_msg(100.0))
+        d.process_rvc_msg(self._make_driver_1_msg(current=2.15))
+        d.process_rvc_msg(self._make_status_msg(0.0))
+        self.assertEqual(self._currents(d), [2.15, 0.0])
+
+    def test_off_status_zeroes_current_only_once(self):
+        d = self._make_dimmer()
+        d.process_rvc_msg(self._make_driver_1_msg(current=2.15))
+        for _ in range(3):
+            d.process_rvc_msg(self._make_status_msg(0.0))
+        self.assertEqual(self._currents(d), [2.15, 0.0])
+
+    def test_off_status_at_startup_clears_stale_retained_current(self):
+        """No reading yet this run - a retained non-zero value from before a
+        restart would otherwise never be cleared."""
+        d = self._make_dimmer()
+        d.process_rvc_msg(self._make_status_msg(0.0))
+        self.assertEqual(self._currents(d), [0.0])
+
+    def test_on_status_leaves_current_alone(self):
+        d = self._make_dimmer()
+        d.process_rvc_msg(self._make_driver_1_msg(current=2.15))
+        d.process_rvc_msg(self._make_status_msg(100.0))
+        self.assertEqual(self._currents(d), [2.15])
+
     def test_unavailable_values_not_published_but_consumed(self):
         """0xFFFF current decodes to 'n/a'; the _4 counters arrive raw."""
         d = self._make_dimmer()

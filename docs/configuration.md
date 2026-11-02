@@ -92,7 +92,7 @@ Reads raw sensor counts broadcast by the Firefly G12 controller (`G12_TANK_LEVEL
 | `100_custom_threshold` | no* | Raw sensor count at which the tank is considered 100% full |
 
 \* All three thresholds must be provided together.  When set, the entity publishes a
-`custlvl` percentage topic (`0`, `1`, `33`, `66`, or `100`) in addition to the raw
+`custlvl` percentage topic (`0`, `33`, `66`, or `100`) in addition to the raw
 sensor value.  It also publishes the threshold values themselves as retained topics and
 exposes them as editable `number` entities in Home Assistant.
 
