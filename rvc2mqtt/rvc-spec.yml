@@ -5187,7 +5187,7 @@ API_VERSION: 0
     - byte: 2-3
       name: source temperature
       type: uint16
-      unit: C
+      unit: deg c
     - byte: 4
       name: state of charge
       type: uint8

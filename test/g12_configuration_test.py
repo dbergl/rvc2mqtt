@@ -1689,5 +1689,221 @@ class Test_G12_Pump_And_BMS(unittest.TestCase):
         self.assertEqual(cmps['battery_heater_contactor']['p'], 'binary_sensor')
 
 
+class Test_G12_Battery_Status_2(unittest.TestCase):
+    """0FF70 minimum cell temperature -> MQTT sensor + BATTERY_STATUS_2 (1FE94) on CAN."""
+
+    def setUp(self):
+        self.now = 1000.0
+
+    def _make(self, bms_source_id='70', **extra):
+        mock = MagicMock()
+        mock.make_ha_auto_discovery_config_topic.return_value = 'ha/config/topic'
+        mock.get_bridge_ha_name.return_value = 'rvc2mqtt_bridge'
+        mock.bridge_state_topic = 'rvc2mqtt/bridge/state'
+        mock.TOPIC_BASE = 'rvc2mqtt'
+        mock.client_id = 'bridge'
+        mock.make_device_topic_string.return_value = 'topic_string'
+        data = {'instance': 1, 'instance_name': 'test g12', 'source_id': '9C',
+                'status_topic': 'g12/status', 'command_topic': 'g12/set'}
+        if bms_source_id is not None:
+            data['bms_source_id'] = bms_source_id
+        data.update(extra)
+        g = G12_Configuration(data, mock)
+        g._clock = lambda: self.now
+        g.set_rvc_send_queue(queue.Queue())
+        return g
+
+    @staticmethod
+    def _frame(temp_raw, tag=0x70):
+        return bytes([tag, 0x08, 0x08, 0, 0, 0]).hex().upper() + \
+            struct.pack('<h', temp_raw).hex().upper()
+
+    def _bms(self, g, data):
+        return g.process_rvc_msg({'name': 'RENOGY_BMS_HEATER_STATUS',
+                                  'source_id': '70', 'data': data})
+
+    def _drain(self, g):
+        out = []
+        while not g.send_queue.empty():
+            out.append(g.send_queue.get_nowait())
+        return out
+
+    def _temp_publishes(self, g):
+        return [c for c in g.mqtt_support.client.publish.call_args_list
+                if c[0][0] == 'g12/status/bms/min_cell_temperature']
+
+    def _avail_publishes(self, g):
+        return [c[0][1] for c in g.mqtt_support.client.publish.call_args_list
+                if c[0][0] == 'g12/status/bms/min_cell_temperature/availability']
+
+    # --- decode ---
+
+    def test_positive_temperature(self):
+        g = self._make()
+        self.assertTrue(self._bms(g, self._frame(0x0032)))
+        self.assertEqual(g._bms_min_cell_temp, 5.0)
+        g.mqtt_support.client.publish.assert_any_call(
+            'g12/status/bms/min_cell_temperature', 5.0, retain=True)
+
+    def test_negative_temperature_is_sign_extended(self):
+        g = self._make()
+        self._bms(g, '7008080000' + '00CEFF')          # 0xFFCE = -50 -> -5.0
+        self.assertEqual(g._bms_min_cell_temp, -5.0)
+
+    def test_bad_tag_ignored(self):
+        g = self._make()
+        self.assertTrue(self._bms(g, self._frame(0x0032, tag=0x00)))
+        self.assertIsNone(g._bms_min_cell_temp)
+        g.tick(self.now)
+        self.assertEqual(self._drain(g), [])
+
+    def test_short_frame_keeps_bits_but_no_temperature(self):
+        g = self._make()
+        self.assertTrue(self._bms(g, '700808'))
+        self.assertIsNone(g._bms_min_cell_temp)
+
+    def test_sentinels_and_out_of_range_rejected(self):
+        g = self._make()
+        for raw in (0x7FFF, -0x8000, 900, -410):        # 90.0 and -41.0 degC
+            self._bms(g, self._frame(raw))
+        self.assertIsNone(g._bms_min_cell_temp)
+        self.assertEqual(self._temp_publishes(g), [])
+
+    def test_no_publish_when_unchanged(self):
+        g = self._make()
+        self._bms(g, self._frame(0x0032))
+        self._bms(g, self._frame(0x0032))
+        self.assertEqual(len(self._temp_publishes(g)), 1)
+
+    def test_not_claimed_without_bms_source_id(self):
+        g = self._make(bms_source_id=None)
+        self.assertFalse(self._bms(g, self._frame(0x0032)))
+        self.assertFalse(hasattr(g, 'bms_min_cell_temp_topic'))
+        g.tick(self.now)
+        self.assertEqual(self._drain(g), [])
+
+    # --- encode / transmit ---
+
+    def test_nothing_sent_before_first_valid_frame(self):
+        g = self._make()
+        for dt in (0, 5, 10, 60):
+            g.tick(self.now + dt)
+        self.assertEqual(self._drain(g), [])
+
+    def test_frame_bytes_and_arbitration_id(self):
+        from rvc2mqtt.rvc import RVC_Decoder
+        g = self._make()
+        self._bms(g, self._frame(0x0032))
+        g.tick(self.now)
+        (item,) = self._drain(g)
+        self.assertEqual(item['dgn'], '1FE94')
+        # instance 1, DC instance 1, 5.0 degC = 278/0.03125 = 8896 = 0x22C0, rest n/a
+        self.assertEqual(bytes(item['data']), bytes.fromhex('0101C022FFFFFFFF'))
+        self.assertEqual(RVC_Decoder()._rvc_to_can_frame(item), 0x19FE9482)
+
+    def test_round_trips_through_decoder(self):
+        from rvc2mqtt.rvc import RVC_Decoder
+        g = self._make()
+        self._bms(g, self._frame(-123))                # -12.3 degC
+        g.tick(self.now)
+        (item,) = self._drain(g)
+        import os
+        dec = RVC_Decoder()
+        dec.load_rvc_spec(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                       '..', 'rvc2mqtt', 'rvc-spec.yml'))
+        decoded = dec.rvc_decode(dec._rvc_to_can_frame(item), bytes(item['data']).hex().upper())
+        self.assertEqual(decoded['name'], 'BATTERY_STATUS_2')
+        self.assertEqual(decoded['instance'], 1)
+        self.assertAlmostEqual(decoded['source_temperature'], -12.3, delta=0.02)
+
+    def test_source_id_override(self):
+        from rvc2mqtt.rvc import RVC_Decoder
+        g = self._make(battery_status_source_id='8a')
+        self._bms(g, self._frame(0x0032))
+        g.tick(self.now)
+        (item,) = self._drain(g)
+        self.assertEqual(item['source_id'], '8A')
+        self.assertEqual(RVC_Decoder()._rvc_to_can_frame(item) & 0xFF, 0x8A)
+
+    def test_five_second_cadence(self):
+        g = self._make()
+        self._bms(g, self._frame(0x0032))
+        sent = 0
+        t0 = self.now
+        for ms in range(0, 9001, 250):                  # BMS refresh every 2 s meanwhile
+            t = t0 + ms / 1000
+            if ms % 2000 == 0:
+                self.now = t
+                self._bms(g, self._frame(0x0032))
+            g.tick(t)
+            sent += len(self._drain(g))
+        self.assertEqual(sent, 2)                       # t=0 and t=5
+
+    # --- staleness ---
+
+    def test_stale_after_10s_sends_ffff_and_goes_offline(self):
+        g = self._make()
+        self._bms(g, self._frame(0x0032))
+        self.assertEqual(self._avail_publishes(g), ['online'])
+        t0 = self.now
+        g.tick(t0)
+        g.tick(t0 + 5)
+        g.tick(t0 + 10)                                 # exactly 10 s: still fresh
+        frames = [bytes(i['data']) for i in self._drain(g)]
+        self.assertTrue(all(f[2:4] == bytes.fromhex('C022') for f in frames))
+        self.assertEqual(self._avail_publishes(g), ['online'])
+        g.tick(t0 + 10.5)                               # stale: availability flips now
+        self.assertEqual(self._avail_publishes(g), ['online', 'offline'])
+        g.tick(t0 + 15)
+        (item,) = self._drain(g)
+        self.assertEqual(bytes(item['data']), bytes.fromhex('0101FFFFFFFFFFFF'))
+
+    def test_recovers_after_stale(self):
+        g = self._make()
+        self._bms(g, self._frame(0x0032))
+        g.tick(self.now)
+        g.tick(self.now + 11)
+        self._drain(g)
+        self.now += 12
+        self._bms(g, self._frame(0x0064))               # 10.0 degC
+        self.assertEqual(self._avail_publishes(g), ['online', 'offline', 'online'])
+        g.tick(self.now + 4)                            # next slot was t0+16
+        (item,) = self._drain(g)
+        self.assertEqual(bytes(item['data'])[2:4],
+                         struct.pack('<H', round(283 / 0.03125)))
+
+    def test_initialize_clears_retained_availability(self):
+        g = self._make()
+        g.initialize()
+        self.assertEqual(self._avail_publishes(g), ['offline'])
+
+    # --- discovery ---
+
+    def test_discovery_sensor(self):
+        import json as _json
+        g = self._make()
+        g.publish_ha_discovery_config()
+        cmps = next(_json.loads(c[0][1])['cmps']
+                    for c in g.mqtt_support.client.publish.call_args_list
+                    if c[0][0] == 'ha/config/topic')
+        s = cmps['bms_min_cell_temperature']
+        self.assertEqual((s['p'], s['device_class'], s['unit_of_measurement']),
+                         ('sensor', 'temperature', '°C'))
+        self.assertEqual(s['state_topic'], 'g12/status/bms/min_cell_temperature')
+        self.assertEqual(s['availability_mode'], 'all')
+        self.assertEqual([a['topic'] for a in s['availability']],
+                         ['rvc2mqtt/bridge/state',
+                          'g12/status/bms/min_cell_temperature/availability'])
+
+    def test_discovery_sensor_absent_without_bms(self):
+        import json as _json
+        g = self._make(bms_source_id=None)
+        g.publish_ha_discovery_config()
+        cmps = next(_json.loads(c[0][1])['cmps']
+                    for c in g.mqtt_support.client.publish.call_args_list
+                    if c[0][0] == 'ha/config/topic')
+        self.assertNotIn('bms_min_cell_temperature', cmps)
+
+
 if __name__ == '__main__':
     unittest.main()
