@@ -19,6 +19,7 @@ limitations under the License.
 """
 
 import json
+import time
 import logging
 import struct
 from rvc2mqtt.mqtt import MQTT_Support
@@ -87,6 +88,18 @@ BMS_ALARM_MASK_MAGIC = 0x4D53
 BMS_HEATER_LEASE = 36000       # 60 min -- the panel's "Battery Heater" hold
 BMS_ALARM_MASK_LEASE = 6000    # 10 min -- the panel's "Ignore Alarms" hold
 
+# BATTERY_STATUS_2 (1FE94) re-broadcast of the patched BMS's minimum cell temperature
+# (0FF70 bytes 6-7, int16 LE, 0.1 degC), so RV-C displays can see it. Only sent once a
+# valid 0FF70 has arrived -- a stock BMS never sends one, so nothing changes there.
+BATTERY_STATUS_2_DGN = "1FE94"
+BATTERY_STATUS_2_INSTANCE = 1          # the battery instance the APS-500 publishes
+BATTERY_STATUS_2_DC_INSTANCE = 1       # byte 1; the APS-500's DC_SOURCE instance (unconfirmed)
+BATTERY_STATUS_2_DEFAULT_SOURCE_ID = "82"   # the bridge's own TX address on CAN1
+BATTERY_STATUS_2_PERIOD = 5.0          # s; RV-C slow-status cadence
+BMS_TEMPERATURE_STALE_AFTER = 10.0     # s; 5 missed ~2 s heartbeats
+BMS_TEMPERATURE_SANE_RANGE = (-40.0, 85.0)  # degC
+BMS_TEMPERATURE_INVALID_RAW = (0x7FFF, -0x8000)
+
 # Sanity envelopes for the two fields that have been observed carrying garbage
 # (65531, 0, and a raw value implying 7200 s while the entity was still in the
 # AES range) during an AGS/AES mode switch on 2026-09-01. These are the union of
@@ -154,12 +167,19 @@ class G12_Configuration(EntityPluginBaseClass):
         status_topic: "rvc/g12/config"
         engine_relay_instance: 18   # optional; 18 on Ethos/Launch/Terrain
         bms_source_id: '70'         # optional; patched Renogy BMS heater/alarm mask
+        battery_status_source_id: '82'  # optional; TX address for BATTERY_STATUS_2
 
     Optionally exposes the custom panel's two BMS buttons, Battery Heater and Ignore
     Alarms, which are not G12 messages at all: they are 0EF70 commands to the patched
     Renogy BMS, which answers on 0FF70 (RENOGY_BMS_HEATER_STATUS). Opt-in via
     `bms_source_id`, because a stock BMS neither sends that status nor honours the
     commands.
+
+    With `bms_source_id` set, the 0FF70 minimum cell temperature is also published to
+    MQTT and re-broadcast on CAN as a standard BATTERY_STATUS_2 (1FE94, instance 1)
+    every 5 s, from `battery_status_source_id` (default 0x82, the bridge's address).
+    Nothing is sent before the first valid 0FF70. After 10 s without one the frame
+    carries 0xFFFF ("not available") and the MQTT sensor goes unavailable.
     """
 
     def __init__(self, data: dict, mqtt_support: MQTT_Support):
@@ -211,6 +231,15 @@ class G12_Configuration(EntityPluginBaseClass):
         if self._bms_configured():
             self.rvc_match_bms_status = {
                 "name": "RENOGY_BMS_HEATER_STATUS", "source_id": self.bms_source_id}
+        self.battery_status_source_id = str(
+            data.get('battery_status_source_id', BATTERY_STATUS_2_DEFAULT_SOURCE_ID)).upper()
+
+        # 0FF70 minimum cell temperature -> BATTERY_STATUS_2. None = never seen.
+        self._clock = time.monotonic          # same clock app.py passes to tick()
+        self._bms_min_cell_temp = None        # degC, last valid reading
+        self._bms_min_cell_temp_at = None     # monotonic time of that reading
+        self._bms_temp_available = None       # last published availability
+        self._bs2_next_tx = None              # monotonic time of next 1FE94
 
         # DM_RV
         self._fault_code = "unknown"
@@ -314,6 +343,9 @@ class G12_Configuration(EntityPluginBaseClass):
                 self.battery_heater_topic    = str(f"{topic_base}/bms/battery_heater")
                 self.battery_heater_output_topic = str(f"{topic_base}/bms/battery_heater_contactor")
                 self.ignore_alarms_topic     = str(f"{topic_base}/bms/ignore_alarms")
+                self.bms_min_cell_temp_topic = str(f"{topic_base}/bms/min_cell_temperature")
+                self.bms_min_cell_temp_availability_topic = str(
+                    f"{topic_base}/bms/min_cell_temperature/availability")
             if self._engine_relay_configured():
                 self.engine_running_topic    = str(f"{topic_base}/engine/running")
 
@@ -403,6 +435,67 @@ class G12_Configuration(EntityPluginBaseClass):
         """
         return {"dgn": f"0EF{int(self.bms_source_id, 16):02X}", "priority": "6",
                 "data": bytearray(struct.pack(">HIH", magic, 0, lease))}
+
+    def _update_bms_min_cell_temp(self, raw: int):
+        """Take a signed 0FF70 bytes 6-7 reading (0.1 degC/bit); drop sentinels and
+        out-of-range values, so they neither publish nor refresh the staleness clock."""
+        if raw in BMS_TEMPERATURE_INVALID_RAW:
+            return
+        temp = round(raw / 10.0, 1)
+        lo, hi = BMS_TEMPERATURE_SANE_RANGE
+        if not lo <= temp <= hi:
+            self.Logger.warning(f"RENOGY_BMS_HEATER_STATUS: implausible min cell temperature {temp}")
+            return
+        now = self._clock()
+        self._bms_min_cell_temp_at = now
+        if self._bs2_next_tx is None:
+            self._bs2_next_tx = now        # first valid reading: send on the next tick
+        self._set_bms_temp_available(True)
+        if temp != self._bms_min_cell_temp:
+            self._bms_min_cell_temp = temp
+            if hasattr(self, 'bms_min_cell_temp_topic'):
+                self.mqtt_support.client.publish(self.bms_min_cell_temp_topic, temp, retain=True)
+
+    def _set_bms_temp_available(self, available: bool):
+        if available == self._bms_temp_available:
+            return
+        self._bms_temp_available = available
+        if hasattr(self, 'bms_min_cell_temp_availability_topic'):
+            self.mqtt_support.client.publish(self.bms_min_cell_temp_availability_topic,
+                                             "online" if available else "offline", retain=True)
+
+    def _bms_temp_is_fresh(self, now: float) -> bool:
+        return (self._bms_min_cell_temp_at is not None
+                and now - self._bms_min_cell_temp_at <= BMS_TEMPERATURE_STALE_AFTER)
+
+    def _battery_status_2_frame(self, temp) -> bytearray:
+        """BATTERY_STATUS_2 (1FE94): instance, DC instance, source temperature (uint16 LE,
+        0.03125 degC/bit, -273 offset), then SOC / time remaining / interpretation all
+        "not available". temp None -> 0xFFFF."""
+        if temp is None:
+            raw_temp = 0xFFFF
+        else:
+            raw_temp = round((temp + 273) / 0.03125)
+        return bytearray(struct.pack('<BBHBHB', BATTERY_STATUS_2_INSTANCE,
+                                     BATTERY_STATUS_2_DC_INSTANCE, raw_temp,
+                                     0xFF, 0xFFFF, 0xFF))
+
+    def tick(self, now: float):
+        """Send BATTERY_STATUS_2 every 5 s once a valid 0FF70 has been seen."""
+        if self._bs2_next_tx is None:
+            return
+        fresh = self._bms_temp_is_fresh(now)
+        if not fresh and self._bms_temp_available:
+            self._set_bms_temp_available(False)
+        if now < self._bs2_next_tx:
+            return
+        self._bs2_next_tx = now + BATTERY_STATUS_2_PERIOD
+        if getattr(self, 'send_queue', None) is None:
+            return
+        self.send_queue.put({
+            "dgn": BATTERY_STATUS_2_DGN, "priority": "6",
+            "source_id": self.battery_status_source_id,
+            "data": self._battery_status_2_frame(self._bms_min_cell_temp if fresh else None)})
 
     def _publish_change(self, attr: str, topic_attr: str, val):
         """Store val in self.<attr> and publish it to self.<topic_attr> if it changed."""
@@ -591,6 +684,8 @@ class G12_Configuration(EntityPluginBaseClass):
                                  "on" if raw[1] & 0x04 else "off")
             self._publish_change('_ignore_alarms', 'ignore_alarms_topic',
                                  "on" if raw[2] & 0x02 else "off")
+            if len(raw) >= 8:
+                self._update_bms_min_cell_temp(struct.unpack_from('<h', raw, 6)[0])
             return True
 
         if self._is_entry_match(self.rvc_match_g12_indicator, new_message):
@@ -1576,6 +1671,17 @@ class G12_Configuration(EntityPluginBaseClass):
                 'device_class': 'heat',
                 'payload_on': 'on', 'payload_off': 'off',
                 'unique_id': self.unique_device_id + '_battery_heater_contactor'}
+            # Unavailable when the bridge is down OR the 0FF70 heartbeat has gone stale.
+            cmps['bms_min_cell_temperature'] = {
+                'p': 'sensor', 'name': 'BMS Min Cell Temperature',
+                'state_topic': self.bms_min_cell_temp_topic,
+                'unit_of_measurement': '°C', 'device_class': 'temperature',
+                'state_class': 'measurement',
+                'availability': [
+                    {'topic': self.mqtt_support.bridge_state_topic},
+                    {'topic': self.bms_min_cell_temp_availability_topic}],
+                'availability_mode': 'all',
+                'unique_id': self.unique_device_id + '_bms_min_cell_temperature'}
 
         # --- newly discovered on/off settings (switch when writable) ---
         onoff_specs = [
@@ -1689,3 +1795,6 @@ class G12_Configuration(EntityPluginBaseClass):
 
     def initialize(self):
         self.publish_ha_discovery_config()
+        # Clear a retained "online" left by a previous run until a fresh 0FF70 arrives.
+        if not self._bms_temp_is_fresh(self._clock()):
+            self._set_bms_temp_available(False)
