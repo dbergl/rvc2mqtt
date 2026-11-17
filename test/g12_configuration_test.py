@@ -1010,6 +1010,16 @@ class Test_G12_Configuration(unittest.TestCase):
     # previous tests encoded (byte 1 as a global 12V flag, 0xFB as an idle code, a
     # heartbeat needing suppression).  Frame bytes below are taken from that capture.
 
+    def test_shore_breaker_selector_passes_through(self):
+        """0x90 belongs to virtual_inverter; claiming it would starve that entity."""
+        g12 = self._make_g12()
+        msg = {'name': 'G12_CONFIGURATION', 'source_id': '9C', 'message_type': '90',
+               'data': '90000F0000000000'}
+        self.assertFalse(g12.process_rvc_msg(msg))
+        other = {'name': 'G12_CONFIGURATION', 'source_id': '9C', 'message_type': '95',
+                 'data': '9500000000000000'}
+        self.assertTrue(g12.process_rvc_msg(other))
+
     def _make_input_status(self, instance, input_state=0, source_id='9C'):
         return {
             'name': 'G12_INPUT_STATUS',

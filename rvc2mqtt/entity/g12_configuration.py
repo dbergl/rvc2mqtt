@@ -521,6 +521,10 @@ class G12_Configuration(EntityPluginBaseClass):
             return struct.pack("<BBBBBBBB", instance, 0xFF, 0xC8, 0x01, 0xFF, 0x00, 0xFF, 0xFF)
         return struct.pack("<BBBBBBBB", instance, 0xFF, 0x00, 0x03, 0xFF, 0x00, 0xFF, 0xFF)
 
+    # 15FCE selectors consumed by another entity.
+    #   90 - shore breaker size: virtual_inverter (shore_breaker_g12_sync)
+    _PASS_THROUGH_SELECTORS = frozenset({"90"})
+
     def process_rvc_msg(self, new_message: dict) -> bool:
         """ Process an incoming RVC message and determine if it is of interest.
 
@@ -801,6 +805,11 @@ class G12_Configuration(EntityPluginBaseClass):
 
         self.Logger.debug(f"G12_CONFIGURATION match: {str(new_message)}")
         msg_type = new_message.get("message_type", "")
+
+        if msg_type in self._PASS_THROUGH_SELECTORS:
+            # Not ours: dispatch is first-match-wins, so claiming it would
+            # starve the entity that consumes it.
+            return False
 
         if msg_type in ("1", "3", "5", "9B"):
             # AES-related messages. Unlike the 1FED9 command form, every 15FCE payload

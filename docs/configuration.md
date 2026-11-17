@@ -360,6 +360,13 @@ overrides:
 | `interval` | no | Seconds between RV-C status transmissions. Default `1.0` |
 | `stale_timeout` | no | **Disabled by default.** Liveness comes from `<base>/connected`, which modbus2mqtt sets `offline` on poll failures and via its MQTT last-will — message recency is not liveness, because modbus2mqtt publishes on change only. Set a number of seconds here only when the source has no `connected`/LWT topic; transmission then also stops when no `status`/`enabled` update arrives within that window |
 | `source_id` | no | Hex source address used for transmitted frames. Default `42`, the inverter address the Lyra panel expects; the bridge's other frames stay on `82`. The virtual inverter does not perform RV-C address claiming, so nothing on the bus will contest a duplicate — confirm `42` (or whatever you set) is unclaimed on your coach before deploying, e.g. `candump can0 \| grep -iE '[0-9a-f]{6}42\b'` (arbitration IDs ending in the source address byte) |
+| `charger_config_2_instance` | no | Instance byte of the transmitted `CHARGER_CONFIGURATION_STATUS_2`. Default: the entity's `instance`. See [shore breaker size](#shore-breaker-size-and-charge-rate) |
+| `shore_breaker_set_topic` | no | Topic the AC input limit is written to, relative to `source_topic_base`. Default `set/max_ac_input_current` |
+| `shore_breaker_min` / `shore_breaker_max` | no | Clamp, in amps, applied to a commanded shore breaker size. Default `5` / `30` |
+| `shore_breaker_g12_sync` | no | Keep a Firefly G12's copy of the shore breaker size (config selector 0x90) equal to the inverter's. Default `false` |
+| `g12_source_id` | no | Hex source address of the G12, for `shore_breaker_g12_sync`. Default `9C` |
+| `shore_breaker_settle` | no | Seconds to wait after a panel press or a change of the inverter's value before pushing it to the G12. Default `2.0` |
+| `charger_rated_current` | with `charge_current_limit` | The charger's maximum DC output in amps; the charge rate is reported as a percentage of it. Startup fails if `charge_current_limit` is mapped without it |
 | `fields` | no | Map of RV-C field → MQTT topic. A value is either a topic string (scale 1.0) or `{topic: …, scale: …}`. Relative topics are joined to `source_topic_base`. Set a field to `~` to unmap it. Unmapped fields are sent as RV-C "not available" |
 
 Fields, with defaults:
@@ -379,6 +386,8 @@ Fields, with defaults:
 | `dc_current` | unmapped | `1.0` | `INVERTER_DC_STATUS` |
 | `battery_type` | `state/battery_type` | — | `CHARGER_CONFIGURATION_STATUS.battery type` (SRNE code, see below) |
 | `battery_capacity` | `state/BattCapacity` | `0.1` | `CHARGER_CONFIGURATION_STATUS.battery bank size` (Ah) |
+| `shore_breaker_size` | unmapped | `1.0` | `CHARGER_CONFIGURATION_STATUS_2.shore breaker size` (A); enables `CHARGER_CONFIGURATION_COMMAND_2` |
+| `charge_current_limit` | unmapped | `1.0` | `CHARGER_CONFIGURATION_STATUS_2.maximum charge current as percent` |
 
 `scale` multiplies the raw MQTT payload (modbus2mqtt publishes raw register
 values; the `/10` in the CSV templates only affects Home Assistant display).
@@ -422,7 +431,69 @@ installation line is 1, matching the AC status frames.
 Mirrored topics under `status_topic`: `status`, `status_definition`, `onoff`,
 `fault`, `line1/input/{rms_voltage,rms_current,frequency}`, `line1/output/{rms_voltage,rms_current,frequency}`,
 `dc_voltage`, `dc_amperage`, `battery_type` (RV-C chemistry name or `Unknown`),
-`battery_capacity` (Ah) — only for fields that are mapped.
+`battery_capacity` (Ah), `shore_breaker_size` (A), `charge_current_limit` (A) —
+only for fields that are mapped.
+
+#### Shore breaker size and charge rate
+
+Off unless the fields are mapped.  With them, the coach panel's Shore Brkr
+Size button sets the inverter's AC input current limit and the panel shows the
+value the inverter actually holds.
+
+```yaml
+  - name: VIRTUAL_INVERTER
+    type: virtual_inverter
+    instance: 1
+    charger_config_2_instance: 3
+    charger_rated_current: 40
+    shore_breaker_g12_sync: true
+    fields:
+      shore_breaker_size: {topic: state/max_ac_input_current, scale: 0.1}
+      charge_current_limit: {topic: state/current, scale: 0.1}
+```
+
+* **Status.** `CHARGER_CONFIGURATION_STATUS_2` (1FF96) is added to the frames
+  sent every `interval`: byte 3 is the shore breaker size in whole amps, byte 1
+  the charge current limit as a percentage of `charger_rated_current` (0.5 %
+  per bit, capped at 100 %).  A value that is unmapped or not yet received is
+  sent "not available"; no frame is sent until one of them is known.
+* **Command.** `CHARGER_CONFIGURATION_COMMAND_2` (1FF95) at the entity's
+  `instance`: byte 3 is clamped to `shore_breaker_min`..`shore_breaker_max` and
+  written to `shore_breaker_set_topic` as the raw register value (25 A →
+  `250` at scale 0.1).  `0xFF` means no change.  No other byte is ever acted
+  on — the G12 relays a charge-rate soft-start ramp in byte 1.
+* **The inverter is the authority.** A command equal to the inverter's current
+  (clamped) value is not written, and nothing is written while the inverter's
+  value is unknown or the Modbus source is offline — a panel press in that
+  state is dropped.
+* **G12 sync** (`shore_breaker_g12_sync`).  The panel's +/− step the G12's own
+  copy of the value (config selector 0x90), so that copy has to follow the
+  inverter.  Once the inverter's value has been stable for
+  `shore_breaker_settle` seconds, rvc2mqtt asks the G12 what it holds (a
+  `1FED9` read-back request, answered with a `15FCE` report) and writes the
+  clamped inverter value (a `1FED9` absolute set plus read-back) only when the
+  two differ — at startup, and whenever the inverter's value changes from Home
+  Assistant or on the inverter itself.  The G12's report within 1 s confirms
+  each exchange.  A report rvc2mqtt did not ask for (the panel reads the
+  value back on every press) restarts the settle time, so a press in progress
+  is never overwritten.  The G12 also relays a change as 1FF95; a relay carrying a
+  different value inside that second is not written to the inverter, so a
+  real panel press landing in that window is dropped.  Three exchanges in a
+  row that are unanswered or answered with the wrong value turn the sync off,
+  with an error in the log, until rvc2mqtt restarts or the floorplan is
+  reloaded.  `g12_source_id` (default `9C`) is the address the report must
+  come from.  The `g12_configuration` entity leaves the selector 0x90 report
+  unclaimed so that it reaches this entity.
+
+Notes for a Firefly coach:
+
+* Set `charger_config_2_instance` to something other than 1 or 2.  The G12
+  copies byte 1 of a 1FF96 at instances 1 and 2 into one of its own cells, and
+  what that cell does is not known.  The panel reads 1FF96 at any instance.
+* The absolute write to selector 0x90 was verified on a coach on 2026-11-17
+  (set to 15 from 30; relayed and read back as 15).
+* Without `shore_breaker_g12_sync`, the panel's first press steps from the
+  G12's own value (factory 30 A), not from the inverter's.
 
 ### Example
 

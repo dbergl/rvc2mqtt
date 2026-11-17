@@ -10,7 +10,14 @@ INVERTER_COMMAND by writing modbus2mqtt's set/onoff topic,
 and mirrors state to the same rvc/state/inverter topics the real inverter
 entity uses.
 
+Optionally (fields shore_breaker_size / charge_current_limit) it also
+transmits CHARGER_CONFIGURATION_STATUS_2 with the inverter's AC input limit
+and charge rate, answers CHARGER_CONFIGURATION_COMMAND_2 byte 3 by writing
+the AC input limit, and keeps a Firefly G12's copy of that limit (config
+selector 0x90) in step with the inverter.
+
 Design: docs/superpowers/specs/2026-08-23-virtual-inverter-design.md
+        docs/superpowers/specs/2026-11-17-virtual-inverter-shore-breaker-design.md
 
 Copyright 2022 Sean Brogan
 SPDX-License-Identifier: Apache-2.0
@@ -55,6 +62,8 @@ FIELD_DEFAULTS = {
     "dc_current":       None,
     "battery_type":     {"topic": "state/battery_type", "scale": 1.0},
     "battery_capacity": {"topic": "state/BattCapacity", "scale": 1.0},
+    "shore_breaker_size":   None,   # AC input current limit, amps
+    "charge_current_limit": None,   # DC charge current limit, amps
 }
 BOOL_FIELDS = ("enabled", "fault")
 INT_FIELDS = ("status", "battery_type")   # enumerated codes, no scaling
@@ -106,6 +115,25 @@ DM_RV_FMI_NOT_IDENTIFIABLE = 11
 # looks for the inverter on 0x42; the bridge's own frames stay on 0x82.
 DEFAULT_INVERTER_SOURCE_ID = "42"
 
+# Shore breaker size.  The Firefly G12 keeps its own copy in config selector
+# 0x90 and relays changes as CHARGER_CONFIGURATION_COMMAND_2 byte 3; the panel
+# steps that copy by +/-5 A, so it has to follow the inverter.
+DEFAULT_SHORE_BREAKER_SET_TOPIC = "set/max_ac_input_current"
+DEFAULT_SHORE_BREAKER_MIN = 5
+DEFAULT_SHORE_BREAKER_MAX = 30
+DEFAULT_SHORE_BREAKER_SETTLE = 2.0
+G12_SHORE_BREAKER_SELECTOR = 0x90
+DEFAULT_G12_SOURCE_ID = "9C"
+# The G12 answers a read-back request with a G12_CONFIGURATION (15FCE) report
+# within milliseconds, whether or not the value changed.  (It relays 1FF95
+# only when the value changes, so the relay alone cannot confirm a push.)  No
+# answer inside this window means the exchange failed.
+G12_PUSH_CONFIRM_WINDOW = 1.0
+# Consecutive failed exchanges (silence or a different value coming back)
+# before the sync is switched off.  Bounds the damage if the write is ever applied
+# as a delta instead of an absolute value.
+G12_PUSH_MAX_FAILURES = 3
+
 
 def _parse_bool(payload: str) -> bool:
     p = str(payload).strip().lower()
@@ -143,6 +171,33 @@ class VirtualInverter(EntityPluginBaseClass):
         self.source_id = str(data.get('source_id', DEFAULT_INVERTER_SOURCE_ID))
         self.field_topics = self._resolve_fields(data.get('fields') or {})
 
+        # Shore breaker size / charge rate (all inert unless the fields are mapped)
+        self.charger_config_2_instance = int(
+            data.get('charger_config_2_instance', self.rvc_instance))
+        self.shore_breaker_set_topic = self._join_topic(
+            data.get('shore_breaker_set_topic', DEFAULT_SHORE_BREAKER_SET_TOPIC))
+        self.shore_breaker_min = int(data.get('shore_breaker_min', DEFAULT_SHORE_BREAKER_MIN))
+        self.shore_breaker_max = int(data.get('shore_breaker_max', DEFAULT_SHORE_BREAKER_MAX))
+        if not 0 <= self.shore_breaker_min <= self.shore_breaker_max <= 0xFA:
+            raise ValueError(
+                f"shore_breaker_min/max must satisfy 0 <= min <= max <= 250, got "
+                f"{self.shore_breaker_min}/{self.shore_breaker_max}")
+        self.shore_breaker_g12_sync = bool(data.get('shore_breaker_g12_sync', False))
+        self.g12_source_id = str(data.get('g12_source_id', DEFAULT_G12_SOURCE_ID))
+        self.shore_breaker_settle = float(
+            data.get('shore_breaker_settle', DEFAULT_SHORE_BREAKER_SETTLE))
+        if self.shore_breaker_settle < 0:
+            raise ValueError(f"shore_breaker_settle must be >= 0, got {self.shore_breaker_settle}")
+        raw_rated = data.get('charger_rated_current', None)
+        self.charger_rated_current = None if raw_rated is None else float(raw_rated)
+        if self.charger_rated_current is not None and self.charger_rated_current <= 0:
+            raise ValueError(
+                f"charger_rated_current must be > 0, got {self.charger_rated_current}")
+        if 'charge_current_limit' in self.field_topics and self.charger_rated_current is None:
+            raise ValueError(
+                "field 'charge_current_limit' needs charger_rated_current "
+                "(the charger's maximum DC output in amps)")
+
         # Runtime state.  MQTT callbacks (paho thread) write single items into
         # self.values, self.connected, self.last_status_update, and
         # self._warned_codes; tick() (main thread) reads them one at a time.
@@ -159,6 +214,17 @@ class VirtualInverter(EntityPluginBaseClass):
         self._warned_codes = set()
         self._warned_battery_codes = set()
         self._mirror_cache = {}
+
+        # G12 shore breaker sync.  _settle_until is written from both threads
+        # (state changes on the paho thread, presses and failed pushes on the
+        # main thread); the rest is main-thread only.
+        self._g12_value = None        # what the G12's selector 0x90 last told us it holds
+        self._settle_until = 0.0      # no push to the G12 before this time
+        self._query_pending = False   # read-back sent, awaiting the G12's report
+        self._push_pending = None     # value pushed, awaiting the G12's report or relay
+        self._push_deadline = 0.0
+        self._push_failures = 0
+        self._sync_latched = False
 
         # Topics
         if 'status_topic' in data:
@@ -256,6 +322,11 @@ class VirtualInverter(EntityPluginBaseClass):
             self.last_status_update = self._clock()
         changed = self.values[field] != value
         self.values[field] = value
+        if changed and field == "shore_breaker_size":
+            # Let the value settle before it is pushed to the G12: two quick
+            # panel presses come back as two state changes, and pushing the
+            # first would undo the second on the G12.
+            self._settle_until = self._clock() + self.shore_breaker_settle
         return changed
 
     # numeric field -> (mirror sub-topic, HA device_class, unit, suggested display precision)
@@ -269,6 +340,8 @@ class VirtualInverter(EntityPluginBaseClass):
         "dc_voltage":       ("dc_voltage",               "voltage",   "V",  None),
         "dc_current":       ("dc_amperage",              "current",   "A",  None),
         "battery_capacity": ("battery_capacity",         None,        "Ah", 0),
+        "shore_breaker_size":   ("shore_breaker_size",   "current",   "A",  0),
+        "charge_current_limit": ("charge_current_limit", "current",   "A",  1),
     }
 
     # ---- MQTT mirror ----------------------------------------------------
@@ -376,9 +449,26 @@ class VirtualInverter(EntityPluginBaseClass):
                 and new_message.get("source_id", "").lower() == self.source_id.lower()):
             self.Logger.debug(f"{self.name}: ignoring our own DM_RV echo")
             return True
+        name = new_message.get("name")
+        # Our own CHARGER_CONFIGURATION_STATUS_2 echo.  Its instance may
+        # deliberately differ from ours, so it is matched by source address
+        # too and checked ahead of the instance guard.
+        if (name == "CHARGER_CONFIGURATION_STATUS_2"
+                and self._charger_config_2_enabled()
+                and new_message.get("instance") == self.charger_config_2_instance
+                and new_message.get("source_id", "").lower() == self.source_id.lower()):
+            return True
+        # The G12's report of its shore breaker selector (15FCE has no
+        # instance; matched by sender and selector, and only when we sync).
+        if (name == "G12_CONFIGURATION" and self._g12_sync_enabled()
+                and new_message.get("message_type") == f"{G12_SHORE_BREAKER_SELECTOR:X}"
+                and new_message.get("source_id", "").lower() == self.g12_source_id.lower()):
+            return self._handle_g12_report(new_message)
         if new_message.get("instance") != self.rvc_instance:
             return False
-        name = new_message.get("name")
+        if (name == "CHARGER_CONFIGURATION_COMMAND_2"
+                and 'shore_breaker_size' in self.field_topics):
+            return self._handle_charger_config_command_2(new_message)
         if name == "INVERTER_COMMAND":
             self.Logger.debug(f"{self.name}: INVERTER_COMMAND {new_message}")
             enable = new_message.get("inverter_enable")
@@ -394,6 +484,166 @@ class VirtualInverter(EntityPluginBaseClass):
                               f"source {new_message.get('source_id')}")
             return True
         return False
+
+    # ---- shore breaker size ---------------------------------------------
+
+    def _charger_config_2_enabled(self) -> bool:
+        return ('shore_breaker_size' in self.field_topics
+                or 'charge_current_limit' in self.field_topics)
+
+    def _clamp_shore_breaker(self, amps) -> int:
+        return max(self.shore_breaker_min, min(self.shore_breaker_max, int(round(amps))))
+
+    def _shore_breaker_target(self):
+        """The inverter's AC input limit as the G12 can hold it (whole amps,
+        clamped), or None while the inverter's value is unknown."""
+        amps = self.values.get('shore_breaker_size')
+        if amps is None:
+            return None
+        return self._clamp_shore_breaker(amps)
+
+    def _handle_charger_config_command_2(self, new_message: dict) -> bool:
+        """CHARGER_CONFIGURATION_COMMAND_2 at our instance.  Only byte 3
+        (shore breaker size) is ever acted on.  Byte 1 in particular must
+        not be: the G12 relays a charge-rate soft-start ramp there."""
+        try:
+            raw = bytes.fromhex(new_message.get("data", ""))[3]
+        except (ValueError, IndexError, TypeError):
+            self.Logger.warning(f"{self.name}: malformed CHARGER_CONFIGURATION_COMMAND_2 "
+                                f"{new_message.get('data')!r}")
+            return True
+        if raw == 0xFF:
+            return True   # "no change"
+        value = self._clamp_shore_breaker(raw)
+        now = self._clock()
+
+        if self._push_pending is not None and now <= self._push_deadline:
+            pushed = self._push_pending
+            self._push_pending = None
+            self._g12_value = value
+            if value == pushed:
+                self._push_failures = 0
+                self.Logger.debug(f"{self.name}: G12 confirmed shore breaker size {value} A")
+            else:
+                # Possibly the G12 misapplying our write rather than a panel
+                # press, so it is never passed on to the inverter.
+                self.Logger.warning(
+                    f"{self.name}: pushed shore breaker size {pushed} A to the G12 but it "
+                    f"reported {value} A; not writing that to the inverter")
+                self._push_failed(now)
+            return True
+
+        self._g12_value = value
+        target = self._shore_breaker_target()
+        if target is None or not self.connected:
+            # The inverter is the authority.  Once its value is known it is
+            # pushed to the G12, which corrects the panel.
+            self.Logger.info(f"{self.name}: ignoring shore breaker size {value} A from "
+                             f"source {new_message.get('source_id')}: inverter value not available")
+            return True
+        if value == target:
+            return True   # relay of our own push, G12 boot replay, or byte-1-only resend
+        payload = str(int(round(value / self.field_topics['shore_breaker_size'][1])))
+        self.Logger.info(f"{self.name}: shore breaker size {value} A from source "
+                         f"{new_message.get('source_id')}: writing "
+                         f"{self.shore_breaker_set_topic} = {payload}")
+        self.mqtt_support.client.publish(self.shore_breaker_set_topic, payload, retain=False)
+        self._settle_until = now + self.shore_breaker_settle
+        return True
+
+    def _g12_sync_enabled(self) -> bool:
+        return self.shore_breaker_g12_sync and 'shore_breaker_size' in self.field_topics
+
+    def _handle_g12_report(self, new_message: dict) -> bool:
+        """G12_CONFIGURATION report of selector 0x90: `90 00 <u16 LE> ...`.
+        The only complete view of what the G12 holds; never a panel press, so
+        it never writes the inverter."""
+        try:
+            raw = bytes.fromhex(new_message.get("data", ""))
+            value = raw[2] | (raw[3] << 8)
+        except (ValueError, IndexError, TypeError):
+            self.Logger.warning(f"{self.name}: malformed G12 shore breaker report "
+                                f"{new_message.get('data')!r}")
+            return True
+        self._g12_value = value
+        now = self._clock()
+        if self._query_pending:
+            self._query_pending = False
+            self._push_failures = 0
+            self.Logger.debug(f"{self.name}: G12 holds shore breaker size {value} A")
+        elif self._push_pending is not None:
+            pushed = self._push_pending
+            self._push_pending = None
+            if value == pushed:
+                self._push_failures = 0
+                self.Logger.debug(f"{self.name}: G12 confirmed shore breaker size {value} A")
+            else:
+                self.Logger.warning(
+                    f"{self.name}: pushed shore breaker size {pushed} A to the G12 but it "
+                    f"holds {value} A")
+                self._push_failed(now)
+        else:
+            # Nobody here asked: the panel did, as part of a press.  The G12
+            # answers the panel's read-back a few ms BEFORE it relays the
+            # change as 1FF95, so pushing now would put the inverter's old
+            # value back over the press and then refuse the relay.  Hold off;
+            # the relay, if one follows, is handled as the press it is.
+            self._settle_until = now + self.shore_breaker_settle
+        return True
+
+    def _push_failed(self, now: float):
+        self._push_failures += 1
+        self._settle_until = now + self.shore_breaker_settle
+        if self._push_failures >= G12_PUSH_MAX_FAILURES:
+            self._sync_latched = True
+            self.Logger.error(
+                f"{self.name}: {self._push_failures} shore breaker size exchanges with the "
+                "G12 failed in a row; G12 sync is off until restart or floorplan reload")
+
+    def _g12_readback_frame(self) -> dict:
+        return {"dgn": "1FED9", "data": bytes(
+            [0xFF, 0x96, G12_SHORE_BREAKER_SELECTOR, 0x0F, 0xFF, 0xFF, 0xD3, 0xFF])}
+
+    def _g12_sync_tick(self, now: float):
+        """Keep G12 selector 0x90 equal to the inverter's AC input limit:
+        ask the G12 what it holds when that is unknown, write only when it
+        differs, and take the G12's report as confirmation."""
+        if not self._g12_sync_enabled() or self._sync_latched:
+            return
+        if self._query_pending or self._push_pending is not None:
+            if now <= self._push_deadline:
+                return
+            what = ("answer the shore breaker size read-back" if self._query_pending
+                    else f"confirm shore breaker size {self._push_pending} A")
+            self.Logger.warning(f"{self.name}: G12 did not {what}")
+            self._query_pending = False
+            self._push_pending = None
+            self._g12_value = None      # unknown again: ask before the next write
+            self._push_failed(now)
+            return
+        if not self.connected or now < self._settle_until:
+            return
+        target = self._shore_breaker_target()
+        if target is None:
+            return
+        if self._g12_value is None:
+            self.send_queue.put(self._g12_readback_frame())
+            self._query_pending = True
+            self._push_deadline = now + G12_PUSH_CONFIRM_WINDOW
+            return
+        if target == self._g12_value:
+            return
+        self.Logger.info(f"{self.name}: pushing shore breaker size {target} A to the G12 "
+                         f"(G12 has {self._g12_value})")
+        # D1 EA is the panel's ordinary set (verified absolute on 0x90).
+        # Never D2: that is a signed delta on this selector family.  D3 asks
+        # the G12 to report the value back.
+        self.send_queue.put({"dgn": "1FED9", "data": bytes(
+            [0xFF, 0x96, G12_SHORE_BREAKER_SELECTOR, 0x0F]) + u16_le(target)
+            + bytes([0xD1, 0xEA])})
+        self.send_queue.put(self._g12_readback_frame())
+        self._push_pending = target
+        self._push_deadline = now + G12_PUSH_CONFIRM_WINDOW
 
     # ---- RV-C out -------------------------------------------------------
 
@@ -477,6 +727,23 @@ class VirtualInverter(EntityPluginBaseClass):
                 + bytes([0xFF, 0xFF]))
         return {"dgn": "1FFC6", "data": data, "source_id": self.source_id}
 
+    def _charger_config_2_frame(self):
+        """CHARGER_CONFIGURATION_STATUS_2: shore breaker size (byte 3, whole
+        amps) and maximum charge current as a percentage of the charger's
+        rated output (byte 1, 0.5 %/bit).  Both come from the inverter, not
+        from the last command.  None until at least one value is known."""
+        amps = self.values.get('shore_breaker_size')
+        limit = self.values.get('charge_current_limit')
+        if amps is None and limit is None:
+            return None
+        rate = 0xFF
+        if limit is not None and self.charger_rated_current:
+            rate = int(round(min(max(limit, 0.0) / self.charger_rated_current, 1.0) * 200))
+        breaker = 0xFF if amps is None else max(0, min(0xFA, int(round(amps))))
+        data = bytes([self.charger_config_2_instance & 0xFF, rate, 0xFF, breaker,
+                      0xFF, 0xFF, 0xFF, 0xFF])
+        return {"dgn": "1FF96", "data": data, "source_id": self.source_id}
+
     def _dc_status_frame(self) -> dict:
         data = (bytes([self.rvc_instance & 0xFF])
                 + u16_le(encode_voltage_u16(self.values['dc_voltage']))
@@ -504,13 +771,17 @@ class VirtualInverter(EntityPluginBaseClass):
 
     def build_frames(self) -> list:
         """The full status set transmitted each interval."""
-        return [self._inverter_status_frame(),
-                self._ac_status_frame(output=False),
-                self._ac_status_frame(output=True),
-                self._charger_ac_status_frame(),
-                self._charger_config_frame(),
-                self._dc_status_frame(),
-                self._dm_rv_frame()]
+        frames = [self._inverter_status_frame(),
+                  self._ac_status_frame(output=False),
+                  self._ac_status_frame(output=True),
+                  self._charger_ac_status_frame(),
+                  self._charger_config_frame(),
+                  self._dc_status_frame(),
+                  self._dm_rv_frame()]
+        config_2 = self._charger_config_2_frame()
+        if config_2 is not None:
+            frames.append(config_2)
+        return frames
 
     # ---- lifecycle ------------------------------------------------------
 
@@ -530,6 +801,7 @@ class VirtualInverter(EntityPluginBaseClass):
         return True
 
     def tick(self, now: float):
+        self._g12_sync_tick(now)
         if now < self.next_tx:
             return
         self.next_tx = now + self.interval

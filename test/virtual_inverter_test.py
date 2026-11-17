@@ -858,5 +858,501 @@ class Test_HADiscovery(unittest.TestCase):
         self.assertTrue(self._configs(mock))
 
 
+# ---- shore breaker size / charge rate (1FF95 / 1FF96) ----------------------
+
+SB_TOPIC = 'modbus/inverter/state/max_ac_input_current'
+CL_TOPIC = 'modbus/inverter/state/current'
+SB_SET = 'modbus/inverter/set/max_ac_input_current'
+SB_FIELDS = {'shore_breaker_size': {'topic': 'state/max_ac_input_current', 'scale': 0.1}}
+CL_FIELDS = {'charge_current_limit': {'topic': 'state/current', 'scale': 0.1}}
+
+
+def _sb_entity(extra: dict = None, now: float = 1000.0, charge=False, sync=False):
+    data = {'fields': dict(SB_FIELDS)}
+    if charge:
+        data['fields'].update(CL_FIELDS)
+        data['charger_rated_current'] = 40
+    if sync:
+        data['shore_breaker_g12_sync'] = True
+    if extra:
+        data.update(extra)
+    e, mock, clock = _make_entity(data, now=now)
+    e.initialize()
+    # the source is live: a status has arrived
+    _feed(mock, 'modbus/inverter/state/status', '5')
+    mock.client.publish.reset_mock()
+    return e, mock, clock
+
+
+def _feed(mock, topic, payload):
+    _registered(mock)[topic][0](topic, payload)
+
+
+def _cmd2(amps=0x19, instance=1, source='9C', byte1=0xFF):
+    """A decoded CHARGER_CONFIGURATION_COMMAND_2 as the G12 relays it."""
+    data = bytes([instance, byte1, 0xFF, amps, 0xFF, 0xFF, 0xFF, 0xFF])
+    msg = _decode({'dgn': '1FF95', 'data': data, 'source_id': source})
+    assert msg['name'] == 'CHARGER_CONFIGURATION_COMMAND_2'
+    return msg
+
+
+def _sb_writes(mock, topic=SB_SET):
+    return [(t, p) for (t, p, _r) in _published(mock) if t == topic]
+
+
+def _g12_frames(e):
+    return [f for f in _drain(e.send_queue) if f['dgn'] == '1FED9']
+
+
+class Test_ShoreBreakerConfig(unittest.TestCase):
+
+    def test_defaults_are_off(self):
+        e, _, _ = _make_entity()
+        self.assertNotIn('shore_breaker_size', e.field_topics)
+        self.assertNotIn('charge_current_limit', e.field_topics)
+        self.assertEqual(e.charger_config_2_instance, 1)
+        self.assertEqual(e.shore_breaker_set_topic, SB_SET)
+        self.assertEqual((e.shore_breaker_min, e.shore_breaker_max), (5, 30))
+        self.assertIs(e.shore_breaker_g12_sync, False)
+        self.assertEqual(e.shore_breaker_settle, 2.0)
+        self.assertIsNone(e.charger_rated_current)
+
+    def test_charge_limit_needs_rated_current(self):
+        with self.assertRaises(ValueError):
+            _make_entity({'fields': dict(CL_FIELDS)})
+        with self.assertRaises(ValueError):
+            _make_entity({'fields': dict(CL_FIELDS), 'charger_rated_current': 0})
+
+    def test_bad_limits_and_settle_raise(self):
+        with self.assertRaises(ValueError):
+            _make_entity({'shore_breaker_min': 31, 'shore_breaker_max': 30})
+        with self.assertRaises(ValueError):
+            _make_entity({'shore_breaker_settle': -1})
+
+    def test_state_ingest_and_target(self):
+        e, mock, _ = _sb_entity()
+        self.assertIsNone(e._shore_breaker_target())
+        _feed(mock, SB_TOPIC, '150')
+        self.assertAlmostEqual(e.values['shore_breaker_size'], 15.0)
+        self.assertEqual(e._shore_breaker_target(), 15)
+        _feed(mock, SB_TOPIC, '320')
+        self.assertEqual(e._shore_breaker_target(), 30)
+        _feed(mock, SB_TOPIC, '10')
+        self.assertEqual(e._shore_breaker_target(), 5)
+
+    def test_mirror(self):
+        e, mock, _ = _sb_entity(charge=True)
+        _feed(mock, SB_TOPIC, '150')
+        _feed(mock, CL_TOPIC, '200')
+        pubs = {t: p for (t, p, _r) in _state_publishes(mock)}
+        self.assertEqual(pubs['rvc/state/inverter/shore_breaker_size'], 15.0)
+        self.assertEqual(pubs['rvc/state/inverter/charge_current_limit'], 20.0)
+
+
+class Test_ChargerConfig2Frame(unittest.TestCase):
+
+    def test_both_values_at_instance_3(self):
+        e, mock, _ = _sb_entity({'charger_config_2_instance': 3}, charge=True)
+        _feed(mock, SB_TOPIC, '150')
+        _feed(mock, CL_TOPIC, '150')
+        frame = e._charger_config_2_frame()
+        self.assertEqual(frame['dgn'], '1FF96')
+        self.assertEqual(frame['source_id'], '42')
+        self.assertEqual(bytes(frame['data']).hex().upper(), '034BFF0FFFFFFFFF')
+        msg = _decode(frame)
+        self.assertEqual(msg['name'], 'CHARGER_CONFIGURATION_STATUS_2')
+        self.assertEqual(msg['instance'], 3)
+        self.assertEqual(msg['shore_breaker_size'], 15)
+        self.assertEqual(msg['maximum_charge_current_as_percent'], 37.5)
+        self.assertEqual(e.build_frames()[-1], frame)
+
+    def test_rate_caps_at_100_pct(self):
+        e, mock, _ = _sb_entity(charge=True)
+        _feed(mock, CL_TOPIC, '500')
+        self.assertEqual(e._charger_config_2_frame()['data'][1], 0xC8)
+
+    def test_only_breaker_known(self):
+        e, mock, _ = _sb_entity(charge=True)
+        _feed(mock, SB_TOPIC, '250')
+        self.assertEqual(bytes(e._charger_config_2_frame()['data']).hex().upper(),
+                         '01FFFF19FFFFFFFF')
+
+    def test_only_limit_known(self):
+        e, mock, _ = _sb_entity(charge=True)
+        _feed(mock, CL_TOPIC, '400')
+        self.assertEqual(bytes(e._charger_config_2_frame()['data']).hex().upper(),
+                         '01C8FFFFFFFFFFFF')
+
+    def test_no_frame_until_a_value_arrives(self):
+        e, _, _ = _sb_entity(charge=True)
+        self.assertIsNone(e._charger_config_2_frame())
+        self.assertNotIn('1FF96', [f['dgn'] for f in e.build_frames()])
+
+    def test_own_echo_claimed_by_source(self):
+        e, mock, _ = _sb_entity({'charger_config_2_instance': 3})
+        _feed(mock, SB_TOPIC, '150')
+        echo = _decode(e._charger_config_2_frame())
+        self.assertTrue(e.process_rvc_msg(echo))
+        foreign = dict(echo, source_id='9C')
+        self.assertFalse(e.process_rvc_msg(foreign))
+
+    def test_echo_not_claimed_when_feature_off(self):
+        e, _, _ = _make_entity()
+        msg = _decode({'dgn': '1FF96', 'source_id': '42',
+                       'data': bytes([1, 0xFF, 0xFF, 15, 0xFF, 0xFF, 0xFF, 0xFF])})
+        self.assertFalse(e.process_rvc_msg(msg))
+
+
+class Test_ShoreBreakerCommand(unittest.TestCase):
+
+    def _at(self, raw='300', **kw):
+        e, mock, clock = _sb_entity(**kw)
+        if raw is not None:
+            _feed(mock, SB_TOPIC, raw)
+        mock.client.publish.reset_mock()
+        return e, mock, clock
+
+    def test_press_writes_raw_register_value(self):
+        e, mock, _ = self._at('300')
+        self.assertTrue(e.process_rvc_msg(_cmd2(25)))
+        self.assertEqual(_published(mock), [(SB_SET, '250', False)])
+        self.assertEqual(e._g12_value, 25)
+
+    def test_no_change_byte_ignored(self):
+        e, mock, _ = self._at('300')
+        self.assertTrue(e.process_rvc_msg(_cmd2(0xFF, byte1=0x64)))
+        self.assertEqual(_sb_writes(mock), [])
+        self.assertIsNone(e._g12_value)
+
+    def test_clamped_low_and_high(self):
+        e, mock, _ = self._at('150')
+        e.process_rvc_msg(_cmd2(2))
+        e.process_rvc_msg(_cmd2(200))
+        self.assertEqual(_sb_writes(mock), [(SB_SET, '50'), (SB_SET, '300')])
+
+    def test_equal_to_state_not_written(self):
+        e, mock, _ = self._at('250')
+        self.assertTrue(e.process_rvc_msg(_cmd2(25)))
+        self.assertEqual(_sb_writes(mock), [])
+
+    def test_out_of_range_inverter_value_not_overwritten(self):
+        e, mock, _ = self._at('320')
+        self.assertTrue(e.process_rvc_msg(_cmd2(30)))
+        self.assertEqual(_sb_writes(mock), [])
+
+    def test_unknown_state_not_written(self):
+        e, mock, _ = self._at(None)
+        self.assertTrue(e.process_rvc_msg(_cmd2(25)))
+        self.assertEqual(_sb_writes(mock), [])
+        self.assertEqual(e._g12_value, 25)
+
+    def test_source_offline_not_written(self):
+        e, mock, _ = self._at('300')
+        _feed(mock, 'modbus/inverter/connected', 'offline')
+        self.assertTrue(e.process_rvc_msg(_cmd2(25)))
+        self.assertEqual(_sb_writes(mock), [])
+
+    def test_other_instance_not_claimed(self):
+        e, mock, _ = self._at('300')
+        self.assertFalse(e.process_rvc_msg(_cmd2(25, instance=2)))
+        self.assertEqual(_sb_writes(mock), [])
+
+    def test_not_claimed_when_unmapped(self):
+        e, mock, _ = _make_entity()
+        self.assertFalse(e.process_rvc_msg(_cmd2(25)))
+        self.assertEqual(_sb_writes(mock), [])
+
+    def test_custom_set_topic(self):
+        e, mock, _ = self._at('300', extra={'shore_breaker_set_topic': 'set/setting39'})
+        e.process_rvc_msg(_cmd2(25))
+        self.assertEqual(_sb_writes(mock, 'modbus/inverter/set/setting39'),
+                         [('modbus/inverter/set/setting39', '250')])
+
+    def test_inverter_command_still_works(self):
+        e, mock, _ = self._at('300')
+        self.assertTrue(e.process_rvc_msg(_cmd(enable='01')))
+        self.assertEqual(_onoff_publishes(mock), [('modbus/inverter/set/onoff', '1')])
+
+
+def _g12_report(value, source='9C', selector=0x90):
+    """A decoded G12_CONFIGURATION (15FCE) report of a config selector."""
+    data = bytes([selector, 0x00, value & 0xFF, value >> 8, 0, 0, 0, 0])
+    msg = _decode({'dgn': '15FCE', 'data': data, 'source_id': source})
+    assert msg['name'] == 'G12_CONFIGURATION'
+    return msg
+
+
+class Test_G12Sync(unittest.TestCase):
+    SET_15 = 'FF96900F0F00D1EA'
+    READBACK = 'FF96900FFFFFD3FF'
+
+    def _tick(self, e, clock, now):
+        clock['now'] = now
+        e.tick(now)
+
+    def _state(self, e, mock, clock, now, raw):
+        clock['now'] = now
+        _feed(mock, SB_TOPIC, raw)
+
+    def _hex(self, e):
+        return [bytes(f['data']).hex().upper() for f in _g12_frames(e)]
+
+    def _report(self, e, clock, now, value):
+        clock['now'] = now
+        return e.process_rvc_msg(_g12_report(value))
+
+    def _queried(self, raw='150'):
+        """Entity whose inverter value is known and which has just asked the
+        G12 for its value at t=1002."""
+        e, mock, clock = _sb_entity(sync=True)
+        self._state(e, mock, clock, 1000.0, raw)
+        self._tick(e, clock, 1002.0)
+        self.assertEqual(self._hex(e), [self.READBACK])
+        mock.client.publish.reset_mock()
+        return e, mock, clock
+
+    def _pushed_15(self):
+        """G12 reported 30, inverter is 15: 15 pushed at t=1002.1."""
+        e, mock, clock = self._queried('150')
+        self._report(e, clock, 1002.01, 30)
+        self._tick(e, clock, 1002.1)
+        self.assertEqual(self._hex(e), [self.SET_15, self.READBACK])
+        return e, mock, clock
+
+    def _synced_at_30(self):
+        e, mock, clock = self._queried('300')
+        self._report(e, clock, 1002.01, 30)
+        return e, mock, clock
+
+    def test_sync_off_never_writes_g12(self):
+        e, mock, clock = _sb_entity()
+        self._state(e, mock, clock, 1000.0, '150')
+        for t in (1001.0, 1003.0, 1010.0):
+            self._tick(e, clock, t)
+        self.assertEqual(_g12_frames(e), [])
+
+    def test_sync_off_does_not_claim_report(self):
+        e, _, _ = _sb_entity()
+        self.assertFalse(e.process_rvc_msg(_g12_report(15)))
+
+    def test_report_claimed_only_from_g12_and_selector_90(self):
+        e, _, _ = _sb_entity(sync=True)
+        self.assertTrue(e.process_rvc_msg(_g12_report(15)))
+        self.assertFalse(e.process_rvc_msg(_g12_report(15, source='9F')))
+        self.assertFalse(e.process_rvc_msg(_g12_report(15, selector=0x92)))
+
+    def test_first_asks_after_settle_without_writing(self):
+        e, mock, clock = _sb_entity(sync=True)
+        self._state(e, mock, clock, 1000.0, '150')
+        self._tick(e, clock, 1001.9)
+        self.assertEqual(_g12_frames(e), [])
+        self._tick(e, clock, 1002.0)
+        frames = _g12_frames(e)
+        self.assertEqual([bytes(f['data']).hex().upper() for f in frames], [self.READBACK])
+        self.assertNotIn('source_id', frames[0])
+
+    def test_startup_already_in_sync_never_pushes_or_fails(self):
+        e, mock, clock = self._queried('150')
+        self.assertTrue(self._report(e, clock, 1002.01, 15))
+        for t in (1002.1, 1003.5, 1006.0, 1100.0):
+            self._tick(e, clock, t)
+        self.assertEqual(_g12_frames(e), [])
+        self.assertEqual(e._push_failures, 0)
+        self.assertFalse(e._sync_latched)
+        self.assertEqual(_sb_writes(mock), [])
+
+    def test_push_when_g12_differs_has_no_source_override(self):
+        e, mock, clock = self._queried('150')
+        self._report(e, clock, 1002.01, 30)
+        self._tick(e, clock, 1002.1)
+        frames = _g12_frames(e)
+        self.assertEqual([bytes(f['data']).hex().upper() for f in frames],
+                         [self.SET_15, self.READBACK])
+        for f in frames:
+            self.assertNotIn('source_id', f)
+
+    def test_report_confirms_push(self):
+        e, mock, clock = self._pushed_15()
+        self._report(e, clock, 1002.11, 15)
+        self.assertEqual(e._g12_value, 15)
+        self.assertEqual(e._push_failures, 0)
+        for t in (1003.5, 1006.0, 1020.0):
+            self._tick(e, clock, t)
+        self.assertEqual(_g12_frames(e), [])
+        self.assertEqual(_sb_writes(mock), [])
+
+    def test_relay_then_report_confirms_push(self):
+        e, mock, clock = self._pushed_15()
+        clock['now'] = 1002.106
+        self.assertTrue(e.process_rvc_msg(_cmd2(15)))
+        self._report(e, clock, 1002.11, 15)
+        self.assertEqual(e._push_failures, 0)
+        self.assertEqual(_sb_writes(mock), [])
+        self._tick(e, clock, 1010.0)
+        self.assertEqual(_g12_frames(e), [])
+
+    def test_silent_g12_retried_then_latched(self):
+        e, mock, clock = self._queried('150')
+        e.Logger = MagicMock()
+        attempts = [[self.READBACK]]
+        t = 1002.0
+        for _ in range(200):
+            t += 0.25
+            self._tick(e, clock, t)
+            sent = self._hex(e)
+            if sent:
+                attempts.append(sent)
+        self.assertEqual(attempts, [[self.READBACK]] * 3)
+        self.assertTrue(e._sync_latched)
+        e.Logger.error.assert_called_once()
+        self.assertEqual(_sb_writes(mock), [])
+
+    def test_unanswered_push_asks_again_before_writing(self):
+        e, mock, clock = self._pushed_15()
+        self._tick(e, clock, 1003.2)      # no report: failure 1
+        self.assertEqual(e._push_failures, 1)
+        self.assertIsNone(e._g12_value)
+        self._tick(e, clock, 1005.3)
+        self.assertEqual(self._hex(e), [self.READBACK])
+
+    def test_mismatched_report_counts_and_never_writes_inverter(self):
+        e, mock, clock = self._pushed_15()
+        self._report(e, clock, 1002.11, 30)
+        self.assertEqual(e._push_failures, 1)
+        self.assertEqual(e._g12_value, 30)
+        self.assertEqual(_sb_writes(mock), [])
+        self._tick(e, clock, 1003.0)      # still settling after the failure
+        self.assertEqual(_g12_frames(e), [])
+        self._tick(e, clock, 1004.2)
+        self.assertEqual(self._hex(e), [self.SET_15, self.READBACK])
+
+    def test_delta_behaviour_latches_without_writing_inverter(self):
+        e, mock, clock = self._pushed_15()
+        e.Logger = MagicMock()
+        t = 1002.1
+        for _ in range(3):
+            self._report(e, clock, t + 0.01, 30)   # G12 keeps saying 30
+            t += 2.1
+            self._tick(e, clock, t)
+        self.assertTrue(e._sync_latched)
+        self.assertEqual(_sb_writes(mock), [])
+        _drain(e.send_queue)
+        self._tick(e, clock, t + 60)
+        self.assertEqual(_g12_frames(e), [])
+
+    def test_mismatched_relay_in_window_not_written(self):
+        e, mock, clock = self._pushed_15()
+        clock['now'] = 1002.11
+        self.assertTrue(e.process_rvc_msg(_cmd2(30)))
+        self.assertEqual(_sb_writes(mock), [])
+        self.assertEqual(e._push_failures, 1)
+
+    def test_confirmation_resets_failure_count(self):
+        e, mock, clock = self._pushed_15()
+        self._tick(e, clock, 1003.2)      # timeout -> failure 1
+        self._tick(e, clock, 1005.3)      # asks again
+        self._report(e, clock, 1005.31, 30)
+        self.assertEqual(e._push_failures, 0)
+        self.assertFalse(e._sync_latched)
+
+    def test_relay_after_window_is_a_press(self):
+        e, mock, clock = self._pushed_15()
+        self._tick(e, clock, 1003.2)      # window closed
+        clock['now'] = 1003.3
+        e.process_rvc_msg(_cmd2(20))
+        self.assertEqual(_sb_writes(mock), [(SB_SET, '200')])
+
+    def test_press_while_asking_is_still_a_press(self):
+        e, mock, clock = self._queried('300')
+        clock['now'] = 1002.2
+        e.process_rvc_msg(_cmd2(25))
+        self.assertEqual(_sb_writes(mock), [(SB_SET, '250')])
+
+    def test_panel_press_report_before_relay_is_not_undone(self):
+        """A press arrives as the G12's 15FCE report first and the 1FF95
+        relay a few ms later.  A main-loop pass in between must not push the
+        inverter's old value back over the press."""
+        e, mock, clock = self._queried('150')
+        self._report(e, clock, 1002.01, 15)          # in sync at 15
+        _drain(e.send_queue)
+        self._report(e, clock, 1050.002, 20)         # unsolicited: press in progress
+        self._tick(e, clock, 1050.004)
+        self.assertEqual(_g12_frames(e), [])
+        clock['now'] = 1050.006
+        self.assertTrue(e.process_rvc_msg(_cmd2(20)))
+        self.assertEqual(_sb_writes(mock), [(SB_SET, '200')])
+        self.assertEqual(e._push_failures, 0)
+        self._state(e, mock, clock, 1050.2, '200')
+        for t in (1051.0, 1052.3, 1060.0):
+            self._tick(e, clock, t)
+        self.assertEqual(_g12_frames(e), [])
+
+    def test_unsolicited_report_without_relay_pushed_after_settle(self):
+        e, mock, clock = self._queried('150')
+        self._report(e, clock, 1002.01, 15)
+        _drain(e.send_queue)
+        self._report(e, clock, 1050.0, 20)
+        self._tick(e, clock, 1051.9)
+        self.assertEqual(_g12_frames(e), [])
+        self._tick(e, clock, 1052.0)
+        self.assertEqual(self._hex(e), [self.SET_15, self.READBACK])
+        self.assertEqual(_sb_writes(mock), [])
+
+    def test_report_never_writes_inverter(self):
+        e, mock, clock = self._synced_at_30()
+        self._report(e, clock, 1050.0, 20)
+        self.assertEqual(_sb_writes(mock), [])
+
+    def test_single_press_causes_no_push(self):
+        e, mock, clock = self._synced_at_30()
+        clock['now'] = 1010.0
+        e.process_rvc_msg(_cmd2(25))
+        self.assertEqual(_sb_writes(mock), [(SB_SET, '250')])
+        self._state(e, mock, clock, 1010.2, '250')
+        for t in (1011.0, 1012.5, 1020.0):
+            self._tick(e, clock, t)
+        self.assertEqual(_g12_frames(e), [])
+
+    def test_two_quick_presses_cause_no_push(self):
+        e, mock, clock = self._synced_at_30()
+        clock['now'] = 1010.0
+        e.process_rvc_msg(_cmd2(25))
+        clock['now'] = 1010.3
+        e.process_rvc_msg(_cmd2(20))
+        self.assertEqual(_sb_writes(mock), [(SB_SET, '250'), (SB_SET, '200')])
+        self._state(e, mock, clock, 1010.4, '250')
+        self._tick(e, clock, 1010.5)
+        self._tick(e, clock, 1011.0)
+        self._state(e, mock, clock, 1011.2, '200')
+        for t in (1012.0, 1013.3, 1020.0):
+            self._tick(e, clock, t)
+        self.assertEqual(_g12_frames(e), [])
+
+    def test_refused_write_pushes_old_value_back(self):
+        e, mock, clock = self._synced_at_30()
+        clock['now'] = 1010.0
+        e.process_rvc_msg(_cmd2(25))
+        self._tick(e, clock, 1011.9)
+        self.assertEqual(_g12_frames(e), [])
+        self._tick(e, clock, 1012.0)
+        self.assertEqual(self._hex(e)[0], 'FF96900F1E00D1EA')
+
+    def test_change_from_home_assistant_is_pushed(self):
+        e, mock, clock = self._synced_at_30()
+        self._state(e, mock, clock, 1010.0, '200')
+        self._tick(e, clock, 1012.0)
+        self.assertEqual(self._hex(e)[0], 'FF96900F1400D1EA')
+
+    def test_nothing_sent_while_source_offline(self):
+        e, mock, clock = _sb_entity(sync=True)
+        self._state(e, mock, clock, 1000.0, '150')
+        _feed(mock, 'modbus/inverter/connected', 'offline')
+        self._tick(e, clock, 1005.0)
+        self.assertEqual(_g12_frames(e), [])
+        _feed(mock, 'modbus/inverter/connected', 'online')
+        self._tick(e, clock, 1006.0)
+        self.assertEqual(self._hex(e), [self.READBACK])
+
+
 if __name__ == "__main__":
     unittest.main()
