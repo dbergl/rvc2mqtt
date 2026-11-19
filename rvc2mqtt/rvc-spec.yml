@@ -6629,6 +6629,7 @@ Z0005:
     - byte: 1
       bit: 0-1
       name: hot water priority
+      comment: Timberline polarity is the inverse of WATERHEATER_STATUS_2 (1FE99) hot water priority. Known heater firmware bug, not a spec error.
       values:
         0: heating priority
         1: domestic water priority
